@@ -44,6 +44,7 @@ class NexusService:
     async def workflow_backed_operation(
         self, ctx: nexus.WorkflowRunOperationContext, input: OpInput
     ) -> nexus.WorkflowHandle[str]:
+        print(f"🟠 In nexus Start handler (workflow_id: {input.workflow_id})")
         return await ctx.start_workflow(
             HandlerWorkflow.run,
             id=input.workflow_id,
@@ -75,7 +76,9 @@ class CallerWorkflow:
         )
         self._nexus_operations_have_started.set()
         result_1 = await handle_1
+        print(f"🟦 Result 1: {result_1}")
         result_2 = await handle_2
+        print(f"🟦 Result 2: {result_2}")
         return result_1, result_2
 
     @workflow.update
