@@ -316,6 +316,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -349,6 +350,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -384,6 +386,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -419,6 +422,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -452,6 +456,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -495,6 +500,8 @@ class Client:
                 instead of traditional workflow start.
             start_signal_args: Arguments for start_signal if start_signal
                 present.
+            completion_callbacks: Callbacks to be called by the server when the workflow reaches a
+                terminal state.
             rpc_metadata: Headers used on the RPC call. Keys here override
                 client-level RPC metadata keys.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
@@ -538,6 +545,7 @@ class Client:
                 static_details=static_details,
                 start_signal=start_signal,
                 start_signal_args=start_signal_args,
+                completion_callbacks=completion_callbacks,
                 ret_type=result_type or result_type_from_type_hint,
                 rpc_metadata=rpc_metadata,
                 rpc_timeout=rpc_timeout,
@@ -572,6 +580,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -605,6 +614,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -640,6 +650,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -675,6 +686,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -708,6 +720,7 @@ class Client:
         start_delay: Optional[timedelta] = None,
         start_signal: Optional[str] = None,
         start_signal_args: Sequence[Any] = [],
+        completion_callbacks: Sequence[temporalio.common.CompletionCallback] = [],
         rpc_metadata: Mapping[str, str] = {},
         rpc_timeout: Optional[timedelta] = None,
         request_eager_start: bool = False,
@@ -741,6 +754,7 @@ class Client:
                 start_delay=start_delay,
                 start_signal=start_signal,
                 start_signal_args=start_signal_args,
+                completion_callbacks=completion_callbacks,
                 rpc_metadata=rpc_metadata,
                 rpc_timeout=rpc_timeout,
                 request_eager_start=request_eager_start,
@@ -5101,6 +5115,7 @@ class StartWorkflowInput:
     headers: Mapping[str, temporalio.api.common.v1.Payload]
     start_signal: Optional[str]
     start_signal_args: Sequence[Any]
+    completion_callbacks: Sequence[temporalio.common.CompletionCallback]
     static_summary: Optional[str]
     static_details: Optional[str]
     # Type may be absent
@@ -5721,6 +5736,11 @@ class _ClientImpl(OutboundInterceptor):
         req = temporalio.api.workflowservice.v1.StartWorkflowExecutionRequest()
         req.request_eager_execution = input.request_eager_start
         await self._populate_start_workflow_execution_request(req, input)
+        for callback in input.completion_callbacks:
+            c = temporalio.api.common.v1.Callback()
+            c.nexus.url = callback.url
+            c.nexus.header.update(callback.header)
+            req.completion_callbacks.append(c)
         return req
 
     async def _build_signal_with_start_workflow_execution_request(

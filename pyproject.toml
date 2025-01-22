@@ -11,9 +11,11 @@ keywords = [
     "workflow",
 ]
 dependencies = [
+    "nexus-rpc",
     "protobuf>=3.20",
     "pyright==1.1.394",
     "python-dateutil>=2.8.2,<3 ; python_version < '3.11'",
+    "temporalio-xray",
     "types-protobuf>=3.20",
     "typing-extensions>=4.2.0,<5",
 ]
@@ -186,6 +188,7 @@ exclude = [
 
 [tool.ruff]
 target-version = "py39"
+extend-ignore = ["E741"]  # Allow single-letter variable names like I, O
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
@@ -203,3 +206,7 @@ exclude = [
 [tool.uv]
 # Prevent uv commands from building the package by default
 package = false
+
+[tool.uv.sources]
+nexus-rpc = { path = "../nexus-sdk-python", editable = true }
+temporalio-xray = { path = "../xray/sdks/python", editable = true }
