@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from enum import IntEnum
+from itertools import zip_longest
 from typing import (
     Any,
     Awaitable,
@@ -291,10 +292,9 @@ class CompositePayloadConverter(PayloadConverter):
             RuntimeError: Error during decode
         """
         values = []
-        for index, payload in enumerate(payloads):
-            type_hint = None
-            if type_hints and len(type_hints) > index:
-                type_hint = type_hints[index]
+        for index, (payload, type_hint) in enumerate(
+            zip_longest(payloads, type_hints or [])
+        ):
             # Raw value should just wrap
             if type_hint == temporalio.common.RawValue:
                 values.append(temporalio.common.RawValue(payload))
