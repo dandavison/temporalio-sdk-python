@@ -7,7 +7,6 @@ import collections.abc
 import dataclasses
 import inspect
 import json
-import os
 import sys
 import traceback
 import uuid
@@ -292,11 +291,7 @@ class CompositePayloadConverter(PayloadConverter):
             KeyError: Unknown payload encoding
             RuntimeError: Error during decode
         """
-        import traceback
-
-        for line in traceback.format_stack():
-            print("  ", line.strip())
-        print("\n\n----------------------------------\n\n")
+        print("🟠 from_payloads: ", payloads, type_hints)
 
         values = []
         for index, (payload, type_hint) in enumerate(
@@ -311,21 +306,7 @@ class CompositePayloadConverter(PayloadConverter):
             if converter is None:
                 raise KeyError(f"Unknown payload encoding {encoding.decode()}")
             try:
-                value = converter.from_payload(payload, type_hint)
-                print(
-                    "🟠 from_payloads:",
-                    "\n  payload:",
-                    payload,
-                    "\n  type_hint:",
-                    type_hint,
-                    "\n  encoding:",
-                    encoding,
-                    "\n  converter:",
-                    converter,
-                    "\n  value:",
-                    value,
-                )
-                values.append(value)
+                values.append(converter.from_payload(payload, type_hint))
             except RuntimeError as err:
                 raise RuntimeError(
                     f"Payload at index {index} with encoding {encoding.decode()} could not be converted"
@@ -1398,11 +1379,6 @@ def value_to_type(
     Raises:
         TypeError: Unable to convert to the given hint.
     """
-    if os.path.exists("/tmp/flag"):
-        import pdb
-
-        pdb.set_trace()
-
     # Try custom converters
     for conv in custom_converters:
         ret = conv.to_typed_value(hint, value)

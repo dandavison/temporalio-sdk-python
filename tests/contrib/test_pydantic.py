@@ -1,6 +1,6 @@
 import dataclasses
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from ipaddress import IPv4Address
 from typing import List
 
@@ -32,7 +32,9 @@ class MyWorkflow:
     @workflow.run
     async def run(self, models: List[MyPydanticModel]) -> List[MyPydanticModel]:
         workflow.logger.info("Got models in workflow: %s" % models)
-        return models
+        return await workflow.execute_activity(
+            my_activity, models, start_to_close_timeout=timedelta(minutes=1)
+        )
 
 
 # Due to known issues with Pydantic's use of issubclass and our inability to

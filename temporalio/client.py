@@ -7,7 +7,6 @@ import copy
 import dataclasses
 import inspect
 import json
-import os
 import re
 import uuid
 import warnings
@@ -1608,7 +1607,6 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
                         break
                     # Ignoring anything after the first response like TypeScript
                     type_hints = [self._result_type] if self._result_type else None
-                    os.system("touch /tmp/flag")
                     results = await self._client.data_converter.decode_wrapper(
                         complete_attr.result,
                         type_hints,
