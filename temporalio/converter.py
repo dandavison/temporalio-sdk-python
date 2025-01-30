@@ -1527,7 +1527,9 @@ def value_to_type(
 
     # If there is a @staticmethod or @classmethod parse_obj, we will use it.
     # This covers Pydantic models.
-    parse_obj_attr = inspect.getattr_static(hint, "parse_obj", None)
+    parse_obj_attr = inspect.getattr_static(
+        hint, "validate", None
+    ) or inspect.getattr_static(hint, "parse_obj", None)
     if isinstance(parse_obj_attr, classmethod) or isinstance(
         parse_obj_attr, staticmethod
     ):
