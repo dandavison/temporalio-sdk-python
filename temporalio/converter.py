@@ -291,6 +291,8 @@ class CompositePayloadConverter(PayloadConverter):
             KeyError: Unknown payload encoding
             RuntimeError: Error during decode
         """
+        print("🟠 from_payloads: ", payloads, type_hints)
+
         values = []
         for index, (payload, type_hint) in enumerate(
             zip_longest(payloads, type_hints or [])
