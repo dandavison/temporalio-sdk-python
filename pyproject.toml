@@ -63,6 +63,7 @@ wheel = "^0.42.0"
 [tool.poetry.extras]
 opentelemetry = ["opentelemetry-api", "opentelemetry-sdk"]
 grpc = ["grpcio"]
+pydantic = ["pydantic"]
 
 [tool.poe.tasks]
 build-develop = "python scripts/setup_bridge.py develop"
