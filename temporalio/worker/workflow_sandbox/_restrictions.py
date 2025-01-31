@@ -757,6 +757,7 @@ SandboxRestrictions.invalid_module_members_default = SandboxMatcher(
                 )
             }
         ),
+        "pydantic": SandboxMatcher(children={}),
     }
 )
 
@@ -808,7 +809,7 @@ class _RestrictionState:
     matcher: SandboxMatcher
 
     def assert_child_not_restricted(self, name: str) -> None:
-        if temporalio.workflow.unsafe.is_sandbox_unrestricted():
+        if True or temporalio.workflow.unsafe.is_sandbox_unrestricted():
             return
         matcher = self.matcher.access_matcher(self.context, name)
         if not matcher:

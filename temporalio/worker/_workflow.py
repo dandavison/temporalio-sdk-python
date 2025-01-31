@@ -133,11 +133,15 @@ class _WorkflowWorker:
             # Prepare the workflow with the runner (this will error in the
             # sandbox if an import fails somehow)
             try:
+                # import pdb
+
+                # pdb.set_trace()
                 if defn.sandboxed:
                     workflow_runner.prepare_workflow(defn)
                 else:
                     unsandboxed_workflow_runner.prepare_workflow(defn)
             except Exception as err:
+                logger.error(f"Error preparing workflow {defn.name}", exc_info=err)
                 raise RuntimeError(f"Failed validating workflow {defn.name}") from err
             if defn.name:
                 self._workflows[defn.name] = defn
