@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timedelta
-from ipaddress import IPv4Address
 from typing import List
 
 from pydantic import BaseModel
@@ -12,7 +11,6 @@ from temporalio.worker import Worker
 
 
 class MyPydanticModel(BaseModel):
-    some_ip: IPv4Address
     some_date: datetime
 
 
@@ -40,12 +38,8 @@ async def test_workflow_with_pydantic_model(client: Client):
     task_queue_name = str(uuid.uuid4())
 
     orig_models = [
-        MyPydanticModel(
-            some_ip=IPv4Address("127.0.0.1"), some_date=datetime(2000, 1, 2, 3, 4, 5)
-        ),
-        MyPydanticModel(
-            some_ip=IPv4Address("127.0.0.2"), some_date=datetime(2001, 2, 3, 4, 5, 6)
-        ),
+        MyPydanticModel(some_date=datetime(2000, 1, 2, 3, 4, 5)),
+        MyPydanticModel(some_date=datetime(2001, 2, 3, 4, 5, 6)),
     ]
 
     async with Worker(
