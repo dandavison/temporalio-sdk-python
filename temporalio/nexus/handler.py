@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import types
 from contextvars import ContextVar
@@ -15,31 +16,30 @@ from temporalio.client import (
     WorkflowHandle,
 )
 from temporalio.common import CompletionCallback
-from temporalio.types import (
-    MethodAsyncSingleParam,
-)
+from temporalio.types import MethodAsyncSingleParam
 
 O = TypeVar("O")
 I = TypeVar("I")
 S = TypeVar("S", bound=_ServiceImpl)
 
 
-# TODO(dan): should this take [O] or [W, O]?
 class AsyncWorkflowOperationResult(nexusrpc.handler.AsyncOperationResult, Generic[O]):
     @classmethod
     def from_workflow_handle(
         cls, workflow_handle: WorkflowHandle[Any, O]
-    ) -> "AsyncWorkflowOperationResult[O]":
+    ) -> AsyncWorkflowOperationResult[O]:
         return cls(token=cls._encode_token(workflow_handle))
 
     @staticmethod
     def _encode_token(workflow_handle: WorkflowHandle[Any, O]) -> str:
-        return json.dumps([workflow_handle.id, workflow_handle.run_id])
+        return base64.b64encode(
+            json.dumps([workflow_handle.id, workflow_handle.run_id]).encode()
+        ).decode()
 
     @staticmethod
     def _decode_token(token: str) -> tuple[str, str]:
         try:
-            workflow_id, run_id = map(str, json.loads(token))
+            workflow_id, run_id = map(str, json.loads(base64.b64decode(token)))
         except Exception as e:
             raise ValueError(f"Invalid token: {token}") from e
         return workflow_id, run_id
