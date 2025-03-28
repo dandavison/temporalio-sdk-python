@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import types
+import typing
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import wraps
@@ -157,7 +158,17 @@ class WorkflowOperation(nexusrpc.handler.Operation[I, O]):
         ) -> AsyncWorkflowOperationResult[O]:
             return await start_method(service, input, options)
 
+        async def fetch_result(
+            self, token: str, options: nexusrpc.handler.FetchOperationResultOptions
+        ) -> O:
+            return await fetch_workflow_result(token, options)
+
+        # TODO(dan): experimental
+        [out_type] = typing.get_args(typing.get_type_hints(start_method)["return"])
+        fetch_result.__annotations__["return"] = out_type
+
         self.start = types.MethodType(start, self)
+        self.fetch_result = types.MethodType(fetch_result, self)
 
     async def cancel(
         self, token: str, options: nexusrpc.handler.CancelOperationOptions
@@ -168,11 +179,6 @@ class WorkflowOperation(nexusrpc.handler.Operation[I, O]):
         self, token: str, options: nexusrpc.handler.FetchOperationInfoOptions
     ) -> nexusrpc.handler.OperationInfo:
         return await fetch_workflow_info(token, options)
-
-    async def fetch_result(
-        self, token: str, options: nexusrpc.handler.FetchOperationResultOptions
-    ) -> O:
-        return await fetch_workflow_result(token, options)
 
 
 # TODO(dan): support overriding op name
