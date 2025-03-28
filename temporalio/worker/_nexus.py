@@ -8,7 +8,6 @@ from typing import (
     Any,
     Callable,
     Sequence,
-    get_type_hints,
 )
 
 import nexusrpc.handler
@@ -123,10 +122,11 @@ class _NexusWorker:
         print(f"Starting operation {request.operation} with payload {request.payload}")
 
         # TODO(dan): HACK. See activity_def.arg_types in _activity.py
-        type_hints = get_type_hints(handler.start).get("input")
+        arg_types, _ = temporalio.common._type_hints_from_func(handler.start)
 
         [input] = await self._data_converter.decode(
-            [request.payload], type_hints=[type_hints] if type_hints else None
+            [request.payload],
+            type_hints=[arg_types[0]] if arg_types else None,
         )
 
         start_options = nexusrpc.handler.StartOperationOptions(
