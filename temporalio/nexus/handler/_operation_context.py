@@ -16,7 +16,11 @@ from typing import (
 )
 
 import nexusrpc.handler
-from nexusrpc.handler import CancelOperationContext, StartOperationContext
+from nexusrpc.handler import (
+    CancelOperationContext,
+    FetchOperationResultContext,
+    StartOperationContext,
+)
 
 import temporalio.api.common.v1
 import temporalio.api.enums.v1
@@ -44,7 +48,9 @@ class TemporalOperationContext:
     Context for a Nexus operation being handled by a Temporal Nexus Worker.
     """
 
-    nexus_operation_context: Union[StartOperationContext, CancelOperationContext]
+    nexus_operation_context: Union[
+        StartOperationContext, CancelOperationContext, FetchOperationResultContext
+    ]
 
     client: Client
     """The Temporal client in use by the worker handling this Nexus operation."""
@@ -92,6 +98,15 @@ class TemporalOperationContext:
         if not isinstance(ctx, CancelOperationContext):
             return None
         return _TemporalCancelOperationContext(ctx)
+
+    @property
+    def temporal_fetch_operation_result_context(
+        self,
+    ) -> Optional[_TemporalFetchOperationResultContext]:
+        ctx = self.nexus_operation_context
+        if not isinstance(ctx, FetchOperationResultContext):
+            return None
+        return _TemporalFetchOperationResultContext(ctx)
 
     # Overload for single-param workflow
     # TODO(nexus-prerelease): support other overloads?
@@ -270,6 +285,11 @@ class _TemporalStartOperationContext:
 @dataclass
 class _TemporalCancelOperationContext:
     nexus_operation_context: CancelOperationContext
+
+
+@dataclass
+class _TemporalFetchOperationResultContext:
+    nexus_operation_context: FetchOperationResultContext
 
 
 def _workflow_handle_to_workflow_execution_started_event_link(

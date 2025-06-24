@@ -19,7 +19,12 @@ from typing import (
 import google.protobuf.json_format
 import nexusrpc.handler
 from nexusrpc import LazyValue
-from nexusrpc.handler import CancelOperationContext, Handler, StartOperationContext
+from nexusrpc.handler import (
+    CancelOperationContext,
+    FetchOperationResultContext,
+    Handler,
+    StartOperationContext,
+)
 
 import temporalio.api.common.v1
 import temporalio.api.enums.v1
@@ -223,6 +228,15 @@ class _NexusWorker:
 
         try:
             start_response = await self._start_operation(start_request, headers)
+            #
+            # TODO(nexus-prerelease)
+            # *** DURING DEVELOPMENT ONLY ***
+            await self._fetch_operation_result(
+                start_request,
+                headers,
+                start_response.async_success.operation_token,
+            )
+
         # TODO(nexus-prerelease): handle BrokenExecutor by failing the worker
         except BaseException as err:
             handler_err = _exception_to_handler_error(err)
@@ -251,6 +265,38 @@ class _NexusWorker:
                 temporalio.nexus.handler.logger.exception(
                     "Failed to remove completed Nexus operation"
                 )
+
+    async def _fetch_operation_result(
+        self,
+        start_request: temporalio.api.nexus.v1.StartOperationRequest,
+        headers: dict[str, str],
+        operation_token: str,
+    ) -> Any:
+        """
+        Fetch the result of an operation.
+        """
+        # TODO(nexus-prerelease): DEVELOPMENT ONLY
+        ctx = FetchOperationResultContext(
+            service=start_request.service,
+            operation=start_request.operation,
+            headers=headers,
+        )
+        TemporalOperationContext.set(
+            TemporalOperationContext(
+                nexus_operation_context=ctx,
+                client=self._client,
+                task_queue=self._task_queue,
+            )
+        )
+        result = await self._handler.fetch_operation_result(ctx, operation_token)
+        print(f"""
+
+fetch_operation returned:
+
+{result}
+
+
+""")
 
     async def _start_operation(
         self,
