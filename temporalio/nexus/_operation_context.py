@@ -396,15 +396,6 @@ class WorkflowRunOperationContext(StartOperationContext):
             Nexus caller is itself a workflow, this means that the workflow in the caller
             namespace web UI will contain links to the started workflow, and vice versa.
         """
-        # TODO(nexus-preview): When sdk-python supports on_conflict_options, Typescript does this:
-        # if (workflowOptions.workflowIdConflictPolicy === 'USE_EXISTING') {
-        #     internalOptions.onConflictOptions = {
-        #     attachLinks: true,
-        #     attachCompletionCallbacks: true,
-        #     attachRequestId: true,
-        #     };
-        # }
-
         # We must pass nexus_completion_callbacks, workflow_event_links, and request_id,
         # but these are deliberately not exposed in overloads, hence the type-check
         # violation.

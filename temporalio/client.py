@@ -5877,6 +5877,23 @@ class _ClientImpl(OutboundInterceptor):
         )
         # Links are duplicated on request for compatibility with older server versions.
         req.links.extend(links)
+
+        # Set onConflictOptions when USE_EXISTING is specified and we have
+        # callbacks, links, or request_id to attach
+        if (
+            (
+                input.id_conflict_policy
+                == temporalio.common.WorkflowIDConflictPolicy.USE_EXISTING
+            )
+            and hasattr(input, "callbacks")
+            and hasattr(input, "workflow_event_links")
+            and hasattr(input, "request_id")
+            and (input.callbacks or input.workflow_event_links or input.request_id)
+        ):
+            req.on_conflict_options.attach_request_id = bool(input.request_id)
+            req.on_conflict_options.attach_completion_callbacks = bool(input.callbacks)
+            req.on_conflict_options.attach_links = bool(input.workflow_event_links)
+
         return req
 
     async def _build_signal_with_start_workflow_execution_request(
@@ -5932,6 +5949,7 @@ class _ClientImpl(OutboundInterceptor):
             "temporalio.api.enums.v1.WorkflowIdConflictPolicy.ValueType",
             int(input.id_conflict_policy),
         )
+
         if input.retry_policy is not None:
             input.retry_policy.apply_to_proto(req.retry_policy)
         req.cron_schedule = input.cron_schedule
