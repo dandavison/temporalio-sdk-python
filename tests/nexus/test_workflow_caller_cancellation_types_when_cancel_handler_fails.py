@@ -81,7 +81,8 @@ class WorkflowOpHandler(
     async def cancel(
         self, ctx: nexusrpc.handler.CancelOperationContext, token: str
     ) -> None:
-        handler_wf = nexus.client().get_workflow_handle_for(
+        client = nexus.client()
+        handler_wf = client.get_workflow_handle_for(
             HandlerWorkflow.run,
             workflow_id=nexus.WorkflowHandle[None].from_token(token).workflow_id,
         )

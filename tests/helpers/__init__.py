@@ -3,6 +3,7 @@ import socket
 import time
 import uuid
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional, Sequence, Type, TypeVar, Union
 
@@ -300,6 +301,14 @@ async def print_history(handle: WorkflowHandle):
         i += 1
 
 
+@dataclass
+class InterleavedHistoryEvent:
+    handle: WorkflowHandle
+    event: Union[HistoryEvent, str]
+    number: Optional[int]
+    time: datetime
+
+
 async def print_interleaved_histories(
     handles: list[WorkflowHandle],
     extra_events: Optional[list[tuple[WorkflowHandle, str, datetime]]] = None,
@@ -313,20 +322,20 @@ async def print_interleaved_histories(
 
     where <elapsed_ms> is the number of milliseconds since the first event in any of the workflows.
     """
-    all_events: list[
-        tuple[WorkflowHandle, Union[HistoryEvent, str], Optional[int], datetime]
-    ] = []
+    all_events: list[InterleavedHistoryEvent] = []
     workflow_start_times: dict[WorkflowHandle, datetime] = {}
 
     for handle in handles:
         event_num = 1
         first_event = True
-        async for event in handle.fetch_history_events():
-            event_time = event.event_time.ToDatetime()
+        async for history_event in handle.fetch_history_events():
+            event_time = history_event.event_time.ToDatetime()
             if first_event:
                 workflow_start_times[handle] = event_time
                 first_event = False
-            all_events.append((handle, event, event_num, event_time))
+            all_events.append(
+                InterleavedHistoryEvent(handle, history_event, event_num, event_time)
+            )
             event_num += 1
 
     if extra_events:
@@ -334,11 +343,13 @@ async def print_interleaved_histories(
             # Ensure timezone-naive
             if event_time.tzinfo is not None:
                 event_time = event_time.astimezone(timezone.utc).replace(tzinfo=None)
-            all_events.append((handle, event_str, None, event_time))
+            all_events.append(
+                InterleavedHistoryEvent(handle, event_str, None, event_time)
+            )
 
     zero_time = min(workflow_start_times.values())
 
-    all_events.sort(key=lambda item: item[3])
+    all_events.sort(key=lambda item: item.time)
     col_width = 50
 
     def _format_row(items: list[str], truncate: bool = False) -> str:
@@ -350,30 +361,32 @@ async def print_interleaved_histories(
     print("\n" + _format_row(headers, truncate=True))
     print("-" * (col_width * len(handles) + len(handles) - 1))
 
-    for handle, event, event_num, event_time in all_events:
-        elapsed_ms = int((event_time - zero_time).total_seconds() * 1000)
+    for event in all_events:
+        elapsed_ms = int((event.time - zero_time).total_seconds() * 1000)
 
-        if isinstance(event, str):
-            event_desc = f" *: {elapsed_ms:>4} {event}"
+        if isinstance(event.event, str):
+            event_desc = f" *: {elapsed_ms:>4} {event.event}"
             summary = None
         else:
-            event_type = EventType.Name(event.event_type).removeprefix("EVENT_TYPE_")
-            event_desc = f"{event_num:2}: {elapsed_ms:>4} {event_type}"
+            event_type = EventType.Name(event.event.event_type).removeprefix(
+                "EVENT_TYPE_"
+            )
+            event_desc = f"{event.number:2}: {elapsed_ms:>4} {event_type}"
 
             # Extract summary from user_metadata if present
             summary = None
-            if event.HasField("user_metadata") and event.user_metadata.HasField(
-                "summary"
-            ):
+            if event.event.HasField(
+                "user_metadata"
+            ) and event.event.user_metadata.HasField("summary"):
                 try:
                     summary = DataConverter.default.payload_converter.from_payload(
-                        event.user_metadata.summary
+                        event.event.user_metadata.summary
                     )
                 except Exception:
                     pass  # Ignore decoding errors
 
         row = [""] * len(handles)
-        col_idx = handles.index(handle)
+        col_idx = handles.index(event.handle)
         row[col_idx] = event_desc[: col_width - 3]
         print(_format_row(row))
 
@@ -382,8 +395,8 @@ async def print_interleaved_histories(
             summary_row = [""] * len(handles)
             # Left-align with event type name (after "<event_num>: <elapsed_ms> ")
             # Calculate the padding needed
-            if event_num is not None:
-                padding = len(f"{event_num:2}: {elapsed_ms:>4} ")
+            if event.number is not None:
+                padding = len(f"{event.number:2}: {elapsed_ms:>4} ")
             else:
                 padding = len(f" *: {elapsed_ms:>4} ")
             summary_row[col_idx] = f"{' ' * padding}[{summary}]"[: col_width - 3]
