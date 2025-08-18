@@ -4,7 +4,7 @@ import time
 import uuid
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional, Sequence, Type, TypeVar
+from typing import Any, Awaitable, Callable, Optional, Sequence, Type, TypeVar, Union
 
 from temporalio.api.common.v1 import WorkflowExecution
 from temporalio.api.enums.v1 import EventType as EventType
@@ -314,7 +314,7 @@ async def print_interleaved_histories(
     where <elapsed_ms> is the number of milliseconds since the first event in any of the workflows.
     """
     all_events: list[
-        tuple[WorkflowHandle, HistoryEvent | str, int | None, datetime]
+        tuple[WorkflowHandle, Union[HistoryEvent, str], Optional[int], datetime]
     ] = []
     workflow_start_times: dict[WorkflowHandle, datetime] = {}
 
