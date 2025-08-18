@@ -82,9 +82,11 @@ class WorkflowOpHandler(
         self, ctx: nexusrpc.handler.CancelOperationContext, token: str
     ) -> None:
         client = nexus.client()
-        handler_wf = client.get_workflow_handle_for(
-            HandlerWorkflow.run,
-            workflow_id=nexus.WorkflowHandle[None].from_token(token).workflow_id,
+        handler_wf: WorkflowHandle[HandlerWorkflow, None] = (
+            client.get_workflow_handle_for(
+                HandlerWorkflow.run,
+                workflow_id=nexus.WorkflowHandle[None].from_token(token).workflow_id,
+            )
         )
         await handler_wf.signal(HandlerWorkflow.set_cancel_handler_released)
         test_context.cancel_handler_released.set_result(datetime.now(timezone.utc))
