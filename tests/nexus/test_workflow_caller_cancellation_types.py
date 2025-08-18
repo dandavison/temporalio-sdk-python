@@ -21,7 +21,6 @@ from temporalio.client import (
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from tests.helpers import print_interleaved_histories
 from tests.helpers.nexus import create_nexus_endpoint, make_nexus_endpoint_name
 
 
@@ -50,10 +49,10 @@ class HandlerWorkflow:
         try:
             await asyncio.Future()
         except asyncio.CancelledError:
-            if (
-                test_context.cancellation_type
-                == workflow.NexusOperationCancellationType.WAIT_REQUESTED
-            ):
+            if test_context.cancellation_type in [
+                workflow.NexusOperationCancellationType.TRY_CANCEL,
+                workflow.NexusOperationCancellationType.WAIT_REQUESTED,
+            ]:
                 # We want to prove that the caller op future can be resolved before the operation
                 # (i.e. its backing workflow) is cancelled.
                 await self.caller_op_future_resolved.wait()
@@ -193,10 +192,10 @@ class CallerWorkflow:
                 datetime.now(timezone.utc)
             )
             assert op_handle.operation_token
-            if (
-                input.cancellation_type
-                == workflow.NexusOperationCancellationType.WAIT_REQUESTED
-            ):
+            if input.cancellation_type in [
+                workflow.NexusOperationCancellationType.TRY_CANCEL,
+                workflow.NexusOperationCancellationType.WAIT_REQUESTED,
+            ]:
                 # We want to prove that the future can be unblocked before the handler workflow is
                 # cancelled. Send a signal, so that handler workflow can wait for it.
                 await workflow.get_external_workflow_handle_for(
@@ -307,7 +306,6 @@ async def check_behavior_for_abandon(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
     )
-    await print_interleaved_histories([caller_wf, handler_wf])
 
 
 async def check_behavior_for_try_cancel(
@@ -326,24 +324,16 @@ async def check_behavior_for_try_cancel(
     else:
         pytest.fail("Expected WorkflowFailureError")
     await caller_wf.signal(CallerWorkflow.release)
-    result = await caller_wf.result()
+    await caller_wf.result()
 
     handler_status = (await handler_wf.describe()).status
     assert handler_status == WorkflowExecutionStatus.CANCELED
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    cancel_handler_released = test_context.cancel_handler_released.result()
-    await print_interleaved_histories(
-        [caller_wf, handler_wf],
-        extra_events=[
-            (caller_wf, "Future unblocked", caller_op_future_resolved),
-            (handler_wf, "Cancel handler released", cancel_handler_released),
-        ],
-    )
     await _assert_event_subsequence(
         [
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED),
+            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCELED),
         ]
     )
     op_cancel_requested_event = await _get_event_time(
@@ -385,10 +375,9 @@ async def check_behavior_for_wait_cancellation_requested(
     assert handler_status == WorkflowExecutionStatus.CANCELED
     await _assert_event_subsequence(
         [
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
+            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCELED),
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
         ]
     )
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
@@ -399,12 +388,6 @@ async def check_behavior_for_wait_cancellation_requested(
     op_canceled = await _get_event_time(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED,
-    )
-    await print_interleaved_histories(
-        [caller_wf, handler_wf],
-        extra_events=[
-            (caller_wf, "Future unblocked", caller_op_future_resolved),
-        ],
     )
     assert op_cancel_request_completed < caller_op_future_resolved < op_canceled
 
@@ -417,7 +400,6 @@ async def check_behavior_for_wait_cancellation_completed(
     Check that a cancellation request is sent and the caller workflow nexus operation future is
     unblocked after the operation is canceled.
     """
-    # For WAIT_COMPLETED, wait for the handler workflow to complete
     try:
         await handler_wf.result()
     except WorkflowFailureError as err:
@@ -429,7 +411,7 @@ async def check_behavior_for_wait_cancellation_completed(
     assert handler_status == WorkflowExecutionStatus.CANCELED
 
     await caller_wf.signal(CallerWorkflow.release)
-    result = await caller_wf.result()
+    await caller_wf.result()
 
     await _assert_event_subsequence(
         [
@@ -449,15 +431,7 @@ async def check_behavior_for_wait_cancellation_completed(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED,
     )
-    await print_interleaved_histories(
-        [caller_wf, handler_wf],
-        extra_events=[
-            (caller_wf, "Future unblocked", caller_op_future_resolved),
-        ],
-    )
-    assert (
-        caller_op_future_resolved > handler_wf_canceled_event_time
-    ), "For WAIT_COMPLETED, the future should be unblocked after handler workflow cancellation. "
+    assert caller_op_future_resolved > handler_wf_canceled_event_time
 
 
 async def _has_event(wf_handle: WorkflowHandle, event_type: EventType.ValueType):

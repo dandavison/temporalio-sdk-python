@@ -48,9 +48,9 @@ class HandlerWorkflow:
         # We want the cancel handler to be invoked, so this workflow must not close before
         # then.
         await self.cancel_handler_released.wait()
-        # TODO: is there a race now between (1) server writing
+        # TODO: there is technically a race now between (1) caller server writing
         # NEXUS_OPERATION_CANCEL_REQUEST_FAILED in reponse to failed cancel handler in nexus task
-        # and (2) NEXUS_OPERATION_COMPLETED due to this workflow completing?
+        # and (2) NEXUS_OPERATION_COMPLETED due to this workflow completing.
 
     @workflow.signal
     def set_cancel_handler_released(self) -> None:
