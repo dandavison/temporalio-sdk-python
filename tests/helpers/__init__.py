@@ -336,12 +336,7 @@ async def print_interleaved_histories(
                 event_time = event_time.astimezone(timezone.utc).replace(tzinfo=None)
             all_events.append((handle, event_str, None, event_time))
 
-    # Find the earliest start time across all workflows
-    if workflow_start_times:
-        zero_time = min(workflow_start_times.values())
-    else:
-        # If no workflows, use the earliest extra event time if available
-        zero_time = min((event[3] for event in all_events), default=None)
+    zero_time = min(workflow_start_times.values())
 
     all_events.sort(key=lambda item: item[3])
     col_width = 50
@@ -356,11 +351,7 @@ async def print_interleaved_histories(
     print("-" * (col_width * len(handles) + len(handles) - 1))
 
     for handle, event, event_num, event_time in all_events:
-        # Calculate elapsed time in milliseconds from the zero point
-        if zero_time:
-            elapsed_ms = int((event_time - zero_time).total_seconds() * 1000)
-        else:
-            elapsed_ms = 0
+        elapsed_ms = int((event_time - zero_time).total_seconds() * 1000)
 
         if isinstance(event, str):
             event_desc = f" *: {elapsed_ms:>4} {event}"
