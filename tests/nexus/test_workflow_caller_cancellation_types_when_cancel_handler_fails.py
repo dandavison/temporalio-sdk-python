@@ -11,7 +11,6 @@ import pytest
 import temporalio.nexus._operation_handlers
 from temporalio import exceptions, nexus, workflow
 from temporalio.api.enums.v1 import EventType
-from temporalio.api.history.v1 import HistoryEvent
 from temporalio.client import (
     WithStartWorkflowOperation,
     WorkflowExecutionStatus,
@@ -21,6 +20,11 @@ from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 from tests.helpers.nexus import create_nexus_endpoint, make_nexus_endpoint_name
+from tests.nexus.test_workflow_caller_cancellation_types import (
+    assert_event_subsequence,
+    get_event_time,
+    has_event,
+)
 
 
 @dataclass
@@ -257,13 +261,13 @@ async def check_behavior_for_abandon(
     assert result.error_type == "NexusOperationError"
     assert result.error_cause_type == "CancelledError"
 
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
         ]
     )
-    assert not await _has_event(
+    assert not await has_event(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
     )
@@ -280,18 +284,18 @@ async def check_behavior_for_try_cancel(
     assert result.error_cause_type == "CancelledError"
 
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED),
         ]
     )
-    op_cancel_requested_event = await _get_event_time(
+    op_cancel_requested_event = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
     )
-    op_cancel_request_failed_event = await _get_event_time(
+    op_cancel_request_failed_event = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED,
     )
@@ -311,7 +315,7 @@ async def check_behavior_for_wait_cancellation_requested(
     result = await caller_wf.result()
     assert result.error_type == "NexusOperationError"
     assert result.error_cause_type == "HandlerError"
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
@@ -320,7 +324,7 @@ async def check_behavior_for_wait_cancellation_requested(
         ]
     )
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    op_cancel_request_failed = await _get_event_time(
+    op_cancel_request_failed = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED,
     )
@@ -335,7 +339,7 @@ async def check_behavior_for_wait_cancellation_completed(
     await caller_wf.signal(CallerWorkflow.release)
     result = await caller_wf.result()
     assert not result.error_type
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED),
@@ -344,72 +348,8 @@ async def check_behavior_for_wait_cancellation_completed(
         ]
     )
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    handler_wf_completed = await _get_event_time(
+    handler_wf_completed = await get_event_time(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
     )
     assert handler_wf_completed < caller_op_future_resolved
-
-
-async def _has_event(wf_handle: WorkflowHandle, event_type: EventType.ValueType):
-    async for e in wf_handle.fetch_history_events():
-        if e.event_type == event_type:
-            return True
-    return False
-
-
-async def _get_event_time(
-    wf_handle: WorkflowHandle,
-    event_type: EventType.ValueType,
-) -> datetime:
-    async for event in wf_handle.fetch_history_events():
-        if event.event_type == event_type:
-            return event.event_time.ToDatetime().replace(tzinfo=timezone.utc)
-    event_type_name = EventType.Name(event_type).removeprefix("EVENT_TYPE_")
-    assert False, f"Event {event_type_name} not found in {wf_handle.id}"
-
-
-async def _assert_event_subsequence(
-    expected_events: list[tuple[WorkflowHandle, EventType.ValueType]],
-) -> None:
-    """
-    Given a sequence of (WorkflowHandle, EventType) pairs, assert that the sorted sequence of events
-    from both workflows contains that subsequence.
-    """
-
-    def _event_time(
-        item: tuple[WorkflowHandle, HistoryEvent],
-    ) -> datetime:
-        return item[1].event_time.ToDatetime()
-
-    all_events = []
-    handles = {h for h, _ in expected_events}
-    for h in handles:
-        async for e in h.fetch_history_events():
-            all_events.append((h, e))
-    _all_events = iter(sorted(all_events, key=_event_time))
-    _expected_events = iter(expected_events)
-
-    previous_expected_handle, previous_expected_event_type_name = None, None
-    for expected_handle, expected_event_type in _expected_events:
-        expected_event_type_name = EventType.Name(expected_event_type).removeprefix(
-            "EVENT_TYPE_"
-        )
-        has_expected = next(
-            (
-                (h, e)
-                for h, e in _all_events
-                if h == expected_handle and e.event_type == expected_event_type
-            ),
-            None,
-        )
-        if not has_expected:
-            if previous_expected_handle is not None:
-                prefix = f"After {previous_expected_event_type_name} in {previous_expected_handle.id}, "
-            else:
-                prefix = ""
-            pytest.fail(
-                f"{prefix}expected {expected_event_type_name} in {expected_handle.id}"
-            )
-        previous_expected_event_type_name = expected_event_type_name
-        previous_expected_handle = expected_handle

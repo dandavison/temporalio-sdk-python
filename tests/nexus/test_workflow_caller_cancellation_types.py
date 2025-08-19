@@ -296,13 +296,13 @@ async def check_behavior_for_abandon(
     assert handler_status == WorkflowExecutionStatus.RUNNING
     await caller_wf.signal(CallerWorkflow.release)
     await caller_wf.result()
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
         ]
     )
-    assert not await _has_event(
+    assert not await has_event(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
     )
@@ -329,18 +329,18 @@ async def check_behavior_for_try_cancel(
     handler_status = (await handler_wf.describe()).status
     assert handler_status == WorkflowExecutionStatus.CANCELED
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCELED),
         ]
     )
-    op_cancel_requested_event = await _get_event_time(
+    op_cancel_requested_event = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
     )
-    op_cancel_request_completed_event = await _get_event_time(
+    op_cancel_request_completed_event = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED,
     )
@@ -373,7 +373,7 @@ async def check_behavior_for_wait_cancellation_requested(
 
     handler_status = (await handler_wf.describe()).status
     assert handler_status == WorkflowExecutionStatus.CANCELED
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED),
@@ -381,11 +381,11 @@ async def check_behavior_for_wait_cancellation_requested(
         ]
     )
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    op_cancel_request_completed = await _get_event_time(
+    op_cancel_request_completed = await get_event_time(
         caller_wf,
         EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED,
     )
-    op_canceled = await _get_event_time(
+    op_canceled = await get_event_time(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED,
     )
@@ -413,7 +413,7 @@ async def check_behavior_for_wait_cancellation_completed(
     await caller_wf.signal(CallerWorkflow.release)
     await caller_wf.result()
 
-    await _assert_event_subsequence(
+    await assert_event_subsequence(
         [
             (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
             (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
@@ -427,21 +427,21 @@ async def check_behavior_for_wait_cancellation_completed(
         ]
     )
     caller_op_future_resolved = test_context.caller_op_future_resolved.result()
-    handler_wf_canceled_event_time = await _get_event_time(
+    handler_wf_canceled_event_time = await get_event_time(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED,
     )
     assert caller_op_future_resolved > handler_wf_canceled_event_time
 
 
-async def _has_event(wf_handle: WorkflowHandle, event_type: EventType.ValueType):
+async def has_event(wf_handle: WorkflowHandle, event_type: EventType.ValueType):
     async for e in wf_handle.fetch_history_events():
         if e.event_type == event_type:
             return True
     return False
 
 
-async def _get_event_time(
+async def get_event_time(
     wf_handle: WorkflowHandle,
     event_type: EventType.ValueType,
 ) -> datetime:
@@ -452,7 +452,7 @@ async def _get_event_time(
     assert False, f"Event {event_type_name} not found in {wf_handle.id}"
 
 
-async def _assert_event_subsequence(
+async def assert_event_subsequence(
     expected_events: list[tuple[WorkflowHandle, EventType.ValueType]],
 ) -> None:
     """
