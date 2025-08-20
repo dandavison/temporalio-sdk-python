@@ -44,6 +44,7 @@ from typing import (
 )
 
 import nexusrpc.handler
+from google.protobuf.json_format import MessageToJson
 from nexusrpc import InputT, OutputT
 from typing_extensions import Self, TypeAlias, TypedDict
 
@@ -81,6 +82,8 @@ from ._interceptor import (
 )
 
 logger = logging.getLogger(__name__)
+
+_workflow_id_color_map: Dict[str, int] = {}
 
 # Set to true to log all cases where we're ignoring things during delete
 LOG_IGNORE_DURING_DELETE = False
@@ -358,6 +361,32 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
     def activate(
         self, act: temporalio.bridge.proto.workflow_activation.WorkflowActivation
     ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        _available_colors = ["\033[32m", "\033[34m", "\033[35m"]
+        _color_map = _workflow_id_color_map
+        wf_id = self._info.workflow_id
+        if wf_id not in _color_map:
+            assigned = len(_color_map) % len(_available_colors)
+            _color_map[wf_id] = assigned
+        color = _available_colors[_color_map.get(wf_id, 0)]
+        wf_prefix = (
+            self._info.workflow_id[:8]
+            if len(self._info.workflow_id) >= 8
+            else self._info.workflow_id
+        )
+
+        print(
+            f"{color}>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> WFT [{wf_prefix}]\033[0m"
+        )
+        print(MessageToJson(act))
+
+        completion = self._activate(act)
+        print(f"{color}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\033[0m")
+        print(MessageToJson(completion))
+        return completion
+
+    def _activate(
+        self, act: temporalio.bridge.proto.workflow_activation.WorkflowActivation
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
         # Reset current completion, time, and whether replaying
         self._current_completion = (
             temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion()
@@ -490,6 +519,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
     def _apply(
         self, job: temporalio.bridge.proto.workflow_activation.WorkflowActivationJob
     ) -> None:
+        print("job", job.WhichOneof("variant"))
         if job.HasField("cancel_workflow"):
             self._apply_cancel_workflow(job.cancel_workflow)
         elif job.HasField("do_update"):
