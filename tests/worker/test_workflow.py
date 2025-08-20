@@ -6080,12 +6080,17 @@ class FirstCompletionCommandIsHonoredWorkflow:
         self.ping_pong_val = 1
         self.ping_pong_counter = 0
         self.ping_pong_max_count = 4
+        self.main_completed = False
 
     @workflow.run
     async def run(self) -> str:
         await workflow.wait_condition(
             lambda: self.seen_first_signal and self.seen_second_signal
         )
+        # Mark that main workflow is about to complete
+        self.main_completed = True
+        # Give a small yield to ensure any pending operations are processed
+        await asyncio.sleep(0)
         return "workflow-result"
 
     @workflow.signal
@@ -6093,6 +6098,8 @@ class FirstCompletionCommandIsHonoredWorkflow:
         self.seen_first_signal = True
         if self.main_workflow_returns_before_signal_completions:
             await self.ping_pong(lambda: self.ping_pong_val > 0)
+            # Ensure main workflow has completed before throwing
+            await workflow.wait_condition(lambda: self.main_completed)
         raise ApplicationError(
             "Client should see this error unless doing ping-pong "
             "(in which case main coroutine returns first)"
@@ -6104,6 +6111,8 @@ class FirstCompletionCommandIsHonoredWorkflow:
         self.seen_second_signal = True
         if self.main_workflow_returns_before_signal_completions:
             await self.ping_pong(lambda: self.ping_pong_val < 0)
+            # Ensure main workflow has completed before throwing
+            await workflow.wait_condition(lambda: self.main_completed)
         raise ApplicationError("Client should never see this error!")
 
     async def ping_pong(self, cond: Callable[[], bool]):
@@ -6111,6 +6120,8 @@ class FirstCompletionCommandIsHonoredWorkflow:
             await workflow.wait_condition(cond)
             self.ping_pong_val = -self.ping_pong_val
             self.ping_pong_counter += 1
+            # Small yield to ensure interleaving
+            await asyncio.sleep(0)
 
 
 @workflow.defn
