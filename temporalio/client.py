@@ -5878,8 +5878,7 @@ class _ClientImpl(OutboundInterceptor):
         # Links are duplicated on request for compatibility with older server versions.
         req.links.extend(links)
 
-        # TODO: How shall we determine whether this workflow is being started as a nexus-backing workflow?
-        if workflow_is_being_started_as_a_nexus_backing_workflow:
+        if temporalio.nexus._operation_context._in_nexus_backing_workflow_start_context():
             req.on_conflict_options.attach_request_id = True
             req.on_conflict_options.attach_completion_callbacks = True
             req.on_conflict_options.attach_links = True
