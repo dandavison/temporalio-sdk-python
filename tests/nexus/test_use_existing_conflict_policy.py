@@ -57,7 +57,7 @@ class CallerWorkflow:
         self._nexus_operations_have_started = asyncio.Event()
 
     @workflow.run
-    async def run(self, workflow_id: str, task_queue: str) -> tuple[str, str]:
+    async def run(self, workflow_id: str, task_queue: str) -> list[str]:
         nexus_client = workflow.create_nexus_client(
             service=NexusService, endpoint=make_nexus_endpoint_name(task_queue)
         )
@@ -67,14 +67,15 @@ class CallerWorkflow:
             conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         )
 
-        handle_1 = await nexus_client.start_operation(
-            NexusService.workflow_backed_operation, op_input
-        )
-        handle_2 = await nexus_client.start_operation(
-            NexusService.workflow_backed_operation, op_input
-        )
+        handles = []
+        for _ in range(5):
+            handles.append(
+                await nexus_client.start_operation(
+                    NexusService.workflow_backed_operation, op_input
+                )
+            )
         self._nexus_operations_have_started.set()
-        return await handle_1, await handle_2
+        return await asyncio.gather(*handles)
 
     @workflow.update
     async def nexus_operations_have_started(self) -> None:
@@ -107,7 +108,7 @@ async def test_two_operation_invocations_can_connect_to_same_handler_workflow(
         await client.get_workflow_handle(workflow_id).signal(
             HandlerWorkflow.complete, "test-result"
         )
-        assert await caller_handle.result() == ("test-result", "test-result")
+        assert await caller_handle.result() == ["test-result"] * 5
 
 
 # Note: A test for FAIL policy would timeout because Nexus operations
