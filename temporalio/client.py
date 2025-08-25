@@ -5878,21 +5878,11 @@ class _ClientImpl(OutboundInterceptor):
         # Links are duplicated on request for compatibility with older server versions.
         req.links.extend(links)
 
-        # Set onConflictOptions when USE_EXISTING is specified and we have
-        # callbacks, links, or request_id to attach
-        if (
-            (
-                input.id_conflict_policy
-                == temporalio.common.WorkflowIDConflictPolicy.USE_EXISTING
-            )
-            and hasattr(input, "callbacks")
-            and hasattr(input, "workflow_event_links")
-            and hasattr(input, "request_id")
-            and (input.callbacks or input.workflow_event_links or input.request_id)
-        ):
-            req.on_conflict_options.attach_request_id = bool(input.request_id)
-            req.on_conflict_options.attach_completion_callbacks = bool(input.callbacks)
-            req.on_conflict_options.attach_links = bool(input.workflow_event_links)
+        # TODO: How shall we determine whether this workflow is being started as a nexus-backing workflow?
+        if workflow_is_being_started_as_a_nexus_backing_workflow:
+            req.on_conflict_options.attach_request_id = True
+            req.on_conflict_options.attach_completion_callbacks = True
+            req.on_conflict_options.attach_links = True
 
         return req
 
