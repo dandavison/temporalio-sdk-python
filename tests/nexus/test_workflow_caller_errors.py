@@ -106,6 +106,18 @@ class ErrorTestService:
                 task_queue=nexus.info().task_queue,
             )
 
+    @nexusrpc.handler.sync_operation
+    async def fails_due_to_workflow_not_found(
+        self, ctx: nexusrpc.handler.StartOperationContext, input: ErrorTestInput
+    ) -> None:
+        operation_invocation_counts[input.id] += 1
+        wf = await nexus.client().start_workflow(
+            NonTerminatingWorkflow.run,
+            id=input.id,
+            task_queue=nexus.info().task_queue,
+        )
+        await wf.execute_update("update-does-not-exist")
+
 
 @workflow.defn(sandboxed=False)
 class CallerWorkflow:
@@ -163,7 +175,7 @@ async def test_nexus_operation_is_retried(
 
 
 @pytest.mark.parametrize(
-    ["operation_name", "handler_error_type", "handler_error_message"],
+    ["operation_name", "expected_error_type", "expected_error_message"],
     [
         (
             "fails_due_to_nonexistent_operation",
@@ -186,8 +198,8 @@ async def test_nexus_operation_fails_without_retry_as_handler_error(
     client: Client,
     env: WorkflowEnvironment,
     operation_name: str,
-    handler_error_type: nexusrpc.HandlerErrorType,
-    handler_error_message: str,
+    expected_error_type: nexusrpc.HandlerErrorType,
+    expected_error_message: str,
 ):
     if env.supports_time_skipping:
         pytest.skip("Nexus tests don't work with time-skipping server")
@@ -206,7 +218,7 @@ async def test_nexus_operation_fails_without_retry_as_handler_error(
         client,
         nexus_service_handlers=[ErrorTestService()],
         nexus_task_executor=concurrent.futures.ThreadPoolExecutor(max_workers=1),
-        workflows=[CallerWorkflow],
+        workflows=[CallerWorkflow, NonTerminatingWorkflow],
         task_queue=input.task_queue,
     ):
         await create_nexus_endpoint(input.task_queue, client)
@@ -223,8 +235,8 @@ async def test_nexus_operation_fails_without_retry_as_handler_error(
             handler_error = err.__cause__.__cause__
             assert isinstance(handler_error, nexusrpc.HandlerError)
             assert not handler_error.retryable
-            assert handler_error.type == handler_error_type
-            assert handler_error_message in str(handler_error)
+            assert handler_error.type == expected_error_type
+            assert expected_error_message in str(handler_error)
         else:
             pytest.fail("Unreachable")
 
