@@ -113,7 +113,7 @@ class ErrorTestService:
         operation_invocation_counts[input.id] += 1
         wf = await nexus.client().start_workflow(
             NonTerminatingWorkflow.run,
-            id=input.id,
+            id="start-request-will-succeed-but-update-will-fail",
             task_queue=nexus.info().task_queue,
         )
         await wf.execute_update("update-does-not-exist")

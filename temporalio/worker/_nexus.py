@@ -422,6 +422,9 @@ class _DummyPayloadSerializer:
 def _exception_to_handler_error(err: BaseException) -> nexusrpc.HandlerError:
     # Based on sdk-typescript's convertKnownErrors:
     # https://github.com/temporalio/sdk-typescript/blob/nexus/packages/worker/src/nexus.ts
+
+    print("🟠 got err: ", err.__class__, err, err.__dict__, err.__cause__)
+
     if isinstance(err, nexusrpc.HandlerError):
         # Insert an ApplicationError at the head of the cause chain to hold the
         # HandlerError's message and traceback. We do this because
@@ -516,4 +519,13 @@ def _exception_to_handler_error(err: BaseException) -> nexusrpc.HandlerError:
             str(err), type=nexusrpc.HandlerErrorType.INTERNAL
         )
     handler_err.__cause__ = err
+
+    print(
+        "🔴 returning handler_err: ",
+        handler_err.__class__,
+        handler_err,
+        handler_err.__dict__,
+        handler_err.__cause__,
+    )
+
     return handler_err
