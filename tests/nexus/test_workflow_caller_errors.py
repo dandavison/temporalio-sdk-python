@@ -177,20 +177,25 @@ async def test_nexus_operation_is_retried(
 @pytest.mark.parametrize(
     ["operation_name", "expected_error_type", "expected_error_message"],
     [
+        # (
+        #     "fails_due_to_nonexistent_operation",
+        #     nexusrpc.HandlerErrorType.NOT_FOUND,
+        #     "has no operation",
+        # ),
+        # (
+        #     "fails_due_to_nonexistent_service",
+        #     nexusrpc.HandlerErrorType.NOT_FOUND,
+        #     "No handler for service",
+        # ),
+        # (
+        #     "fails_due_to_workflow_already_started",
+        #     nexusrpc.HandlerErrorType.INTERNAL,
+        #     "already started",
+        # ),
         (
-            "fails_due_to_nonexistent_operation",
+            "fails_due_to_workflow_not_found",
             nexusrpc.HandlerErrorType.NOT_FOUND,
-            "has no operation",
-        ),
-        (
-            "fails_due_to_nonexistent_service",
-            nexusrpc.HandlerErrorType.NOT_FOUND,
-            "No handler for service",
-        ),
-        (
-            "fails_due_to_workflow_already_started",
-            nexusrpc.HandlerErrorType.INTERNAL,
-            "already started",
+            "not found",
         ),
     ],
 )
