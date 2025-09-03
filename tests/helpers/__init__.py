@@ -297,7 +297,7 @@ async def print_history(handle: WorkflowHandle):
     i = 1
     async for evt in handle.fetch_history_events():
         event = EventType.Name(evt.event_type).removeprefix("EVENT_TYPE_")
-        print(f"{i:2}: {event}")
+        print(f"{i:2}: {evt.event_time.ToDatetime()} {event}")
         i += 1
 
 

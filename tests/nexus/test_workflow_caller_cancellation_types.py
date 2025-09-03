@@ -21,7 +21,7 @@ from temporalio.client import (
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
-from tests.helpers import print_interleaved_histories
+from tests.helpers import print_history, print_interleaved_histories
 from tests.helpers.nexus import create_nexus_endpoint, make_nexus_endpoint_name
 
 
@@ -513,3 +513,31 @@ async def assert_event_subsequence(
             )
         previous_expected_event_type_name = expected_event_type_name
         previous_expected_handle = expected_handle
+
+
+@workflow.defn(sandboxed=False)
+class PrintHistoryWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.sleep(1)
+
+
+async def test_print_history(env: WorkflowEnvironment):
+    if env.supports_time_skipping:
+        pytest.skip("Nexus tests don't work with time-skipping server")
+
+    client = env.client
+
+    async with Worker(
+        client,
+        task_queue=str(uuid.uuid4()),
+        workflows=[PrintHistoryWorkflow],
+    ) as worker:
+        print_history_wf = await client.start_workflow(
+            PrintHistoryWorkflow.run,
+            id="print-history-wf-1",
+            task_queue=worker.task_queue,
+        )
+        await print_history_wf.result()
+        print()
+        await print_history(print_history_wf)
