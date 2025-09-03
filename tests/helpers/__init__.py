@@ -362,16 +362,16 @@ async def print_interleaved_histories(
     print("-" * (col_width * len(handles) + len(handles) - 1))
 
     for event in all_events:
-        elapsed_us = int((event.time - zero_time).total_seconds() * 1_000_000)
+        elapsed_ms = (event.time - zero_time).total_seconds() * 1000
 
         if isinstance(event.event, str):
-            event_desc = f" *: {elapsed_us:>4} {event.event}"
+            event_desc = f" *: {elapsed_ms} {event.event}"
             summary = None
         else:
             event_type = EventType.Name(event.event.event_type).removeprefix(
                 "EVENT_TYPE_"
             )
-            event_desc = f"{event.number:2}: {elapsed_us:>4} {event_type}"
+            event_desc = f"{event.number:2}: {elapsed_ms} {event_type}"
 
             # Extract summary from user_metadata if present
             summary = None
@@ -396,8 +396,8 @@ async def print_interleaved_histories(
             # Left-align with event type name (after "<event_num>: <elapsed_ms> ")
             # Calculate the padding needed
             if event.number is not None:
-                padding = len(f"{event.number:2}: {elapsed_us:>4} ")
+                padding = len(f"{event.number:2}: {elapsed_ms} ")
             else:
-                padding = len(f" *: {elapsed_us:>4} ")
+                padding = len(f" *: {elapsed_ms} ")
             summary_row[col_idx] = f"{' ' * padding}[{summary}]"[: col_width - 3]
             print(_format_row(summary_row))
