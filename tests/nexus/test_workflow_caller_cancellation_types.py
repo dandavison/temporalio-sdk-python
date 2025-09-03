@@ -445,7 +445,10 @@ async def check_behavior_for_wait_cancellation_completed(
         handler_wf,
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED,
     )
-    assert handler_wf_canceled_event < result.caller_op_future_resolved
+    assert handler_wf_canceled_event < result.caller_op_future_resolved, (
+        "expected caller op future resolved after handler workflow canceled, but got "
+        f"{result.caller_op_future_resolved} before {handler_wf_canceled_event}"
+    )
 
 
 async def has_event(wf_handle: WorkflowHandle, event_type: EventType.ValueType):
