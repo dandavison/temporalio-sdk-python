@@ -280,10 +280,11 @@ async def check_behavior_for_abandon(
     assert result.error_cause_type == "CancelledError"
 
     await assert_event_subsequence(
+        caller_wf,
         [
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
-        ]
+            EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,
+            EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
+        ],
     )
     assert not await has_event(
         caller_wf,
@@ -302,11 +303,12 @@ async def check_behavior_for_try_cancel(
     assert result.error_cause_type == "CancelledError"
 
     await assert_event_subsequence(
+        caller_wf,
         [
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED),
-        ]
+            EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,
+            EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
+            EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED,
+        ],
     )
     op_cancel_requested_event = await get_event_time(
         caller_wf,
@@ -334,12 +336,13 @@ async def check_behavior_for_wait_cancellation_requested(
     await handler_wf.signal(HandlerWorkflow.set_caller_op_future_resolved)
     await handler_wf.result()
     await assert_event_subsequence(
+        caller_wf,
         [
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED),
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED),
-            (caller_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
-        ]
+            EventType.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED,
+            EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
+            EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED,
+            EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED,
+        ],
     )
     op_cancel_request_failed = await get_event_time(
         caller_wf,
@@ -377,12 +380,13 @@ async def check_behavior_for_wait_cancellation_completed(
     # workflow exiting.
     # (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED)
     # (handler_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED)
+    # Only assert on intra-workflow event sequences (dropping inter-workflow assertion)
     await assert_event_subsequence(
+        caller_wf,
         [
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED),
-            (handler_wf, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED),
-            (caller_wf, EventType.EVENT_TYPE_NEXUS_OPERATION_COMPLETED),
-        ]
+            EventType.EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED,
+            EventType.EVENT_TYPE_NEXUS_OPERATION_COMPLETED,
+        ],
     )
     handler_wf_completed = await get_event_time(
         handler_wf,
