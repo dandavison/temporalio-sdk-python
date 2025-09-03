@@ -7,8 +7,10 @@ from datetime import timedelta
 from typing import Any, Awaitable, Callable, Optional, Sequence
 from urllib.request import urlopen
 
+import nexusrpc
+
 import temporalio.api.enums.v1
-import temporalio.client
+import temporalio.nexus
 import temporalio.worker._worker
 from temporalio import activity, workflow
 from temporalio.api.workflowservice.v1 import (
@@ -77,6 +79,21 @@ async def never_run_activity() -> None:
 class NeverRunWorkflow:
     @workflow.run
     async def run(self) -> None:
+        raise NotImplementedError
+
+
+@nexusrpc.handler.service_handler
+class NeverRunService:
+    @nexusrpc.handler.sync_operation
+    async def never_run_operation(
+        self, _ctx: nexusrpc.handler.StartOperationContext, _input: None
+    ) -> None:
+        raise NotImplementedError
+
+    @temporalio.nexus.workflow_run_operation
+    async def never_run_workflow_run_operation(
+        self, _ctx: temporalio.nexus.WorkflowRunOperationContext, _input: None
+    ) -> temporalio.nexus.WorkflowHandle[None]:
         raise NotImplementedError
 
 
@@ -1143,6 +1160,7 @@ def create_worker(
         task_queue=f"task-queue-{uuid.uuid4()}",
         activities=[never_run_activity],
         workflows=[NeverRunWorkflow],
+        nexus_service_handlers=[NeverRunService()],
         on_fatal_error=on_fatal_error,
     )
 
