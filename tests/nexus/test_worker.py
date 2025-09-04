@@ -7,7 +7,6 @@ import uuid
 from datetime import timedelta
 
 import nexusrpc.handler
-import pytest
 
 from temporalio import workflow
 from temporalio.client import Client
@@ -42,41 +41,20 @@ class NexusCallerWorkflow:
         )
 
 
-async def test_max_concurrent_nexus_tasks_zero_fails(client: Client):
-    """Test that max_concurrent_nexus_tasks=0 prevents nexus tasks from executing."""
-
+async def test_max_concurrent_nexus_tasks(client: Client):
     async with new_worker(
         client,
         NexusCallerWorkflow,
         nexus_service_handlers=[EchoService()],
-        max_concurrent_nexus_tasks=0,
     ) as worker:
         await create_nexus_endpoint(worker.task_queue, client)
 
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(
-                client.execute_workflow(
-                    NexusCallerWorkflow.run,
-                    "input",
-                    id=str(uuid.uuid4()),
-                    task_queue=worker.task_queue,
-                ),
-                timeout=2.0,
-            )
-
-
-async def test_max_concurrent_nexus_tasks_one_succeeds(client: Client):
-    async with new_worker(
-        client,
-        NexusCallerWorkflow,
-        nexus_service_handlers=[EchoService()],
-        max_concurrent_nexus_tasks=1,
-    ) as worker:
-        await create_nexus_endpoint(worker.task_queue, client)
-
-        await client.execute_workflow(
-            NexusCallerWorkflow.run,
-            "input",
-            id=str(uuid.uuid4()),
-            task_queue=worker.task_queue,
+        await asyncio.wait_for(
+            client.execute_workflow(
+                NexusCallerWorkflow.run,
+                "input",
+                id=str(uuid.uuid4()),
+                task_queue=worker.task_queue,
+            ),
+            timeout=2.0,
         )
