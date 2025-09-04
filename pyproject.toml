@@ -180,6 +180,7 @@ reportUnknownVariableType = "none"
 reportUnnecessaryIsInstance = "none"
 reportUnnecessaryTypeIgnoreComment = "none"
 reportUnusedCallResult = "none"
+reportTypedDictNotRequiredAccess = "none"
 include = ["temporalio", "tests"]
 exclude = [
   "temporalio/api",
