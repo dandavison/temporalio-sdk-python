@@ -28,7 +28,7 @@ class NexusCallerWorkflow:
             await nexus_client.execute_operation(
                 "op",
                 id,
-                schedule_to_close_timeout=timedelta(seconds=30),
+                schedule_to_close_timeout=timedelta(seconds=60),
             )
         except Exception:
             # Expected for operations that can't get a slot or timeout
