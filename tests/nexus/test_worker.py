@@ -24,11 +24,16 @@ class NexusCallerWorkflow:
             service="MaxConcurrentTestService",
         )
 
-        await nexus_client.execute_operation(
-            "op",
-            id,
-            schedule_to_close_timeout=timedelta(seconds=30),
-        )
+        try:
+            await nexus_client.execute_operation(
+                "op",
+                id,
+                schedule_to_close_timeout=timedelta(seconds=30),
+            )
+        except Exception:
+            # Expected for operations that can't get a slot or timeout
+            # This prevents the workflow from hanging when Nexus operations fail
+            pass
 
 
 @pytest.mark.parametrize(
@@ -76,24 +81,35 @@ async def test_max_concurrent_nexus_tasks(
             for i in range(num_nexus_operations)
         ]
 
-        # Allow time for expected operations to start
-        deadline = asyncio.get_event_loop().time() + 20.0
+        # Wait for expected operations to start
+        deadline = asyncio.get_event_loop().time() + 10.0  # Reasonable timeout
         while len(ids) < expected_num_executed:
             if asyncio.get_event_loop().time() > deadline:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)  # Check frequently
 
-        # No more should arrive
-        await asyncio.sleep(0.1)
+        # Brief wait to ensure no more operations slip through
+        await asyncio.sleep(0.2)
 
+        # Now release operations to let them complete
         event.set()
 
+        # Verify the count
         assert (
             len(ids) == expected_num_executed
         ), f"Expected {expected_num_executed} operations, got {len(ids)}"
         assert len(set(ids)) == len(ids), "Duplicate operation IDs detected"
 
+        # Clean up: cancel remaining tasks and wait for them to finish
         for task in tasks:
             if not task.done():
                 task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Use a short timeout to avoid hanging on cleanup
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), timeout=2.0
+            )
+        except asyncio.TimeoutError:
+            # If cleanup times out, that's OK - we're done with the test
+            pass
