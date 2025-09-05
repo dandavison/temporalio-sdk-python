@@ -27,7 +27,7 @@ class NexusCallerWorkflow:
         await nexus_client.execute_operation(
             "op",
             id,
-            schedule_to_close_timeout=timedelta(seconds=60),
+            schedule_to_close_timeout=timedelta(seconds=30),
         )
 
 
@@ -76,12 +76,14 @@ async def test_max_concurrent_nexus_tasks(
             for i in range(num_nexus_operations)
         ]
 
+        # Poll
         for _ in range(50):  # 5 seconds max
             if len(ids) >= expected_num_executed:
                 break
             await asyncio.sleep(0.1)
 
-        await asyncio.sleep(0.1)
+        # No more should arrive
+        await asyncio.sleep(0.2)
         assert len(ids) == expected_num_executed
         assert len(set(ids)) == len(ids)
 
