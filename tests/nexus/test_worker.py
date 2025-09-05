@@ -76,18 +76,23 @@ async def test_max_concurrent_nexus_tasks(
             for i in range(num_nexus_operations)
         ]
 
-        # Poll
-        for _ in range(50):  # 5 seconds max
-            if len(ids) >= expected_num_executed:
+        # Allow 3s for expected operations to start
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while len(ids) < expected_num_executed:
+            if asyncio.get_event_loop().time() > deadline:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
 
         # No more should arrive
-        await asyncio.sleep(0.2)
-        assert len(ids) == expected_num_executed
-        assert len(set(ids)) == len(ids)
+        await asyncio.sleep(0.1)
 
         event.set()
+
+        assert (
+            len(ids) == expected_num_executed
+        ), f"Expected {expected_num_executed} operations, got {len(ids)}"
+        assert len(set(ids)) == len(ids), "Duplicate operation IDs detected"
+
         for task in tasks:
             if not task.done():
                 task.cancel()
