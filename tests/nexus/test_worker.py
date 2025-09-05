@@ -61,12 +61,16 @@ async def test_max_concurrent_nexus_tasks(
     ) as worker:
         await create_nexus_endpoint(worker.task_queue, client)
 
+        coros = []
         for i in range(10):
-            await client.execute_workflow(
-                NexusCallerWorkflow.run,
-                i,
-                id=str(uuid.uuid4()),
-                task_queue=worker.task_queue,
+            coros.append(
+                client.execute_workflow(
+                    NexusCallerWorkflow.run,
+                    i,
+                    id=str(uuid.uuid4()),
+                    task_queue=worker.task_queue,
+                )
             )
+        await asyncio.gather(*coros)
         event.set()
         print(ids)
