@@ -9,7 +9,6 @@ from datetime import timedelta
 import nexusrpc.handler
 import pytest
 
-import temporalio.exceptions
 from temporalio import workflow
 from temporalio.client import Client
 from tests.helpers import new_worker
@@ -27,19 +26,22 @@ class NexusCallerWorkflow:
             service="MaxConcurrentTestService",
         )
 
-        try:
-            return await nexus_client.execute_operation(
-                "op",
-                id,
-                schedule_to_close_timeout=timedelta(milliseconds=500),
-            )
-        except Exception as err:
-            assert isinstance(err.__cause__, temporalio.exceptions.TimeoutError)
+        await nexus_client.execute_operation(
+            "op",
+            id,
+            schedule_to_close_timeout=timedelta(seconds=60),
+        )
 
 
-@pytest.mark.parametrize("max_concurrent_nexus_tasks", [1])
+@pytest.mark.parametrize(
+    ["num_nexus_operations", "max_concurrent_nexus_tasks", "expected_num_executed"],
+    [(1, 1, 1), (2, 1, 1), (43, 42, 42), (43, 44, 43)],
+)
 async def test_max_concurrent_nexus_tasks(
-    client: Client, max_concurrent_nexus_tasks: int
+    client: Client,
+    max_concurrent_nexus_tasks: int,
+    num_nexus_operations: int,
+    expected_num_executed: int,
 ):
     ids = []
     event = asyncio.Event()
@@ -61,16 +63,19 @@ async def test_max_concurrent_nexus_tasks(
     ) as worker:
         await create_nexus_endpoint(worker.task_queue, client)
 
-        coros = []
-        for i in range(10):
-            coros.append(
-                client.execute_workflow(
-                    NexusCallerWorkflow.run,
-                    i,
-                    id=str(uuid.uuid4()),
-                    task_queue=worker.task_queue,
-                )
+        coros = [
+            client.execute_workflow(
+                NexusCallerWorkflow.run,
+                i,
+                id=str(uuid.uuid4()),
+                task_queue=worker.task_queue,
             )
-        await asyncio.gather(*coros)
+            for i in range(num_nexus_operations)
+        ]
+        try:
+            await asyncio.wait_for(asyncio.gather(*coros), timeout=3)
+        except asyncio.TimeoutError:
+            pass
         event.set()
-        print(ids)
+        assert len(set(ids)) == len(ids)
+        assert len(ids) == expected_num_executed
