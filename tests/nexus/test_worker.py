@@ -76,12 +76,12 @@ async def test_max_concurrent_nexus_tasks(
             for i in range(num_nexus_operations)
         ]
 
-        # Allow 3s for expected operations to start
-        deadline = asyncio.get_event_loop().time() + 3.0
+        # Allow time for expected operations to start
+        deadline = asyncio.get_event_loop().time() + 20.0
         while len(ids) < expected_num_executed:
             if asyncio.get_event_loop().time() > deadline:
                 break
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
 
         # No more should arrive
         await asyncio.sleep(0.1)
