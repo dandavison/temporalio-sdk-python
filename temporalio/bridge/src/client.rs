@@ -117,7 +117,7 @@ macro_rules! rpc_call_on_trait {
 #[pymethods]
 impl ClientRef {
     fn update_metadata(&self, headers: HashMap<String, String>) {
-        self.retry_client.get_client().set_headers(headers);
+        let _ = self.retry_client.get_client().set_headers(headers);
     }
 
     fn update_api_key(&self, api_key: Option<String>) {
