@@ -577,10 +577,7 @@ async def test_throwing_slot_supplier(client: Client, env: WorkflowEnvironment):
     ss = ThrowingSlotSupplier()
 
     tuner = WorkerTuner.create_composite(
-        workflow_supplier=ss,
-        activity_supplier=ss,
-        local_activity_supplier=ss,
-        nexus_supplier=ss,
+        workflow_supplier=ss, activity_supplier=ss, local_activity_supplier=ss
     )
     async with new_worker(
         client,
@@ -616,10 +613,7 @@ async def test_blocking_slot_supplier(client: Client, env: WorkflowEnvironment):
     ss = BlockingSlotSupplier()
 
     tuner = WorkerTuner.create_composite(
-        workflow_supplier=ss,
-        activity_supplier=ss,
-        local_activity_supplier=ss,
-        nexus_supplier=ss,
+        workflow_supplier=ss, activity_supplier=ss, local_activity_supplier=ss
     )
     async with new_worker(
         client,
