@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -53,10 +52,18 @@ async def test_max_concurrent_nexus_tasks(
     if env.supports_time_skipping:
         pytest.skip("Nexus tests don't work with Javas test server")
 
-    if sys.version_info < (3, 11):
-        pytest.skip("Test requires Python 3.11+")
+    class Barrier:
+        def __init__(self, size: int) -> None:
+            self.size = size
+            self.event = asyncio.Event()
 
-    barrier = asyncio.Barrier(num_nexus_operations)  # type: ignore
+        async def wait(self) -> None:
+            if len(self.event._waiters) >= self.size - 1:
+                self.event.set()
+            else:
+                await self.event.wait()
+
+    barrier = Barrier(num_nexus_operations)
 
     @nexusrpc.handler.service_handler
     class MaxConcurrentTestService:
