@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import timedelta
-from typing import Any
+from typing import Any, Sequence
 
 import nexusrpc.handler
 import pytest
@@ -37,17 +37,19 @@ class NexusCallerWorkflow:
 
 
 @pytest.mark.parametrize(
-    ["num_nexus_operations", "max_concurrent_nexus_tasks"],
+    ["num_nexus_operations", "max_concurrent_nexus_tasks", "expect_timeout"],
     [
-        (1, 1),
-        (3, 3),
-        (4, 3),
+        (1, 1, False),
+        (1, 3, False),
+        (3, 3, False),
+        (4, 3, True),
     ],
 )
 async def test_max_concurrent_nexus_tasks(
     env: WorkflowEnvironment,
     max_concurrent_nexus_tasks: int,
     num_nexus_operations: int,
+    expect_timeout: bool,
 ):
     if env.supports_time_skipping:
         pytest.skip("Nexus tests don't work with Javas test server")
@@ -57,8 +59,12 @@ async def test_max_concurrent_nexus_tasks(
             self.size = size
             self.event = asyncio.Event()
 
+        @property
+        def waiters(self) -> Sequence[Any]:
+            return getattr(self.event, "_waiters")
+
         async def wait(self) -> None:
-            if len(self.event._waiters) >= self.size - 1:
+            if len(self.waiters) >= self.size - 1:
                 self.event.set()
             else:
                 await self.event.wait()
@@ -87,9 +93,7 @@ async def test_max_concurrent_nexus_tasks(
             id=str(uuid.uuid4()),
             task_queue=worker.task_queue,
         )
-        if num_nexus_operations <= max_concurrent_nexus_tasks:
-            await execute_operations_concurrently
-        else:
+        if expect_timeout:
             try:
                 await asyncio.wait_for(execute_operations_concurrently, timeout=10)
             except TimeoutError:
@@ -100,3 +104,5 @@ async def test_max_concurrent_nexus_tasks(
                     f"max_concurrent_nexus_tasks={max_concurrent_nexus_tasks}, "
                     f"num_nexus_operations={num_nexus_operations}"
                 )
+        else:
+            await execute_operations_concurrently
