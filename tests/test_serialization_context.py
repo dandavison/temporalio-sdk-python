@@ -1,15 +1,14 @@
-"""Integration tests for SerializationContext feature."""
-
 from __future__ import annotations
 
 import hashlib
+import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List, Optional, Sequence
-
-import pytest
 
 import temporalio.api.common.v1
 from temporalio import activity, workflow
+from temporalio.client import Client
 from temporalio.converter import (
     ActivitySerializationContext,
     DataConverter,
@@ -18,7 +17,6 @@ from temporalio.converter import (
     SerializationContext,
     WorkflowSerializationContext,
 )
-from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 
@@ -175,59 +173,40 @@ class WorkflowWithSignedPayloads:
         )
 
 
-@pytest.mark.asyncio
-async def test_workflow_id_signed_payloads():
+async def test_workflow_id_signed_payloads(client: Client):
     """Test that payloads are signed with workflow ID to prevent replay attacks."""
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        # Create data converter with our signature codec
-        data_converter = DataConverter(
-            payload_converter_class=DefaultPayloadConverter,
-            payload_codec=WorkflowIdSignatureCodec(),
+    # Create data converter with our signature codec
+    data_converter = DataConverter(
+        payload_converter_class=DefaultPayloadConverter,
+        payload_codec=WorkflowIdSignatureCodec(),
+    )
+
+    config = client.config()
+    config["data_converter"] = data_converter
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue="test-signed-payloads",
+        workflows=[WorkflowWithSignedPayloads],
+        activities=[test_activity],
+    ):
+        result = await client.execute_workflow(
+            WorkflowWithSignedPayloads.run,
+            TestInput(message="Hello", value=42),
+            id=f"test-signed-workflow-{uuid.uuid4()}",
+            task_queue="test-signed-payloads",
         )
 
-        # Create client with custom data converter
-        client = env.client
-        client._impl._data_converter = data_converter
+        assert result.result == "Workflow: Processed: Hello"
+        assert result.processed_value == 85  # (42 * 2) + 1
 
-        # Start worker with custom data converter
-        async with Worker(
-            client,
-            task_queue="test-signed-payloads",
-            workflows=[WorkflowWithSignedPayloads],
-            activities=[test_activity],
-            data_converter=data_converter,
-        ):
-            # Execute workflow
-            handle = await client.start_workflow(
-                WorkflowWithSignedPayloads.run,
-                TestInput(message="Hello", value=42),
-                id=f"test-signed-workflow-{uuid.uuid4()}",
-                task_queue="test-signed-payloads",
-            )
+        # TODO: This test should fail because the SDK doesn't actually pass
+        # SerializationContext to the codec yet. Once implemented, the codec
+        # will receive the workflow ID in the context and be able to sign
+        # payloads properly.
 
-            # Wait for result
-            result = await handle.result()
-
-            # Verify result
-            assert result.result == "Workflow: Processed: Hello"
-            assert result.processed_value == 85  # (42 * 2) + 1
-
-            # TODO: This test should fail because the SDK doesn't actually pass
-            # SerializationContext to the codec yet. Once implemented, the codec
-            # will receive the workflow ID in the context and be able to sign
-            # payloads properly.
-
-            # The test will pass initially because without context, the codec
-            # doesn't sign anything. Once we start passing context, we can
-            # add a flag to verify that signing actually happened.
-
-
-import uuid
-from datetime import timedelta
-
-if __name__ == "__main__":
-    # Run the test directly
-    import asyncio
-
-    asyncio.run(test_workflow_id_signed_payloads())
+        # The test will pass initially because without context, the codec
+        # doesn't sign anything. Once we start passing context, we can
+        # add a flag to verify that signing actually happened.
