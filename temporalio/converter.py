@@ -65,6 +65,45 @@ if sys.version_info >= (3, 10):
 logger = getLogger(__name__)
 
 
+# Serialization Context Classes
+class SerializationContext(ABC):
+    """Base class for serialization context.
+
+    .. warning::
+        This is an experimental API and may change.
+    """
+
+    pass
+
+
+@dataclass(frozen=True)
+class WorkflowSerializationContext(SerializationContext):
+    """Serialization context for workflow-related operations.
+
+    .. warning::
+        This is an experimental API and may change.
+    """
+
+    namespace: str
+    workflow_id: str
+
+
+@dataclass(frozen=True)
+class ActivitySerializationContext(SerializationContext):
+    """Serialization context for activity-related operations.
+
+    .. warning::
+        This is an experimental API and may change.
+    """
+
+    namespace: str
+    workflow_id: str
+    workflow_type: str
+    activity_type: str
+    activity_task_queue: str
+    is_local: bool
+
+
 class PayloadConverter(ABC):
     """Base payload converter to/from multiple payloads/values."""
 
