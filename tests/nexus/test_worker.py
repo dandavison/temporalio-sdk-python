@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 import uuid
 from datetime import timedelta
 from typing import Any
@@ -53,10 +52,7 @@ async def test_max_concurrent_nexus_tasks(
     if env.supports_time_skipping:
         pytest.skip("Nexus tests don't work with Javas test server")
 
-    if sys.version_info < (3, 11):
-        pytest.skip("Test requires Python 3.11+")
-
-    barrier = asyncio.Barrier(num_nexus_operations)  # type: ignore
+    barrier = Barrier(num_nexus_operations)
 
     @nexusrpc.handler.service_handler
     class MaxConcurrentTestService:
@@ -93,3 +89,35 @@ async def test_max_concurrent_nexus_tasks(
                     f"max_concurrent_nexus_tasks={max_concurrent_nexus_tasks}, "
                     f"num_nexus_operations={num_nexus_operations}"
                 )
+
+
+# Minimal implementation of asyncio.Barrier for Python 3.9+ compatibility
+
+
+class Barrier:
+    """Minimal implementation of asyncio.Barrier for Python 3.9+ compatibility.
+
+    This is a simplified version that only implements the wait() method needed
+    for this test. All tasks block until exactly 'parties' tasks have called
+    wait(), then all are released simultaneously.
+    """
+
+    def __init__(self, parties: int):
+        """Create a barrier for 'parties' tasks."""
+        if parties < 1:
+            raise ValueError("parties must be > 0")
+        self._parties = parties
+        self._count = 0
+        self._lock = asyncio.Lock()
+        self._event = asyncio.Event()
+
+    async def wait(self) -> None:
+        """Wait for all parties to reach the barrier."""
+        async with self._lock:
+            self._count += 1
+            if self._count == self._parties:
+                # Last one in, release everyone
+                self._event.set()
+
+        # Wait for all parties to arrive
+        await self._event.wait()
