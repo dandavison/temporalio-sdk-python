@@ -81,6 +81,10 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
+    config = client.config()
+    config["data_converter"] = data_converter
+    client = Client(**config)
+
     async with Worker(
         client,
         task_queue=task_queue,
