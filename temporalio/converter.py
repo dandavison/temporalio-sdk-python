@@ -1306,7 +1306,8 @@ class DataConverter:
 
     def _with_context(self, context: Optional[SerializationContext]) -> Self:
         new_self = type(self).__new__(type(self))
-        setattr(
+        # Use object.__setattr__ for frozen dataclass
+        object.__setattr__(
             new_self,
             "payload_converter",
             (
@@ -1315,7 +1316,7 @@ class DataConverter:
                 else self.payload_converter
             ),
         )
-        setattr(
+        object.__setattr__(
             new_self,
             "payload_codec",
             (
@@ -1324,7 +1325,7 @@ class DataConverter:
                 else self.payload_codec
             ),
         )
-        setattr(
+        object.__setattr__(
             new_self,
             "failure_converter",
             (
@@ -1333,6 +1334,10 @@ class DataConverter:
                 else self.failure_converter
             ),
         )
+        # Also need to copy over the class attributes
+        object.__setattr__(new_self, "payload_converter_class", self.payload_converter_class)
+        object.__setattr__(new_self, "payload_codec", self.payload_codec)
+        object.__setattr__(new_self, "failure_converter_class", self.failure_converter_class)
         return new_self
 
 
