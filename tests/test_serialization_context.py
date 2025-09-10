@@ -62,11 +62,14 @@ class SerializationContextTestEncodingPayloadConverter(
 
 
 class SerializationContextTestPayloadConverter(CompositePayloadConverter):
-    def __init__(self):
-        super().__init__(
-            SerializationContextTestEncodingPayloadConverter(None),
-            *DefaultPayloadConverter.default_encoding_payload_converters,
-        )
+    def __init__(self, *converters):
+        # If no converters provided, use our defaults
+        if not converters:
+            converters = (
+                SerializationContextTestEncodingPayloadConverter(None),
+                *DefaultPayloadConverter.default_encoding_payload_converters,
+            )
+        super().__init__(*converters)
 
 
 data_converter = dataclasses.replace(
