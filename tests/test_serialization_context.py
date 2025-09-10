@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional, Type
@@ -22,7 +23,10 @@ from temporalio.worker import Worker
 
 @dataclass
 class WorkflowData:
-    workflow_context: Optional[WorkflowSerializationContext] = None
+    # Context captured during to_payload (when sending data to workflow)
+    to_payload_context: Optional[WorkflowSerializationContext] = None
+    # Context captured during from_payload (when receiving data from workflow)
+    from_payload_context: Optional[WorkflowSerializationContext] = None
 
 
 @workflow.defn
@@ -35,7 +39,7 @@ class SerializationContextTestWorkflow:
 class SerializationContextTestEncodingPayloadConverter(
     EncodingPayloadConverter, WithSerializationContext
 ):
-    def __init__(self, context: Optional[SerializationContext]):
+    def __init__(self, context: Optional[SerializationContext] = None):
         self.context = context
 
     @property
@@ -45,23 +49,60 @@ class SerializationContextTestEncodingPayloadConverter(
     def with_context(
         self, context: Optional[SerializationContext]
     ) -> SerializationContextTestEncodingPayloadConverter:
-        print(
-            f"🌈 SerializationContextTestEncodingPayloadConverter.with_context({context})"
-        )
         return SerializationContextTestEncodingPayloadConverter(context)
 
     def to_payload(self, value: Any) -> Optional[Payload]:
         # Only process WorkflowData
-        if isinstance(value, WorkflowData):
-            # Set the context on the input when serializing
-            assert isinstance(self.context, WorkflowSerializationContext)
-            value.workflow_context = self.context
-        # Return None to let other converters handle the actual serialization
-        return None
+        if not isinstance(value, WorkflowData):
+            return None
+            
+        # Capture the context when serializing
+        if self.context:
+            value.to_payload_context = self.context
+            
+        # Serialize the data
+        data = {
+            "to_payload_context": {
+                "namespace": value.to_payload_context.namespace,
+                "workflow_id": value.to_payload_context.workflow_id,
+            } if value.to_payload_context else None,
+            "from_payload_context": {
+                "namespace": value.from_payload_context.namespace,
+                "workflow_id": value.from_payload_context.workflow_id,
+            } if value.from_payload_context else None,
+        }
+        
+        return Payload(
+            metadata={"encoding": self.encoding.encode()},
+            data=json.dumps(data).encode(),
+        )
 
     def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
-        raise RuntimeError("Not implemented")
-        # return payload.data.decode()
+        # Check encoding
+        if payload.metadata.get("encoding", b"") != self.encoding.encode():
+            return None
+            
+        # Deserialize the data
+        data = json.loads(payload.data.decode())
+        result = WorkflowData()
+        
+        # Restore the serialized contexts
+        if data.get("to_payload_context"):
+            result.to_payload_context = WorkflowSerializationContext(
+                namespace=data["to_payload_context"]["namespace"],
+                workflow_id=data["to_payload_context"]["workflow_id"],
+            )
+        if data.get("from_payload_context"):
+            result.from_payload_context = WorkflowSerializationContext(
+                namespace=data["from_payload_context"]["namespace"],
+                workflow_id=data["from_payload_context"]["workflow_id"],
+            )
+            
+        # Capture the current context during deserialization
+        if self.context and isinstance(self.context, WorkflowSerializationContext):
+            result.from_payload_context = self.context
+            
+        return result
 
 
 class SerializationContextTestPayloadConverter(CompositePayloadConverter):
@@ -106,7 +147,14 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
             task_queue=task_queue,
         )
 
-        assert result.workflow_context == WorkflowSerializationContext(
+        # Check that context was captured during serialization to workflow (input)
+        assert result.to_payload_context == WorkflowSerializationContext(
+            namespace="default",
+            workflow_id=workflow_id,
+        )
+        
+        # Check that context was captured during deserialization from workflow (result)
+        assert result.from_payload_context == WorkflowSerializationContext(
             namespace="default",
             workflow_id=workflow_id,
         )
