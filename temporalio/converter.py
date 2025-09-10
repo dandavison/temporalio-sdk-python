@@ -1332,9 +1332,13 @@ class DataConverter:
             ),
         )
         # Also need to copy over the class attributes
-        object.__setattr__(new_self, "payload_converter_class", self.payload_converter_class)
+        object.__setattr__(
+            new_self, "payload_converter_class", self.payload_converter_class
+        )
         object.__setattr__(new_self, "payload_codec", self.payload_codec)
-        object.__setattr__(new_self, "failure_converter_class", self.failure_converter_class)
+        object.__setattr__(
+            new_self, "failure_converter_class", self.failure_converter_class
+        )
         return new_self
 
 

@@ -1694,7 +1694,7 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
                     type_hints = [self._result_type] if self._result_type else None
                     # Apply context if data converter supports it
                     data_converter = self._client.data_converter
-                    if hasattr(data_converter, '_with_context'):
+                    if hasattr(data_converter, "_with_context"):
                         context = temporalio.converter.WorkflowSerializationContext(
                             namespace=self._client.namespace,
                             workflow_id=self._id,
