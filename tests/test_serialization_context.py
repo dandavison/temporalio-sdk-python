@@ -51,7 +51,6 @@ class SerializationContextTestEncodingPayloadConverter(
         return SerializationContextTestEncodingPayloadConverter(context)
 
     def to_payload(self, value: Any) -> Optional[Payload]:
-        assert isinstance(self.context, WorkflowSerializationContext)
         value.workflow_context = self.context
         return None
 
@@ -62,7 +61,7 @@ class SerializationContextTestEncodingPayloadConverter(
 
 class SerializationContextTestPayloadConverter(CompositePayloadConverter):
     def __init__(self, *converters):
-        # If no converters provided, use our defaults
+        # TODO: we cannot expect users to do this
         if not converters:
             converters = (
                 SerializationContextTestEncodingPayloadConverter(None),
@@ -100,6 +99,7 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
             task_queue=task_queue,
         )
 
+        assert isinstance(result.workflow_context, WorkflowSerializationContext)
         assert result.workflow_context == WorkflowSerializationContext(
             namespace="default",
             workflow_id=workflow_id,
