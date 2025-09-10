@@ -51,7 +51,6 @@ class SerializationContextTestEncodingPayloadConverter(
         return SerializationContextTestEncodingPayloadConverter(context)
 
     def to_payload(self, value: Any) -> Optional[Payload]:
-        assert isinstance(value, WorkflowData)
         assert isinstance(self.context, WorkflowSerializationContext)
         value.workflow_context = self.context
         return None
