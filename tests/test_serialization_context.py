@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Type
 
 from temporalio import workflow
@@ -21,14 +21,22 @@ from temporalio.worker import Worker
 
 
 @dataclass
-class WorkflowData:
-    workflow_context: Optional[WorkflowSerializationContext] = None
+class PayloadConverterTraceData:
+    to_payload: Optional[WorkflowSerializationContext] = None
+    from_payload: Optional[WorkflowSerializationContext] = None
+
+
+@dataclass
+class TraceData:
+    workflow_context: PayloadConverterTraceData = field(
+        default_factory=PayloadConverterTraceData
+    )
 
 
 @workflow.defn
 class SerializationContextTestWorkflow:
     @workflow.run
-    async def run(self, input: WorkflowData) -> WorkflowData:
+    async def run(self, input: TraceData) -> TraceData:
         return input
 
 
@@ -51,7 +59,7 @@ class SerializationContextTestEncodingPayloadConverter(
         return SerializationContextTestEncodingPayloadConverter(context)
 
     def to_payload(self, value: Any) -> Optional[Payload]:
-        value.workflow_context = self.context
+        value.workflow_context.to_payload = self.context
         return None
 
     def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
@@ -94,13 +102,12 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
     ):
         result = await client.execute_workflow(
             SerializationContextTestWorkflow.run,
-            WorkflowData(),
+            TraceData(),
             id=workflow_id,
             task_queue=task_queue,
         )
 
-        assert isinstance(result.workflow_context, WorkflowSerializationContext)
-        assert result.workflow_context == WorkflowSerializationContext(
+        assert result.workflow_context.to_payload == WorkflowSerializationContext(
             namespace="default",
             workflow_id=workflow_id,
         )
