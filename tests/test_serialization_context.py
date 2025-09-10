@@ -51,12 +51,9 @@ class SerializationContextTestEncodingPayloadConverter(
         return SerializationContextTestEncodingPayloadConverter(context)
 
     def to_payload(self, value: Any) -> Optional[Payload]:
-        # Only process WorkflowData
-        if isinstance(value, WorkflowData):
-            # Set the context on the input when serializing
-            assert isinstance(self.context, WorkflowSerializationContext)
-            value.workflow_context = self.context
-        # Return None to let other converters handle the actual serialization
+        assert isinstance(value, WorkflowData)
+        assert isinstance(self.context, WorkflowSerializationContext)
+        value.workflow_context = self.context
         return None
 
     def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
@@ -65,17 +62,15 @@ class SerializationContextTestEncodingPayloadConverter(
 
 
 class SerializationContextTestPayloadConverter(CompositePayloadConverter):
-    def __init__(self, *converters):
-        # If no converters provided, use our defaults
-        if not converters:
-            converters = (
-                SerializationContextTestEncodingPayloadConverter(None),
-                *DefaultPayloadConverter.default_encoding_payload_converters,
-            )
-        super().__init__(*converters)
+    def __init__(self):
+        super().__init__(
+            SerializationContextTestEncodingPayloadConverter(None),
+            *DefaultPayloadConverter.default_encoding_payload_converters,
+        )
 
 
-data_converter = DataConverter(
+data_converter = dataclasses.replace(
+    DataConverter.default,
     payload_converter_class=SerializationContextTestPayloadConverter,
 )
 
@@ -86,20 +81,13 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    # Create client with custom data converter
-    client_with_converter = Client(
-        service_client=client.service_client,
-        namespace=client.namespace,
-        data_converter=data_converter,
-    )
-    
     async with Worker(
-        client_with_converter,
+        client,
         task_queue=task_queue,
         workflows=[SerializationContextTestWorkflow],
         activities=[],
     ):
-        result = await client_with_converter.execute_workflow(
+        result = await client.execute_workflow(
             SerializationContextTestWorkflow.run,
             WorkflowData(),
             id=workflow_id,
