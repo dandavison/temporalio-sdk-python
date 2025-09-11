@@ -13,8 +13,10 @@ from temporalio.converter import (
     ActivitySerializationContext,
     CompositePayloadConverter,
     DataConverter,
+    DefaultFailureConverter,
     DefaultPayloadConverter,
     EncodingPayloadConverter,
+    FailureConverter,
     JSONPlainPayloadConverter,
     PayloadCodec,
     SerializationContext,
@@ -380,3 +382,87 @@ async def test_codec_serialization_context(client: Client):
         operations = {op for op, ctx in codec.contexts_seen}
         assert "encode" in operations
         assert "decode" in operations
+
+
+@workflow.defn(sandboxed=False)
+class FailingWorkflow:
+    @workflow.run
+    async def run(self, message: str) -> str:
+        from temporalio.exceptions import ApplicationError
+        raise ApplicationError(f"Intentional failure: {message}", non_retryable=True)
+
+
+@activity.defn
+async def failing_activity(message: str) -> str:
+    raise RuntimeError(f"Activity failed: {message}")
+
+
+class SerializationContextTestFailureConverter(
+    DefaultFailureConverter, WithSerializationContext
+):
+    def __init__(self):
+        super().__init__()
+        self.context: Optional[SerializationContext] = None
+        self.contexts_seen = []
+    
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> SerializationContextTestFailureConverter:
+        converter = SerializationContextTestFailureConverter()
+        converter.context = context
+        converter.contexts_seen = self.contexts_seen  # Share the list
+        return converter
+    
+    def to_failure(self, exception, payload_converter, failure):
+        if self.context:
+            self.contexts_seen.append(("to_failure", self.context, str(exception)))
+        super().to_failure(exception, payload_converter, failure)
+    
+    def from_failure(self, failure, payload_converter):
+        if self.context:
+            self.contexts_seen.append(("from_failure", self.context, failure.message))
+        return super().from_failure(failure, payload_converter)
+
+
+async def test_failure_converter_serialization_context(client: Client):
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    
+    failure_converter = SerializationContextTestFailureConverter()
+    
+    class TestFailureConverterClass(FailureConverter):
+        def __new__(cls):
+            return failure_converter
+    
+    data_converter_with_failure = dataclasses.replace(
+        DataConverter.default,
+        failure_converter_class=TestFailureConverterClass,
+    )
+    
+    config = client.config()
+    config["data_converter"] = data_converter_with_failure
+    client = Client(**config)
+    
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[FailingWorkflow],
+        activities=[failing_activity],
+    ):
+        # Test workflow failure
+        try:
+            await client.execute_workflow(
+                FailingWorkflow.run,
+                "test",
+                id=workflow_id,
+                task_queue=task_queue,
+            )
+            assert False, "Should have failed"
+        except Exception:
+            pass
+        
+        # Verify failure converter saw context
+        print(f"Contexts seen: {failure_converter.contexts_seen}")
+        assert len(failure_converter.contexts_seen) > 0
+        operations = {op for op, ctx, msg in failure_converter.contexts_seen}
+        assert "from_failure" in operations  # Client sees failure when decoding
