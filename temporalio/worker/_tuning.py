@@ -391,15 +391,12 @@ class WorkerTuner(ABC):
     @staticmethod
     def create_fixed(
         *,
-        workflow_slots: Optional[int] = None,
-        activity_slots: Optional[int] = None,
-        local_activity_slots: Optional[int] = None,
-        nexus_slots: Optional[int] = None,
+        workflow_slots: Optional[int],
+        activity_slots: Optional[int],
+        local_activity_slots: Optional[int],
+        nexus_slots: Optional[int],
     ) -> WorkerTuner:
-        """Create a fixed-size tuner with the provided number of slots.
-
-        Any unspecified slot numbers will default to 100.
-        """
+        """Create a fixed-size tuner with the provided number of slots. Any unspecified slots will default to 100."""
         return _CompositeTuner(
             FixedSizeSlotSupplier(workflow_slots if workflow_slots else 100),
             FixedSizeSlotSupplier(activity_slots if activity_slots else 100),
@@ -412,20 +409,17 @@ class WorkerTuner(ABC):
     @staticmethod
     def create_composite(
         *,
-        workflow_supplier: Optional[SlotSupplier] = None,
-        activity_supplier: Optional[SlotSupplier] = None,
-        local_activity_supplier: Optional[SlotSupplier] = None,
-        nexus_supplier: Optional[SlotSupplier] = None,
+        workflow_supplier: SlotSupplier,
+        activity_supplier: SlotSupplier,
+        local_activity_supplier: SlotSupplier,
+        nexus_supplier: SlotSupplier,
     ) -> WorkerTuner:
-        """Create a tuner composed of the provided slot suppliers.
-
-        Any unspecified slot suppliers will default to :py:class:`FixedSizeSlotSupplier` with a capacity of 100.
-        """
+        """Create a tuner composed of the provided slot suppliers."""
         return _CompositeTuner(
-            workflow_supplier or FixedSizeSlotSupplier(100),
-            activity_supplier or FixedSizeSlotSupplier(100),
-            local_activity_supplier or FixedSizeSlotSupplier(100),
-            nexus_supplier or FixedSizeSlotSupplier(100),
+            workflow_supplier,
+            activity_supplier,
+            local_activity_supplier,
+            nexus_supplier,
         )
 
     @abstractmethod
