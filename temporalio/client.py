@@ -1692,7 +1692,14 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
                         break
                     # Ignoring anything after the first response like TypeScript
                     type_hints = [self._result_type] if self._result_type else None
-                    results = await self._client.data_converter.decode_wrapper(
+                    context = temporalio.converter.WorkflowSerializationContext(
+                        namespace=self._client.namespace,
+                        workflow_id=self._id,
+                    )
+                    data_converter = self._client.data_converter
+                    if isinstance(data_converter, temporalio.converter.DataConverter):
+                        data_converter = data_converter._with_context(context)
+                    results = await data_converter.decode_wrapper(
                         complete_attr.result,
                         type_hints,
                     )
