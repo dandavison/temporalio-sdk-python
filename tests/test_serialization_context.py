@@ -462,7 +462,6 @@ async def test_failure_converter_serialization_context(client: Client):
             pass
         
         # Verify failure converter saw context
-        print(f"Contexts seen: {failure_converter.contexts_seen}")
         assert len(failure_converter.contexts_seen) > 0
         operations = {op for op, ctx, msg in failure_converter.contexts_seen}
         assert "from_failure" in operations  # Client sees failure when decoding

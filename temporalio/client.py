@@ -1714,8 +1714,15 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
                     if follow_runs and fail_attr.new_execution_run_id:
                         hist_run_id = fail_attr.new_execution_run_id
                         break
+                    context = temporalio.converter.WorkflowSerializationContext(
+                        namespace=self._client.namespace,
+                        workflow_id=self._id,
+                    )
+                    data_converter = self._client.data_converter
+                    if isinstance(data_converter, temporalio.converter.DataConverter):
+                        data_converter = data_converter._with_context(context)
                     raise WorkflowFailureError(
-                        cause=await self._client.data_converter.decode_failure(
+                        cause=await data_converter.decode_failure(
                             fail_attr.failure
                         ),
                     )
