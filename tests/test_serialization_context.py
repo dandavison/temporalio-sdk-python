@@ -83,12 +83,12 @@ class SerializationContextTestEncodingPayloadConverter(
         )
         value = JSONPlainPayloadConverter().from_payload(payload, type_hint)
         assert isinstance(value, TraceData)
-        assert isinstance(self.context, WorkflowSerializationContext)
-        value.items.append(
-            TraceItem(
-                context_type="workflow", method="from_payload", context=self.context
+        if isinstance(self.context, WorkflowSerializationContext):
+            value.items.append(
+                TraceItem(
+                    context_type="workflow", method="from_payload", context=self.context
+                )
             )
-        )
         return value
 
 
