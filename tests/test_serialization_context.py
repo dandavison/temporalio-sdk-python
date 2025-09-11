@@ -58,6 +58,64 @@ class WorkflowWithActivity:
         )
 
 
+@workflow.defn(sandboxed=False)
+class ChildWorkflow:
+    @workflow.run
+    async def run(self, input: TraceData) -> TraceData:
+        return input
+
+
+@workflow.defn(sandboxed=False)
+class ComprehensiveWorkflow:
+    def __init__(self) -> None:
+        self.signal_data: Optional[TraceData] = None
+        self.update_data: Optional[TraceData] = None
+        
+    @workflow.run
+    async def run(self, input: TraceData) -> TraceData:
+        # Test activity
+        activity_result = await workflow.execute_activity(
+            passthrough_activity,
+            input,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        
+        # Test child workflow
+        child_result = await workflow.execute_child_workflow(
+            ChildWorkflow.run,
+            activity_result,
+            id=f"child-{workflow.info().workflow_id}",
+        )
+        
+        # Wait for signal
+        await workflow.wait_condition(lambda: self.signal_data is not None)
+        
+        # Wait for update
+        await workflow.wait_condition(lambda: self.update_data is not None)
+        
+        # Combine all results
+        combined = TraceData(items=child_result.items[:])
+        if self.signal_data:
+            combined.items.extend(self.signal_data.items)
+        if self.update_data:
+            combined.items.extend(self.update_data.items)
+        
+        return combined
+    
+    @workflow.signal
+    def my_signal(self, data: TraceData) -> None:
+        self.signal_data = data
+    
+    @workflow.update
+    async def my_update(self, data: TraceData) -> TraceData:
+        self.update_data = data
+        return data
+    
+    @workflow.query
+    def my_query(self, data: TraceData) -> TraceData:
+        return data
+
+
 class SerializationContextTestEncodingPayloadConverter(
     EncodingPayloadConverter, WithSerializationContext
 ):
@@ -191,3 +249,48 @@ async def test_activity_payload_conversion_has_context(client: Client):
         )
 
         assert any(item.context_type == "activity" for item in result.items)
+
+
+async def test_comprehensive_serialization_context(client: Client):
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    config = client.config()
+    config["data_converter"] = data_converter
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[ComprehensiveWorkflow, ChildWorkflow],
+        activities=[passthrough_activity],
+    ):
+        # Start workflow
+        handle = await client.start_workflow(
+            ComprehensiveWorkflow.run,
+            TraceData(),
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+        
+        # Send signal
+        await handle.signal(ComprehensiveWorkflow.my_signal, TraceData())
+        
+        # Send update  
+        await handle.execute_update(ComprehensiveWorkflow.my_update, TraceData())
+        
+        # Send query
+        await handle.query(ComprehensiveWorkflow.my_query, TraceData())
+        
+        # Get result
+        result = await handle.result()
+        
+        # Verify we have contexts for all operations
+        context_types = {item.context_type for item in result.items}
+        assert "workflow" in context_types
+        assert "activity" in context_types
+        
+        # Verify both to_payload and from_payload were called for each
+        methods = {item.method for item in result.items}
+        assert "to_payload" in methods
+        assert "from_payload" in methods
