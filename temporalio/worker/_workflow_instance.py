@@ -803,9 +803,14 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             ret: Optional[Any] = None
             if job.result.completed.HasField("result"):
                 ret_types = [handle._input.ret_type] if handle._input.ret_type else None
+                context = temporalio.converter.WorkflowSerializationContext(
+                    namespace=self._info.namespace,
+                    workflow_id=self._info.workflow_id,
+                )
                 ret_vals = self._convert_payloads(
                     [job.result.completed.result],
                     ret_types,
+                    context,
                 )
                 ret = ret_vals[0]
             handle._resolve_success(ret)
