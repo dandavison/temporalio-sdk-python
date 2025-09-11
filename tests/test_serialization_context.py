@@ -83,12 +83,12 @@ class SerializationContextTestEncodingPayloadConverter(
         )
         value = JSONPlainPayloadConverter().from_payload(payload, type_hint)
         assert isinstance(value, TraceData)
-        if isinstance(self.context, WorkflowSerializationContext):
-            value.items.append(
-                TraceItem(
-                    context_type="workflow", method="from_payload", context=self.context
-                )
+        assert isinstance(self.context, WorkflowSerializationContext)
+        value.items.append(
+            TraceItem(
+                context_type="workflow", method="from_payload", context=self.context
             )
+        )
         return value
 
 
@@ -132,9 +132,8 @@ async def test_workflow_payload_conversion_can_be_given_access_to_serialization_
             task_queue=task_queue,
         )
 
-        workflow_context = WorkflowSerializationContext(
-            namespace="default",
-            workflow_id=workflow_id,
-        )
-        for item in result.items:
-            print(item)
+        assert len(result.items) == 4
+        assert result.items[0].method == "to_payload"
+        assert result.items[1].method == "from_payload"
+        assert result.items[2].method == "to_payload"
+        assert result.items[3].method == "from_payload"
