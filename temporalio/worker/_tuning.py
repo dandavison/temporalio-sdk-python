@@ -391,12 +391,15 @@ class WorkerTuner(ABC):
     @staticmethod
     def create_fixed(
         *,
-        workflow_slots: Optional[int],
-        activity_slots: Optional[int],
-        local_activity_slots: Optional[int],
-        nexus_slots: Optional[int],
+        workflow_slots: Optional[int] = None,
+        activity_slots: Optional[int] = None,
+        local_activity_slots: Optional[int] = None,
+        nexus_slots: Optional[int] = None,
     ) -> WorkerTuner:
-        """Create a fixed-size tuner with the provided number of slots. Any unspecified slots will default to 100."""
+        """Create a fixed-size tuner with the provided number of slots.
+
+        Any unspecified slot numbers will default to 100.
+        """
         return _CompositeTuner(
             FixedSizeSlotSupplier(workflow_slots if workflow_slots else 100),
             FixedSizeSlotSupplier(activity_slots if activity_slots else 100),
