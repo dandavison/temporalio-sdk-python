@@ -1722,9 +1722,7 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
                     if isinstance(data_converter, temporalio.converter.DataConverter):
                         data_converter = data_converter._with_context(context)
                     raise WorkflowFailureError(
-                        cause=await data_converter.decode_failure(
-                            fail_attr.failure
-                        ),
+                        cause=await data_converter.decode_failure(fail_attr.failure),
                     )
                 elif event.HasField("workflow_execution_canceled_event_attributes"):
                     cancel_attr = event.workflow_execution_canceled_event_attributes
