@@ -55,6 +55,7 @@ import temporalio.api.workflow.v1
 import temporalio.api.workflowservice.v1
 import temporalio.common
 import temporalio.converter
+from temporalio.converter import WorkflowSerializationContext
 import temporalio.exceptions
 import temporalio.nexus
 import temporalio.nexus._operation_context
@@ -6099,8 +6100,13 @@ class _ClientImpl(OutboundInterceptor):
             request_id=str(uuid.uuid4()),
         )
         if input.args:
+            # Create workflow context for signal serialization
+            context = WorkflowSerializationContext(
+                namespace=self._client.namespace,
+                workflow_id=input.id,
+            )
             req.input.payloads.extend(
-                await self._client.data_converter.encode(input.args)
+                await self._client.data_converter._with_context(context).encode(input.args)
             )
         if input.headers is not None:
             await self._apply_headers(input.headers, req.header.fields)

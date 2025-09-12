@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import inspect
+import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -454,19 +455,15 @@ async def test_signal_payload_conversion_can_be_given_access_to_serialization_co
     task_queue = str(uuid.uuid4())
 
     # Create client with our custom data converter
-    data_converter = DataConverter(
-        payload_converter=SignalSerializationContextTestPayloadConverter(),
-        failure_converter=DataConverter.default.failure_converter,
+    data_converter = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SignalSerializationContextTestPayloadConverter,
     )
 
     # Create a new client with the custom data converter
-    from temporalio.client import Client as TemporalClient
-
-    custom_client = TemporalClient(
-        client.service_client,
-        namespace=client.namespace,
-        data_converter=data_converter,
-    )
+    config = client.config()
+    config["data_converter"] = data_converter
+    custom_client = Client(**config)
 
     async with Worker(
         custom_client,
