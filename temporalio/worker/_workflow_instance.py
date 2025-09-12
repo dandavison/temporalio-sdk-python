@@ -719,7 +719,13 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                         headers=job.headers,
                     )
                     success = await self._inbound.handle_query(input)
-                    result_payloads = self._payload_converter.to_payloads([success])
+                    # Use context for query result serialization
+                    converter = self._payload_converter
+                    if isinstance(
+                        converter, temporalio.converter.WithSerializationContext
+                    ):
+                        converter = converter.with_context(context)
+                    result_payloads = converter.to_payloads([success])
                     if len(result_payloads) != 1:
                         raise ValueError(
                             f"Expected 1 result payload, got {len(result_payloads)}"
