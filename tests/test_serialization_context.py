@@ -625,3 +625,144 @@ async def test_query_payload_conversion_can_be_given_access_to_serialization_con
 
         # Cancel the workflow to clean up
         await handle.cancel()
+
+
+# Update test
+
+
+@dataclass
+class UpdateData:
+    update_context: Optional[WorkflowSerializationContext] = None
+    value: str = ""
+
+
+@workflow.defn
+class UpdateSerializationContextTestWorkflow:
+    def __init__(self) -> None:
+        self.state = UpdateData(value="initial")
+
+    @workflow.run
+    async def run(self) -> UpdateData:
+        # Keep workflow running until we get an update
+        await workflow.wait_condition(lambda: self.state.update_context is not None)
+        return self.state
+
+    @workflow.update
+    async def my_update(self, data: UpdateData) -> UpdateData:
+        self.state = data
+        return data
+
+
+class UpdateSerializationContextTestEncodingPayloadConverter(
+    EncodingPayloadConverter, WithSerializationContext
+):
+    def __init__(self, context: Optional[SerializationContext] = None):
+        self.context = context
+
+    @property
+    def encoding(self) -> str:
+        return "test-update-serialization-context"
+
+    def with_context(self, context: Optional[SerializationContext]) -> Self:
+        return UpdateSerializationContextTestEncodingPayloadConverter(context)
+
+    def to_payload(self, value: Any) -> Optional[Payload]:
+        # Only handle UpdateData objects
+        if not isinstance(value, UpdateData):
+            return None
+
+        # Inject the context if it's a workflow context
+        if isinstance(self.context, WorkflowSerializationContext):
+            value.update_context = self.context
+
+        # Serialize as JSON
+        data = {
+            "update_context": (
+                {
+                    "namespace": value.update_context.namespace,
+                    "workflow_id": value.update_context.workflow_id,
+                }
+                if value.update_context
+                else None
+            ),
+            "value": value.value,
+        }
+        return Payload(
+            metadata={"encoding": self.encoding.encode()},
+            data=json.dumps(data).encode(),
+        )
+
+    def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
+        data = json.loads(payload.data.decode())
+        ctx_data = data.get("update_context")
+        return UpdateData(
+            update_context=(
+                WorkflowSerializationContext(**ctx_data) if ctx_data else None
+            ),
+            value=data.get("value", ""),
+        )
+
+
+class UpdateSerializationContextTestPayloadConverter(CompositePayloadConverter):
+    def __init__(self, context: Optional[SerializationContext] = None):
+        # Create converters with context
+        converters = [
+            UpdateSerializationContextTestEncodingPayloadConverter(context),
+            *DefaultPayloadConverter.default_encoding_payload_converters,
+        ]
+        super().__init__(*converters)
+        self.context = context
+
+    def with_context(self, context: Optional[SerializationContext]) -> Self:
+        return UpdateSerializationContextTestPayloadConverter(context)
+
+
+async def test_update_payload_conversion_can_be_given_access_to_serialization_context(
+    client: Client,
+):
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    # Create client with our custom data converter
+    data_converter = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=UpdateSerializationContextTestPayloadConverter,
+    )
+
+    # Create a new client with the custom data converter
+    config = client.config()
+    config["data_converter"] = data_converter
+    custom_client = Client(**config)
+
+    async with Worker(
+        custom_client,
+        task_queue=task_queue,
+        workflows=[UpdateSerializationContextTestWorkflow],
+        activities=[],
+    ):
+        # Start the workflow
+        handle = await custom_client.start_workflow(
+            UpdateSerializationContextTestWorkflow.run,
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+
+        # Send an update
+        result = await handle.execute_update(
+            UpdateSerializationContextTestWorkflow.my_update,
+            UpdateData(value="updated"),
+        )
+
+        # Verify the update context was injected
+        assert result.update_context == WorkflowSerializationContext(
+            namespace="default",
+            workflow_id=workflow_id,
+        )
+        assert result.value == "updated"
+
+        # Get the workflow result
+        workflow_result = await handle.result()
+        assert workflow_result.update_context == WorkflowSerializationContext(
+            namespace="default",
+            workflow_id=workflow_id,
+        )
