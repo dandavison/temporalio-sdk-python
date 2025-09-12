@@ -493,3 +493,135 @@ async def test_signal_payload_conversion_can_be_given_access_to_serialization_co
             workflow_id=workflow_id,
         )
         assert result.value == "test-signal"
+
+
+# Query test
+
+
+@dataclass
+class QueryData:
+    query_context: Optional[WorkflowSerializationContext] = None
+    value: str = ""
+
+
+@workflow.defn
+class QuerySerializationContextTestWorkflow:
+    def __init__(self) -> None:
+        self.state = QueryData(value="workflow-state")
+
+    @workflow.run
+    async def run(self) -> None:
+        # Keep workflow running
+        await workflow.wait_condition(lambda: False)
+
+    @workflow.query
+    def my_query(self) -> QueryData:
+        return self.state
+
+
+class QuerySerializationContextTestEncodingPayloadConverter(
+    EncodingPayloadConverter, WithSerializationContext
+):
+    def __init__(self, context: Optional[SerializationContext] = None):
+        self.context = context
+
+    @property
+    def encoding(self) -> str:
+        return "test-query-serialization-context"
+
+    def with_context(self, context: Optional[SerializationContext]) -> Self:
+        return QuerySerializationContextTestEncodingPayloadConverter(context)
+
+    def to_payload(self, value: Any) -> Optional[Payload]:
+        # Only handle QueryData objects
+        if not isinstance(value, QueryData):
+            return None
+
+        # Inject the context if it's a workflow context
+        if isinstance(self.context, WorkflowSerializationContext):
+            value.query_context = self.context
+
+        # Serialize as JSON
+        data = {
+            "query_context": (
+                {
+                    "namespace": value.query_context.namespace,
+                    "workflow_id": value.query_context.workflow_id,
+                }
+                if value.query_context
+                else None
+            ),
+            "value": value.value,
+        }
+        return Payload(
+            metadata={"encoding": self.encoding.encode()},
+            data=json.dumps(data).encode(),
+        )
+
+    def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
+        data = json.loads(payload.data.decode())
+        ctx_data = data.get("query_context")
+        return QueryData(
+            query_context=(
+                WorkflowSerializationContext(**ctx_data) if ctx_data else None
+            ),
+            value=data.get("value", ""),
+        )
+
+
+class QuerySerializationContextTestPayloadConverter(CompositePayloadConverter):
+    def __init__(self, context: Optional[SerializationContext] = None):
+        # Create converters with context
+        converters = [
+            QuerySerializationContextTestEncodingPayloadConverter(context),
+            *DefaultPayloadConverter.default_encoding_payload_converters,
+        ]
+        super().__init__(*converters)
+        self.context = context
+
+    def with_context(self, context: Optional[SerializationContext]) -> Self:
+        return QuerySerializationContextTestPayloadConverter(context)
+
+
+async def test_query_payload_conversion_can_be_given_access_to_serialization_context(
+    client: Client,
+):
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    # Create client with our custom data converter
+    data_converter = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=QuerySerializationContextTestPayloadConverter,
+    )
+
+    # Create a new client with the custom data converter
+    config = client.config()
+    config["data_converter"] = data_converter
+    custom_client = Client(**config)
+
+    async with Worker(
+        custom_client,
+        task_queue=task_queue,
+        workflows=[QuerySerializationContextTestWorkflow],
+        activities=[],
+    ):
+        # Start the workflow
+        handle = await custom_client.start_workflow(
+            QuerySerializationContextTestWorkflow.run,
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+
+        # Query the workflow
+        result = await handle.query(QuerySerializationContextTestWorkflow.my_query)
+
+        # Verify the query context was injected
+        assert result.query_context == WorkflowSerializationContext(
+            namespace="default",
+            workflow_id=workflow_id,
+        )
+        assert result.value == "workflow-state"
+
+        # Cancel the workflow to clean up
+        await handle.cancel()
