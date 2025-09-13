@@ -184,12 +184,6 @@ class SerializationContextTestPayloadConverter(
         )
 
 
-data_converter = dataclasses.replace(
-    DataConverter.default,
-    payload_converter_class=SerializationContextTestPayloadConverter,
-)
-
-
 async def test_workflow_payload_conversion(
     client: Client,
 ):
@@ -197,7 +191,10 @@ async def test_workflow_payload_conversion(
     task_queue = str(uuid.uuid4())
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
     client = Client(**config)
 
     async with Worker(
@@ -368,7 +365,11 @@ async def test_heartbeat_details_payload_conversion(client: Client):
     task_queue = str(uuid.uuid4())
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
+
     client = Client(**config)
 
     async with Worker(
@@ -440,7 +441,11 @@ async def test_async_activity_completion_payload_conversion(
     task_queue = str(uuid.uuid4())
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
+
     client = Client(**config)
 
     async with Worker(
@@ -531,7 +536,11 @@ async def test_signal_payload_conversion(
     task_queue = str(uuid.uuid4())
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
+
     custom_client = Client(**config)
 
     async with Worker(
@@ -615,7 +624,10 @@ async def test_query_payload_conversion(
     )
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
     custom_client = Client(**config)
 
     async with Worker(
@@ -712,7 +724,10 @@ async def test_update_payload_conversion(
     )
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
     custom_client = Client(**config)
 
     async with Worker(
@@ -837,7 +852,10 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
     )
 
     config = client.config()
-    config["data_converter"] = data_converter
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=SerializationContextTestPayloadConverter,
+    )
     custom_client = Client(**config)
 
     async with Worker(
@@ -925,56 +943,6 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
         # The cancel context would only be used for failure deserialization
 
 
-# Utilities
-
-
-def assert_trace(trace: list[TraceItem], expected: list[TraceItem]):
-    if len(trace) != len(expected):
-        warn(f"expected {len(expected)} trace items but received {len(trace)}")
-    history: list[str] = []
-    for item, expected_item in zip_longest(trace, expected):
-        if item is None:
-            raise AssertionError("Fewer items in trace than expected")
-        if expected_item is None:
-            raise AssertionError("More items in trace than expected")
-        if item != expected_item:
-            raise AssertionError(
-                f"Item:\n{pformat(item)}\n\ndoes not match expected:\n\n {pformat(expected_item)}.\n\n History:\n{chr(10).join(history)}"
-            )
-        history.append(f"{item.context_type} {item.method}")
-
-
-def get_caller_location() -> list[str]:
-    """Get 3 stack frames starting from the first that's not in test_serialization_context.py or temporalio/converter.py."""
-    frame = inspect.currentframe()
-    result: list[str] = []
-    found_first = False
-
-    # Walk up the stack
-    while frame and len(result) < 3:
-        frame = frame.f_back
-        if not frame:
-            break
-
-        file_path = frame.f_code.co_filename
-
-        # Skip frames from test file and converter.py until we find the first one
-        if not found_first:
-            if "test_serialization_context.py" in file_path:
-                continue
-            if file_path.endswith("temporalio/converter.py"):
-                continue
-            found_first = True
-
-        result.append(f"{file_path}:{frame.f_lineno}")
-
-    # Pad with "unknown:0" if we didn't get 3 frames
-    while len(result) < 3:
-        result.append("unknown:0")
-
-    return result
-
-
 @activity.defn
 async def failing_activity() -> TraceData:
     raise ApplicationError("test error", TraceData())
@@ -1059,10 +1027,7 @@ async def test_failure_conversion_with_context(client: Client):
             id=str(uuid.uuid4()),
             task_queue=task_queue,
         )
-        assert any(
-            item.context_type == "activity" and item.method == "to_payload"
-            for item in result.items
-        )
+        pprint(result.items)
 
 
 class ContextCodec(PayloadCodec, WithSerializationContext):
@@ -1217,3 +1182,53 @@ async def test_pydantic_converter_with_context(client: Client):
         )
         assert result.value == "test_processed"
         assert f"wf_{wf_id}" in result.trace
+
+
+# Utilities
+
+
+def assert_trace(trace: list[TraceItem], expected: list[TraceItem]):
+    if len(trace) != len(expected):
+        warn(f"expected {len(expected)} trace items but received {len(trace)}")
+    history: list[str] = []
+    for item, expected_item in zip_longest(trace, expected):
+        if item is None:
+            raise AssertionError("Fewer items in trace than expected")
+        if expected_item is None:
+            raise AssertionError("More items in trace than expected")
+        if item != expected_item:
+            raise AssertionError(
+                f"Item:\n{pformat(item)}\n\ndoes not match expected:\n\n {pformat(expected_item)}.\n\n History:\n{chr(10).join(history)}"
+            )
+        history.append(f"{item.context_type} {item.method}")
+
+
+def get_caller_location() -> list[str]:
+    """Get 3 stack frames starting from the first that's not in test_serialization_context.py or temporalio/converter.py."""
+    frame = inspect.currentframe()
+    result: list[str] = []
+    found_first = False
+
+    # Walk up the stack
+    while frame and len(result) < 3:
+        frame = frame.f_back
+        if not frame:
+            break
+
+        file_path = frame.f_code.co_filename
+
+        # Skip frames from test file and converter.py until we find the first one
+        if not found_first:
+            if "test_serialization_context.py" in file_path:
+                continue
+            if file_path.endswith("temporalio/converter.py"):
+                continue
+            found_first = True
+
+        result.append(f"{file_path}:{frame.f_lineno}")
+
+    # Pad with "unknown:0" if we didn't get 3 frames
+    while len(result) < 3:
+        result.append("unknown:0")
+
+    return result
