@@ -8,13 +8,15 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from itertools import zip_longest
 from pprint import pformat, pprint
-from typing import Any, Literal, Optional, Type
+from typing import Any, List, Literal, Optional, Sequence, Type
 from warnings import warn
 
 import pytest
+from pydantic import BaseModel
 
 from temporalio import activity, workflow
 from temporalio.api.common.v1 import Payload
+from temporalio.api.failure.v1 import Failure
 from temporalio.client import Client, WorkflowUpdateFailedError
 from temporalio.common import RetryPolicy
 from temporalio.converter import (
@@ -22,12 +24,17 @@ from temporalio.converter import (
     CompositePayloadConverter,
     DataConverter,
     DefaultPayloadConverter,
+    DefaultFailureConverter,
     EncodingPayloadConverter,
     JSONPlainPayloadConverter,
+    PayloadCodec,
+    PayloadConverter,
     SerializationContext,
     WithSerializationContext,
     WorkflowSerializationContext,
 )
+from temporalio.contrib.pydantic import PydanticJSONPlainPayloadConverter
+from temporalio.exceptions import ApplicationError, ActivityError
 from temporalio.worker import Worker
 from temporalio.worker._workflow_instance import UnsandboxedWorkflowRunner
 
@@ -968,3 +975,238 @@ def get_caller_location() -> list[str]:
         result.append("unknown:0")
 
     return result
+
+
+
+
+@activity.defn
+async def failing_activity() -> TraceData:
+    raise ApplicationError("test error", TraceData())
+
+
+@workflow.defn
+class FailureContextWorkflow:
+    @workflow.run
+    async def run(self) -> TraceData:
+        try:
+            await workflow.execute_activity(
+                failing_activity,
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError as e:
+            if isinstance(e.cause, ApplicationError) and e.cause.details:
+                return e.cause.details[0]
+        return TraceData()
+
+
+class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext):
+    def __init__(self):
+        super().__init__(encode_common_attributes=False)
+        self.context: Optional[SerializationContext] = None
+
+    def with_context(self, context: Optional[SerializationContext]) -> "ContextFailureConverter":
+        converter = ContextFailureConverter()
+        converter.context = context
+        return converter
+
+    def to_failure(
+        self, exception: BaseException, payload_converter: PayloadConverter, failure: Failure
+    ) -> None:
+        super().to_failure(exception, payload_converter, failure)
+        if isinstance(exception, ApplicationError) and exception.details:
+            for detail in exception.details:
+                if isinstance(detail, TraceData) and self.context:
+                    if isinstance(self.context, ActivitySerializationContext):
+                        detail.items.append(
+                            TraceItem(
+                                context_type="activity",
+                                in_workflow=False,
+                                method="to_payload",
+                                context=dataclasses.asdict(self.context),
+                            )
+                        )
+    
+    def from_failure(
+        self, failure: Failure, payload_converter: PayloadConverter
+    ) -> BaseException:
+        # Let the base class create the exception
+        exception = super().from_failure(failure, payload_converter)
+        # The context tracing is already in the payloads that will be decoded with context
+        return exception
+
+
+async def test_failure_conversion_with_context(client: Client):
+    task_queue = str(uuid.uuid4())
+    test_client = Client(
+        client.service_client,
+        namespace=client.namespace,
+        data_converter=DataConverter(
+            payload_converter_class=SerializationContextTestPayloadConverter,
+            failure_converter_class=ContextFailureConverter,
+        ),
+    )
+    async with Worker(
+        test_client,
+        task_queue=task_queue,
+        workflows=[FailureContextWorkflow],
+        activities=[failing_activity],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await test_client.execute_workflow(
+            FailureContextWorkflow.run,
+            id=str(uuid.uuid4()),
+            task_queue=task_queue,
+        )
+        assert any(
+            item.context_type == "activity" and item.method == "to_payload"
+            for item in result.items
+        )
+
+
+class ContextCodec(PayloadCodec, WithSerializationContext):
+    def __init__(self):
+        self.context: Optional[SerializationContext] = None
+        self.encode_called_with_context = False
+        self.decode_called_with_context = False
+
+    def with_context(self, context: Optional[SerializationContext]) -> "ContextCodec":
+        codec = ContextCodec()
+        codec.context = context
+        return codec
+
+    async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        result = []
+        for p in payloads:
+            new_p = Payload()
+            new_p.CopyFrom(p)
+            if self.context:
+                self.encode_called_with_context = True
+                # Just add a marker that we encoded with context
+                new_p.metadata[b"has_context"] = b"true"
+            result.append(new_p)
+        return result
+
+    async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        result = []
+        for p in payloads:
+            new_p = Payload()
+            new_p.CopyFrom(p)
+            if self.context and new_p.metadata.get(b"has_context") == b"true":
+                self.decode_called_with_context = True
+                # Remove the marker
+                del new_p.metadata[b"has_context"]
+            result.append(new_p)
+        return result
+
+
+@workflow.defn
+class CodecTestWorkflow:
+    @workflow.run
+    async def run(self, data: str) -> str:
+        return data + "_processed"
+
+
+async def test_codec_with_context(client: Client):
+    wf_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    test_client = Client(
+        client.service_client,
+        namespace=client.namespace,
+        data_converter=DataConverter(payload_codec=ContextCodec()),
+    )
+    async with Worker(
+        test_client,
+        task_queue=task_queue,
+        workflows=[CodecTestWorkflow],
+    ):
+        result = await test_client.execute_workflow(
+            CodecTestWorkflow.run,
+            "test",
+            id=wf_id,
+            task_queue=task_queue,
+        )
+        assert result == "test_processed"
+
+
+class PydanticData(BaseModel):
+    value: str
+    trace: List[str] = []
+
+
+class ContextPydanticJSONConverter(PydanticJSONPlainPayloadConverter, WithSerializationContext):
+    def __init__(self):
+        super().__init__()
+        self.context: Optional[SerializationContext] = None
+
+    def with_context(self, context: Optional[SerializationContext]) -> "ContextPydanticJSONConverter":
+        converter = ContextPydanticJSONConverter()
+        converter.context = context
+        return converter
+
+    def to_payload(self, value: Any) -> Optional[Payload]:
+        if isinstance(value, PydanticData) and self.context:
+            if isinstance(self.context, WorkflowSerializationContext):
+                value.trace.append(f"wf_{self.context.workflow_id}")
+        return super().to_payload(value)
+
+
+class ContextPydanticConverter(CompositePayloadConverter, WithSerializationContext):
+    def __init__(self):
+        self.json_converter = ContextPydanticJSONConverter()
+        super().__init__(
+            *(
+                c
+                if not isinstance(c, JSONPlainPayloadConverter)
+                else self.json_converter
+                for c in DefaultPayloadConverter.default_encoding_payload_converters
+            )
+        )
+        self.context: Optional[SerializationContext] = None
+
+    def with_context(self, context: Optional[SerializationContext]) -> "ContextPydanticConverter":
+        converter = ContextPydanticConverter()
+        converter.context = context
+        # Also set context on all sub-converters
+        converters = []
+        for c in self.converters.values():
+            if isinstance(c, WithSerializationContext):
+                converters.append(c.with_context(context))
+            else:
+                converters.append(c)
+        CompositePayloadConverter.__init__(converter, *converters)
+        return converter
+
+
+@workflow.defn
+class PydanticContextWorkflow:
+    @workflow.run
+    async def run(self, data: PydanticData) -> PydanticData:
+        data.value += "_processed"
+        return data
+
+
+async def test_pydantic_converter_with_context(client: Client):
+    wf_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    
+    test_client = Client(
+        client.service_client,
+        namespace=client.namespace,
+        data_converter=DataConverter(
+            payload_converter_class=ContextPydanticConverter,
+        ),
+    )
+    async with Worker(
+        test_client,
+        task_queue=task_queue,
+        workflows=[PydanticContextWorkflow],
+    ):
+        result = await test_client.execute_workflow(
+            PydanticContextWorkflow.run,
+            PydanticData(value="test"),
+            id=wf_id,
+            task_queue=task_queue,
+        )
+        assert result.value == "test_processed"
+        assert f"wf_{wf_id}" in result.trace
