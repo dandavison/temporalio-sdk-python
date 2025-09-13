@@ -211,7 +211,9 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._workflow_input: Optional[ExecuteWorkflowInput] = None
         self._info = det.info
 
+        # converters
         self._payload_converter = det.payload_converter_class()
+        self._failure_converter = det.failure_converter_class()
         self._serialization_context = temporalio.converter.WorkflowSerializationContext(
             namespace=self._info.namespace,
             workflow_id=self._info.workflow_id,
@@ -222,8 +224,6 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             self._payload_converter = self._payload_converter.with_context(
                 self._serialization_context
             )
-
-        self._failure_converter = det.failure_converter_class()
         if isinstance(
             self._failure_converter, temporalio.converter.WithSerializationContext
         ):
@@ -845,15 +845,21 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                 ret = ret_vals[0]
             handle._resolve_success(ret)
         elif job.result.HasField("failed"):
+            failure_converter, payload_converter = self._child_workflow_converters(
+                handle
+            )
             handle._resolve_failure(
-                self._failure_converter.from_failure(
-                    job.result.failed.failure, self._payload_converter
+                failure_converter.from_failure(
+                    job.result.failed.failure, payload_converter
                 )
             )
         elif job.result.HasField("cancelled"):
+            failure_converter, payload_converter = self._child_workflow_converters(
+                handle
+            )
             handle._resolve_failure(
-                self._failure_converter.from_failure(
-                    job.result.cancelled.failure, self._payload_converter
+                failure_converter.from_failure(
+                    job.result.cancelled.failure, payload_converter
                 )
             )
         else:
@@ -889,10 +895,11 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                 )
         elif job.HasField("cancelled"):
             self._pending_child_workflows.pop(job.seq)
+            failure_converter, payload_converter = self._child_workflow_converters(
+                handle
+            )
             handle._resolve_failure(
-                self._failure_converter.from_failure(
-                    job.cancelled.failure, self._payload_converter
-                )
+                failure_converter.from_failure(job.cancelled.failure, payload_converter)
             )
         else:
             raise RuntimeError("Child workflow start did not have a known status")
@@ -2041,6 +2048,27 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             fut.set_result(True)
             return True
         return False
+
+    def _child_workflow_converters(
+        self, handle: "_ChildWorkflowHandle"
+    ) -> Tuple[
+        temporalio.converter.FailureConverter, temporalio.converter.PayloadConverter
+    ]:
+        """Get failure and payload converters with child workflow context.
+
+        The context applied here uses the child workflow ID.
+        """
+        context = temporalio.converter.WorkflowSerializationContext(
+            namespace=self._info.namespace,
+            workflow_id=handle._input.id,
+        )
+        failure_converter = self._failure_converter
+        payload_converter = self._payload_converter
+        if isinstance(failure_converter, temporalio.converter.WithSerializationContext):
+            failure_converter = failure_converter.with_context(context)
+        if isinstance(payload_converter, temporalio.converter.WithSerializationContext):
+            payload_converter = payload_converter.with_context(context)
+        return failure_converter, payload_converter
 
     def _convert_payloads(
         self,
