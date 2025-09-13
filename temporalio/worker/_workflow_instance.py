@@ -210,26 +210,13 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._defn = det.defn
         self._workflow_input: Optional[ExecuteWorkflowInput] = None
         self._info = det.info
-
-        # converters
-        self._payload_converter = det.payload_converter_class()
-        self._failure_converter = det.failure_converter_class()
-        self._serialization_context = temporalio.converter.WorkflowSerializationContext(
-            namespace=self._info.namespace,
-            workflow_id=self._info.workflow_id,
+        (
+            self._payload_converter,
+            self._failure_converter,
+            self._serialization_context,
+        ) = self._workflow_converters(
+            det.payload_converter_class(), det.failure_converter_class()
         )
-        if isinstance(
-            self._payload_converter, temporalio.converter.WithSerializationContext
-        ):
-            self._payload_converter = self._payload_converter.with_context(
-                self._serialization_context
-            )
-        if isinstance(
-            self._failure_converter, temporalio.converter.WithSerializationContext
-        ):
-            self._failure_converter = self._failure_converter.with_context(
-                self._serialization_context
-            )
 
         self._extern_functions = det.extern_functions
         self._disable_eager_activity_execution = det.disable_eager_activity_execution
@@ -2287,6 +2274,28 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                     ]
         finally:
             asyncio._set_running_loop(None)
+
+    def _workflow_converters(
+        self,
+        payload_converter: temporalio.converter.PayloadConverter,
+        failure_converter: temporalio.converter.FailureConverter,
+    ) -> Tuple[
+        temporalio.converter.PayloadConverter,
+        temporalio.converter.FailureConverter,
+        temporalio.converter.WorkflowSerializationContext,
+    ]:
+        """Get workflow failure and payload converters with workflow context.
+
+        The context applied here includes the workflow ID of this workflow."""
+        context = temporalio.converter.WorkflowSerializationContext(
+            namespace=self._info.namespace,
+            workflow_id=self._info.workflow_id,
+        )
+        if isinstance(payload_converter, temporalio.converter.WithSerializationContext):
+            payload_converter = payload_converter.with_context(context)
+        if isinstance(failure_converter, temporalio.converter.WithSerializationContext):
+            failure_converter = failure_converter.with_context(context)
+        return payload_converter, failure_converter, context
 
     # This is used for the primary workflow function and signal handlers in
     # order to apply common exception handling to each
