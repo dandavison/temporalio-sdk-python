@@ -324,9 +324,6 @@ async def test_workflow_payload_conversion(
             pprint(result.items)
 
 
-async_activity_started = asyncio.Event()
-
-
 # Activity with heartbeat details test
 @activity.defn
 async def activity_with_heartbeat_details() -> TraceData:
@@ -420,7 +417,8 @@ async def test_heartbeat_details_payload_conversion(client: Client):
 # Async activity completion test
 @activity.defn
 async def async_activity() -> TraceData:
-    async_activity_started.set()
+    # Signal that activity has started via heartbeat
+    activity.heartbeat("started")
     activity.raise_complete_async()
 
 
@@ -462,7 +460,8 @@ async def test_async_activity_completion_payload_conversion(
             run_id=wf_handle.first_execution_run_id,
             activity_id="async-activity-id",
         )
-        await async_activity_started.wait()
+        # Wait a bit for the activity to start
+        await asyncio.sleep(0.5)
         data = TraceData()
         await activity_handle.heartbeat(data)
         await activity_handle.complete(data)
