@@ -19,12 +19,13 @@ from temporalio.api.common.v1 import Payload
 from temporalio.api.failure.v1 import Failure
 from temporalio.client import Client, WorkflowUpdateFailedError
 from temporalio.common import RetryPolicy
+from temporalio.contrib.pydantic import PydanticJSONPlainPayloadConverter
 from temporalio.converter import (
     ActivitySerializationContext,
     CompositePayloadConverter,
     DataConverter,
-    DefaultPayloadConverter,
     DefaultFailureConverter,
+    DefaultPayloadConverter,
     EncodingPayloadConverter,
     JSONPlainPayloadConverter,
     PayloadCodec,
@@ -33,8 +34,7 @@ from temporalio.converter import (
     WithSerializationContext,
     WorkflowSerializationContext,
 )
-from temporalio.contrib.pydantic import PydanticJSONPlainPayloadConverter
-from temporalio.exceptions import ApplicationError, ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import Worker
 from temporalio.worker._workflow_instance import UnsandboxedWorkflowRunner
 
@@ -975,8 +975,6 @@ def get_caller_location() -> list[str]:
     return result
 
 
-
-
 @activity.defn
 async def failing_activity() -> TraceData:
     raise ApplicationError("test error", TraceData())
@@ -1003,13 +1001,18 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
         super().__init__(encode_common_attributes=False)
         self.context: Optional[SerializationContext] = None
 
-    def with_context(self, context: Optional[SerializationContext]) -> "ContextFailureConverter":
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> "ContextFailureConverter":
         converter = ContextFailureConverter()
         converter.context = context
         return converter
 
     def to_failure(
-        self, exception: BaseException, payload_converter: PayloadConverter, failure: Failure
+        self,
+        exception: BaseException,
+        payload_converter: PayloadConverter,
+        failure: Failure,
     ) -> None:
         super().to_failure(exception, payload_converter, failure)
         if isinstance(exception, ApplicationError) and exception.details:
@@ -1024,7 +1027,7 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
                                 context=dataclasses.asdict(self.context),
                             )
                         )
-    
+
     def from_failure(
         self, failure: Failure, payload_converter: PayloadConverter
     ) -> BaseException:
@@ -1132,12 +1135,16 @@ class PydanticData(BaseModel):
     trace: List[str] = []
 
 
-class ContextPydanticJSONConverter(PydanticJSONPlainPayloadConverter, WithSerializationContext):
+class ContextPydanticJSONConverter(
+    PydanticJSONPlainPayloadConverter, WithSerializationContext
+):
     def __init__(self):
         super().__init__()
         self.context: Optional[SerializationContext] = None
 
-    def with_context(self, context: Optional[SerializationContext]) -> "ContextPydanticJSONConverter":
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> "ContextPydanticJSONConverter":
         converter = ContextPydanticJSONConverter()
         converter.context = context
         return converter
@@ -1162,7 +1169,9 @@ class ContextPydanticConverter(CompositePayloadConverter, WithSerializationConte
         )
         self.context: Optional[SerializationContext] = None
 
-    def with_context(self, context: Optional[SerializationContext]) -> "ContextPydanticConverter":
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> "ContextPydanticConverter":
         converter = ContextPydanticConverter()
         converter.context = context
         # Also set context on all sub-converters
@@ -1187,7 +1196,7 @@ class PydanticContextWorkflow:
 async def test_pydantic_converter_with_context(client: Client):
     wf_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
-    
+
     test_client = Client(
         client.service_client,
         namespace=client.namespace,
