@@ -415,7 +415,7 @@ async def test_async_activity_completion_payload_conversion(
 @workflow.defn(sandboxed=False)  # so that we can use isinstance
 class SignalSerializationContextTestWorkflow:
     def __init__(self) -> None:
-        self.signal_received = None
+        self.signal_received: Optional[TraceData] = None
 
     @workflow.run
     async def run(self) -> TraceData:
@@ -583,7 +583,7 @@ class UpdateSerializationContextTestWorkflow:
     @workflow.init
     def __init__(self, pass_validation: bool) -> None:
         self.pass_validation = pass_validation
-        self.input = None
+        self.input: Optional[TraceData] = None
 
     @workflow.run
     async def run(self, pass_validation: bool) -> TraceData:
@@ -690,7 +690,7 @@ async def test_update_payload_conversion(
 @workflow.defn
 class ExternalWorkflowTarget:
     def __init__(self) -> None:
-        self.signal_received = None
+        self.signal_received: Optional[TraceData] = None
 
     @workflow.run
     async def run(self) -> TraceData:
@@ -836,7 +836,7 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
 def assert_trace(trace: list[TraceItem], expected: list[TraceItem]):
     if len(trace) != len(expected):
         warn(f"expected {len(expected)} trace items but received {len(trace)}")
-    history = []
+    history: list[str] = []
     for item, expected_item in zip_longest(trace, expected):
         if item is None:
             raise AssertionError("Fewer items in trace than expected")
@@ -852,7 +852,7 @@ def assert_trace(trace: list[TraceItem], expected: list[TraceItem]):
 def get_caller_location() -> list[str]:
     """Get 3 stack frames starting from the first that's not in test_serialization_context.py or temporalio/converter.py."""
     frame = inspect.currentframe()
-    result = []
+    result: list[str] = []
     found_first = False
 
     # Walk up the stack

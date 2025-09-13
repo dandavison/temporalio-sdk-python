@@ -119,12 +119,6 @@ class ActivitySerializationContext(SerializationContext):
     is_local: bool
 
 
-@dataclass(frozen=True)
-class NexusOperationSerializationContext(SerializationContext):
-    service: str
-    operation: str
-
-
 class WithSerializationContext(ABC):
     """Interface for objects that can use serialization context.
 
@@ -396,6 +390,7 @@ class CompositePayloadConverter(PayloadConverter, WithSerializationContext):
         return values
 
     def with_context(self, context: Optional[SerializationContext]) -> Self:
+        """Return a new instance with the given context."""
         instance = type(self).__new__(type(self))
         converters = [
             c.with_context(context) if isinstance(c, WithSerializationContext) else c
@@ -1302,22 +1297,16 @@ class DataConverter:
         return self.failure_converter.from_failure(failure, self.payload_converter)
 
     def _with_context(self, context: Optional[SerializationContext]) -> Self:
-        payload_converter = (
-            self.payload_converter.with_context(context)
-            if isinstance(self.payload_converter, WithSerializationContext)
-            else self.payload_converter
-        )
-        payload_codec = (
-            self.payload_codec.with_context(context)
-            if isinstance(self.payload_codec, WithSerializationContext)
-            else self.payload_codec
-        )
-        failure_converter = (
-            self.failure_converter.with_context(context)
-            if isinstance(self.failure_converter, WithSerializationContext)
-            else self.failure_converter
-        )
         cloned = dataclasses.replace(self)
+        payload_converter = self.payload_converter
+        payload_codec = self.payload_codec
+        failure_converter = self.failure_converter
+        if isinstance(payload_converter, WithSerializationContext):
+            payload_converter = payload_converter.with_context(context)
+        if isinstance(payload_codec, WithSerializationContext):
+            payload_codec = payload_codec.with_context(context)
+        if isinstance(failure_converter, WithSerializationContext):
+            failure_converter = failure_converter.with_context(context)
         object.__setattr__(cloned, "payload_converter", payload_converter)
         object.__setattr__(cloned, "payload_codec", payload_codec)
         object.__setattr__(cloned, "failure_converter", failure_converter)
