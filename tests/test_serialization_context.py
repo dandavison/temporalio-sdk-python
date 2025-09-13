@@ -16,6 +16,7 @@ import pytest
 from temporalio import activity, workflow
 from temporalio.api.common.v1 import Payload
 from temporalio.client import Client, WorkflowUpdateFailedError
+from temporalio.common import RetryPolicy
 from temporalio.converter import (
     ActivitySerializationContext,
     CompositePayloadConverter,
@@ -104,7 +105,6 @@ class SerializationContextTestEncodingPayloadConverter(
         return converter
 
     def to_payload(self, value: Any) -> Optional[Payload]:
-        print(f"🌈 to_payload({isinstance(value, TraceData)}): {value}")
         if not isinstance(value, TraceData):
             return None
         if not self.context:
@@ -137,8 +137,8 @@ class SerializationContextTestEncodingPayloadConverter(
         return payload
 
     def from_payload(self, payload: Payload, type_hint: Optional[Type] = None) -> Any:
-        value = JSONPlainPayloadConverter().from_payload(payload, type_hint)
-        print(f"🌈 from_payload({isinstance(value, TraceData)}): {value}")
+        # Always deserialize as TraceData since that's what this converter handles
+        value = JSONPlainPayloadConverter().from_payload(payload, TraceData)
         assert isinstance(value, TraceData)
         if not self.context:
             raise Exception("Context is None")
@@ -318,6 +318,94 @@ async def test_workflow_payload_conversion(
 
 
 async_activity_started = asyncio.Event()
+
+
+# Activity with heartbeat details test
+@activity.defn
+async def activity_with_heartbeat_details() -> TraceData:
+    """Activity that checks heartbeat details are decoded with proper context."""
+    info = activity.info()
+    
+    # If we have heartbeat details, it means we're resuming from a previous attempt
+    if info.heartbeat_details:
+        # The heartbeat details should be a TraceData that was decoded with activity context
+        assert len(info.heartbeat_details) == 1
+        heartbeat_data = info.heartbeat_details[0]
+        assert isinstance(heartbeat_data, TraceData)
+        # Return the heartbeat data which should contain the decode trace
+        return heartbeat_data
+    
+    # First attempt - heartbeat and then fail
+    data = TraceData()
+    activity.heartbeat(data)
+    # Wait a bit to ensure heartbeat is recorded
+    await asyncio.sleep(0.1)
+    # Fail to trigger retry with heartbeat details
+    raise Exception("Intentional failure to test heartbeat details")
+
+
+@workflow.defn
+class HeartbeatDetailsSerializationContextTestWorkflow:
+    @workflow.run
+    async def run(self) -> TraceData:
+        return await workflow.execute_activity(
+            activity_with_heartbeat_details,
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(milliseconds=100),
+                maximum_attempts=2,
+            ),
+        )
+
+
+async def test_heartbeat_details_payload_conversion(client: Client):
+    """Test that heartbeat details are decoded with activity context."""
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    config = client.config()
+    config["data_converter"] = data_converter
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[HeartbeatDetailsSerializationContextTestWorkflow],
+        activities=[activity_with_heartbeat_details],
+        workflow_runner=UnsandboxedWorkflowRunner(),  # so that we can use isinstance
+    ):
+        result = await client.execute_workflow(
+            HeartbeatDetailsSerializationContextTestWorkflow.run,
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+
+        activity_context = dataclasses.asdict(
+            ActivitySerializationContext(
+                namespace="default",
+                workflow_id=workflow_id,
+                workflow_type="HeartbeatDetailsSerializationContextTestWorkflow",
+                activity_type="activity_with_heartbeat_details",
+                activity_task_queue=task_queue,
+                is_local=False,
+            )
+        )
+        
+        # The result should contain the heartbeat data that was decoded with activity context
+        # We expect to see the from_payload trace item for the heartbeat details
+        # This test will FAIL until the bug is fixed
+        found_heartbeat_decode = False
+        for item in result.items:
+            if (
+                item.context_type == "activity"
+                and item.method == "from_payload"
+                and item.in_workflow == False
+                and item.context == activity_context
+            ):
+                found_heartbeat_decode = True
+                break
+        
+        assert found_heartbeat_decode, "Heartbeat details should be decoded with activity context"
 
 
 # Async activity completion test
