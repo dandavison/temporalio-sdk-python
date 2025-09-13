@@ -1084,7 +1084,7 @@ class ContextCodec(PayloadCodec, WithSerializationContext):
             if self.context:
                 self.encode_called_with_context = True
                 # Just add a marker that we encoded with context
-                new_p.metadata[b"has_context"] = b"true"
+                new_p.metadata["has_context"] = b"true"
             result.append(new_p)
         return result
 
@@ -1093,10 +1093,10 @@ class ContextCodec(PayloadCodec, WithSerializationContext):
         for p in payloads:
             new_p = Payload()
             new_p.CopyFrom(p)
-            if self.context and new_p.metadata.get(b"has_context") == b"true":
+            if self.context and new_p.metadata.get("has_context") == b"true":
                 self.decode_called_with_context = True
                 # Remove the marker
-                del new_p.metadata[b"has_context"]
+                del new_p.metadata["has_context"]
             result.append(new_p)
         return result
 
@@ -1175,7 +1175,7 @@ class ContextPydanticConverter(CompositePayloadConverter, WithSerializationConte
         converter = ContextPydanticConverter()
         converter.context = context
         # Also set context on all sub-converters
-        converters = []
+        converters: list[EncodingPayloadConverter] = []
         for c in self.converters.values():
             if isinstance(c, WithSerializationContext):
                 converters.append(c.with_context(context))
