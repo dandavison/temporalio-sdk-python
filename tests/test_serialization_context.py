@@ -406,7 +406,7 @@ async def test_heartbeat_details_payload_conversion(client: Client):
             if (
                 item.context_type == "activity"
                 and item.method == "from_payload"
-                and item.in_workflow == False
+                and not item.in_workflow
                 and item.context == activity_context
             ):
                 found_heartbeat_decode = True
@@ -830,7 +830,6 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
 ):
     target_workflow_id = str(uuid.uuid4())
     signaler_workflow_id = str(uuid.uuid4())
-    canceller_workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
     data_converter = dataclasses.replace(
@@ -869,7 +868,7 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
 
         # Wait for both to complete
         signaler_result = await signaler_handle.result()
-        target_result = await target_handle.result()
+        await target_handle.result()
 
         # Verify signal trace
         signaler_context = dataclasses.asdict(
