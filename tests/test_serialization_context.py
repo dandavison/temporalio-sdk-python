@@ -325,7 +325,7 @@ async_activity_started = asyncio.Event()
 async def activity_with_heartbeat_details() -> TraceData:
     """Activity that checks heartbeat details are decoded with proper context."""
     info = activity.info()
-    
+
     # If we have heartbeat details, it means we're resuming from a previous attempt
     if info.heartbeat_details:
         # The heartbeat details should be a TraceData that was decoded with activity context
@@ -334,7 +334,7 @@ async def activity_with_heartbeat_details() -> TraceData:
         assert isinstance(heartbeat_data, TraceData)
         # Return the heartbeat data which should contain the decode trace
         return heartbeat_data
-    
+
     # First attempt - heartbeat and then fail
     data = TraceData()
     activity.heartbeat(data)
@@ -390,7 +390,7 @@ async def test_heartbeat_details_payload_conversion(client: Client):
                 is_local=False,
             )
         )
-        
+
         # The result should contain the heartbeat data that was decoded with activity context
         # We expect to see the from_payload trace item for the heartbeat details
         # This test will FAIL until the bug is fixed
@@ -404,8 +404,10 @@ async def test_heartbeat_details_payload_conversion(client: Client):
             ):
                 found_heartbeat_decode = True
                 break
-        
-        assert found_heartbeat_decode, "Heartbeat details should be decoded with activity context"
+
+        assert (
+            found_heartbeat_decode
+        ), "Heartbeat details should be decoded with activity context"
 
 
 # Async activity completion test
