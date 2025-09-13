@@ -991,9 +991,9 @@ class FailureContextWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError as e:
-            if isinstance(e.cause, ApplicationError) and e.cause.details:
-                return e.cause.details[0]
-        return TraceData()
+            assert isinstance(e.cause, ApplicationError) and e.cause.details
+            return e.cause.details[0]
+        raise Exception("Unreachable")
 
 
 class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext):
