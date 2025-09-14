@@ -1220,7 +1220,7 @@ class PydanticData(BaseModel):
     trace: List[str] = []
 
 
-class ContextPydanticJSONConverter(
+class PydanticJSONConverterWithContext(
     PydanticJSONPlainPayloadConverter, WithSerializationContext
 ):
     def __init__(self):
@@ -1229,8 +1229,8 @@ class ContextPydanticJSONConverter(
 
     def with_context(
         self, context: Optional[SerializationContext]
-    ) -> "ContextPydanticJSONConverter":
-        converter = ContextPydanticJSONConverter()
+    ) -> "PydanticJSONConverterWithContext":
+        converter = PydanticJSONConverterWithContext()
         converter.context = context
         return converter
 
@@ -1241,9 +1241,9 @@ class ContextPydanticJSONConverter(
         return super().to_payload(value)
 
 
-class ContextPydanticConverter(CompositePayloadConverter, WithSerializationContext):
+class PydanticConverterWithContext(CompositePayloadConverter, WithSerializationContext):
     def __init__(self):
-        self.json_converter = ContextPydanticJSONConverter()
+        self.json_converter = PydanticJSONConverterWithContext()
         super().__init__(
             *(
                 c
@@ -1254,27 +1254,11 @@ class ContextPydanticConverter(CompositePayloadConverter, WithSerializationConte
         )
         self.context: Optional[SerializationContext] = None
 
-    def with_context(
-        self, context: Optional[SerializationContext]
-    ) -> "ContextPydanticConverter":
-        converter = ContextPydanticConverter()
-        converter.context = context
-        # Also set context on all sub-converters
-        converters: list[EncodingPayloadConverter] = []
-        for c in self.converters.values():
-            if isinstance(c, WithSerializationContext):
-                converters.append(c.with_context(context))
-            else:
-                converters.append(c)
-        CompositePayloadConverter.__init__(converter, *converters)
-        return converter
-
 
 @workflow.defn
 class PydanticContextWorkflow:
     @workflow.run
     async def run(self, data: PydanticData) -> PydanticData:
-        data.value += "_processed"
         return data
 
 
@@ -1282,25 +1266,24 @@ async def test_pydantic_converter_with_context(client: Client):
     wf_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    test_client = Client(
-        client.service_client,
-        namespace=client.namespace,
-        data_converter=DataConverter(
-            payload_converter_class=ContextPydanticConverter,
-        ),
+    client_config = client.config()
+    client_config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=PydanticConverterWithContext,
     )
+    client = Client(**client_config)
+
     async with Worker(
-        test_client,
+        client,
         task_queue=task_queue,
         workflows=[PydanticContextWorkflow],
     ):
-        result = await test_client.execute_workflow(
+        result = await client.execute_workflow(
             PydanticContextWorkflow.run,
             PydanticData(value="test"),
             id=wf_id,
             task_queue=task_queue,
         )
-        assert result.value == "test_processed"
         assert f"wf_{wf_id}" in result.trace
 
 
