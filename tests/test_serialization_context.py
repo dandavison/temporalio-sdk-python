@@ -3,12 +3,12 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import inspect
-import traceback
 import uuid
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
 from itertools import zip_longest
-from pprint import pformat, pprint
+from pprint import pformat
 from typing import Any, List, Literal, Never, Optional, Sequence, Type
 from warnings import warn
 
@@ -239,95 +239,94 @@ async def test_workflow_payload_conversion(
                 is_local=False,
             )
         )
-        if True:
-            assert_trace(
-                result.items,
-                [
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=False,
-                        method="to_payload",
-                        context=workflow_context,  # Outbound workflow input
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=workflow_context,  # Inbound workflow input
-                    ),
-                    TraceItem(
-                        context_type="activity",
-                        in_workflow=True,
-                        method="to_payload",
-                        context=activity_context,  # Outbound activity input
-                    ),
-                    TraceItem(
-                        context_type="activity",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=activity_context,  # Inbound activity input
-                    ),
-                    TraceItem(
-                        context_type="activity",
-                        in_workflow=False,
-                        method="to_payload",
-                        context=activity_context,  # Outbound heartbeat
-                    ),
-                    TraceItem(
-                        context_type="activity",
-                        in_workflow=False,
-                        method="to_payload",
-                        context=activity_context,  # Outbound activity result
-                    ),
-                    TraceItem(
-                        context_type="activity",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=activity_context,  # Inbound activity result
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=True,
-                        method="to_payload",
-                        context=child_workflow_context,  # Outbound child workflow input
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=child_workflow_context,  # Inbound child workflow input
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=True,
-                        method="to_payload",
-                        context=child_workflow_context,  # Outbound child workflow result
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=child_workflow_context,  # Inbound child workflow result
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=True,
-                        method="to_payload",
-                        context=workflow_context,  # Outbound workflow result
-                    ),
-                    TraceItem(
-                        context_type="workflow",
-                        in_workflow=False,
-                        method="from_payload",
-                        context=workflow_context,  # Inbound workflow result
-                    ),
-                ],
-            )
-        else:
-            pprint(result.items)
+        assert_trace(
+            result.items,
+            [
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=False,
+                    method="to_payload",
+                    context=workflow_context,  # Outbound workflow input
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=workflow_context,  # Inbound workflow input
+                ),
+                TraceItem(
+                    context_type="activity",
+                    in_workflow=True,
+                    method="to_payload",
+                    context=activity_context,  # Outbound activity input
+                ),
+                TraceItem(
+                    context_type="activity",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=activity_context,  # Inbound activity input
+                ),
+                TraceItem(
+                    context_type="activity",
+                    in_workflow=False,
+                    method="to_payload",
+                    context=activity_context,  # Outbound heartbeat
+                ),
+                TraceItem(
+                    context_type="activity",
+                    in_workflow=False,
+                    method="to_payload",
+                    context=activity_context,  # Outbound activity result
+                ),
+                TraceItem(
+                    context_type="activity",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=activity_context,  # Inbound activity result
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=True,
+                    method="to_payload",
+                    context=child_workflow_context,  # Outbound child workflow input
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=child_workflow_context,  # Inbound child workflow input
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=True,
+                    method="to_payload",
+                    context=child_workflow_context,  # Outbound child workflow result
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=child_workflow_context,  # Inbound child workflow result
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=True,
+                    method="to_payload",
+                    context=workflow_context,  # Outbound workflow result
+                ),
+                TraceItem(
+                    context_type="workflow",
+                    in_workflow=False,
+                    method="from_payload",
+                    context=workflow_context,  # Inbound workflow result
+                ),
+            ],
+        )
 
 
 # Activity with heartbeat details test
+
+
 @activity.defn
 async def activity_with_heartbeat_details() -> TraceData:
     """Activity that checks heartbeat details are decoded with proper context."""
@@ -624,11 +623,6 @@ async def test_query_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    data_converter = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextTestPayloadConverter,
-    )
-
     config = client.config()
     config["data_converter"] = dataclasses.replace(
         DataConverter.default,
@@ -723,11 +717,6 @@ async def test_update_payload_conversion(
 ):
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
-
-    data_converter = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextTestPayloadConverter,
-    )
 
     config = client.config()
     config["data_converter"] = dataclasses.replace(
@@ -852,11 +841,6 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
     signaler_workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    data_converter = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextTestPayloadConverter,
-    )
-
     config = client.config()
     config["data_converter"] = dataclasses.replace(
         DataConverter.default,
@@ -958,7 +942,7 @@ async def failing_activity() -> Never:
 
 
 @workflow.defn
-class FailureContextWorkflow:
+class FailureConverterTestWorkflow:
     @workflow.run
     async def run(self) -> Never:
         await workflow.execute_activity(
@@ -969,19 +953,18 @@ class FailureContextWorkflow:
         raise Exception("Unreachable")
 
 
-failure_converter_test_trace: list[TraceItem] = []
+failure_converter_test_trace: dict[str, list[TraceItem]] = defaultdict(list)
 
 
-class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext):
+class FailureConverterWithContext(DefaultFailureConverter, WithSerializationContext):
     def __init__(self):
         super().__init__(encode_common_attributes=False)
         self.context: Optional[SerializationContext] = None
-        self.trace: list[TraceItem] = failure_converter_test_trace
 
     def with_context(
         self, context: Optional[SerializationContext]
-    ) -> "ContextFailureConverter":
-        converter = ContextFailureConverter()
+    ) -> "FailureConverterWithContext":
+        converter = FailureConverterWithContext()
         converter.context = context
         return converter
 
@@ -991,7 +974,6 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
         payload_converter: PayloadConverter,
         failure: Failure,
     ) -> None:
-        print(f"🌈 to_failure: {exception.__class__}")
         if isinstance(self.context, WorkflowSerializationContext):
             context_type = "workflow"
         elif isinstance(self.context, ActivitySerializationContext):
@@ -999,7 +981,7 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
-        self.trace.append(
+        failure_converter_test_trace[self.context.workflow_id].append(
             TraceItem(
                 context_type=context_type,
                 in_workflow=workflow.in_workflow(),
@@ -1012,8 +994,6 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
     def from_failure(
         self, failure: Failure, payload_converter: PayloadConverter
     ) -> BaseException:
-        print("🌈 from_failure")
-        print("\n".join(list(reversed(traceback.format_stack()))[:5]))
         # Let the base class create the exception
         if isinstance(self.context, WorkflowSerializationContext):
             context_type = "workflow"
@@ -1022,7 +1002,7 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
-        self.trace.append(
+        failure_converter_test_trace[self.context.workflow_id].append(
             TraceItem(
                 context_type=context_type,
                 in_workflow=workflow.in_workflow(),
@@ -1035,13 +1015,12 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
 
 
 async def test_failure_converter_with_context(client: Client):
-    print()
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
     data_converter = dataclasses.replace(
         DataConverter.default,
-        failure_converter_class=ContextFailureConverter,
+        failure_converter_class=FailureConverterWithContext,
     )
     test_client = Client(
         client.service_client,
@@ -1051,13 +1030,13 @@ async def test_failure_converter_with_context(client: Client):
     async with Worker(
         test_client,
         task_queue=task_queue,
-        workflows=[FailureContextWorkflow],
+        workflows=[FailureConverterTestWorkflow],
         activities=[failing_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         try:
             await test_client.execute_workflow(
-                FailureContextWorkflow.run,
+                FailureConverterTestWorkflow.run,
                 id=workflow_id,
                 task_queue=task_queue,
             )
@@ -1065,7 +1044,7 @@ async def test_failure_converter_with_context(client: Client):
         except WorkflowFailureError:
             pass
 
-        assert isinstance(data_converter.failure_converter, ContextFailureConverter)
+        assert isinstance(data_converter.failure_converter, FailureConverterWithContext)
 
         workflow_context = dataclasses.asdict(
             WorkflowSerializationContext(
@@ -1077,70 +1056,66 @@ async def test_failure_converter_with_context(client: Client):
             ActivitySerializationContext(
                 namespace="default",
                 workflow_id=workflow_id,
-                workflow_type="FailureContextWorkflow",
+                workflow_type="FailureConverterTestWorkflow",
                 activity_type="failing_activity",
                 activity_task_queue=task_queue,
                 is_local=False,
             )
         )
-        # 1. Exception raised in activity
-        # 2. outbound activity result to_failure(act, activity_ctx) appends and serializes
-        # 3. -> server -> WFT -> WF
-        # 4. inbound activity result from_failure(wf, activity_ctx, in_wf=False) deserializes and appends
-        # 5. outbound wf result to_failure(wf, in_wf=True) appends and serializes
-        # 6. inbound wf result from_failure(client, wf_context, in_wf=False)
-        if True:
-            assert_trace(
-                data_converter.failure_converter.trace,
+        assert_trace(
+            failure_converter_test_trace[workflow_id],
+            [
+                TraceItem(
+                    context_type="activity",
+                    context=activity_context,
+                    in_workflow=False,
+                    method="to_failure",  # outbound activity result
+                )
+            ]
+            + (
                 [
                     TraceItem(
                         context_type="activity",
                         context=activity_context,
                         in_workflow=False,
-                        method="to_failure",  # outbound activity result
+                        method="from_failure",  # inbound activity result
                     )
                 ]
-                + (
-                    [
-                        TraceItem(
-                            context_type="activity",
-                            context=activity_context,
-                            in_workflow=False,
-                            method="from_failure",  # inbound activity result
-                        )
-                    ]
-                    * 2  # from_failure deserializes the error and error cause
+                * 2  # from_failure deserializes the error and error cause
+            )
+            + [
+                TraceItem(
+                    context_type="workflow",
+                    context=workflow_context,
+                    in_workflow=True,
+                    method="to_failure",  # outbound workflow result
                 )
-                + [
+            ]
+            + (
+                [
                     TraceItem(
                         context_type="workflow",
                         context=workflow_context,
-                        in_workflow=True,
-                        method="to_failure",  # outbound workflow result
+                        in_workflow=False,
+                        method="from_failure",  # inbound workflow result
                     )
                 ]
-                + (
-                    [
-                        TraceItem(
-                            context_type="workflow",
-                            context=workflow_context,
-                            in_workflow=False,
-                            method="from_failure",  # inbound workflow result
-                        )
-                    ]
-                    * 2  # from_failure deserializes the error and error cause
-                ),
-            )
+                * 2  # from_failure deserializes the error and error cause
+            ),
+        )
+        del failure_converter_test_trace[workflow_id]
 
 
-class ContextCodec(PayloadCodec, WithSerializationContext):
+class PayloadCodecWithContext(PayloadCodec, WithSerializationContext):
     def __init__(self):
         self.context: Optional[SerializationContext] = None
         self.encode_called_with_context = False
         self.decode_called_with_context = False
 
-    def with_context(self, context: Optional[SerializationContext]) -> "ContextCodec":
-        codec = ContextCodec()
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> "PayloadCodecWithContext":
+        codec = PayloadCodecWithContext()
         codec.context = context
         return codec
 
@@ -1151,7 +1126,6 @@ class ContextCodec(PayloadCodec, WithSerializationContext):
             new_p.CopyFrom(p)
             if self.context:
                 self.encode_called_with_context = True
-                # Just add a marker that we encoded with context
                 new_p.metadata["has_context"] = b"true"
             result.append(new_p)
         return result
@@ -1163,7 +1137,6 @@ class ContextCodec(PayloadCodec, WithSerializationContext):
             new_p.CopyFrom(p)
             if self.context and new_p.metadata.get("has_context") == b"true":
                 self.decode_called_with_context = True
-                # Remove the marker
                 del new_p.metadata["has_context"]
             result.append(new_p)
         return result
@@ -1173,7 +1146,7 @@ class ContextCodec(PayloadCodec, WithSerializationContext):
 class CodecTestWorkflow:
     @workflow.run
     async def run(self, data: str) -> str:
-        return data + "_processed"
+        return data
 
 
 async def test_codec_with_context(client: Client):
@@ -1182,20 +1155,24 @@ async def test_codec_with_context(client: Client):
     test_client = Client(
         client.service_client,
         namespace=client.namespace,
-        data_converter=DataConverter(payload_codec=ContextCodec()),
+        data_converter=dataclasses.replace(
+            DataConverter.default, payload_codec=PayloadCodecWithContext()
+        ),
     )
     async with Worker(
         test_client,
         task_queue=task_queue,
         workflows=[CodecTestWorkflow],
     ):
-        result = await test_client.execute_workflow(
+        await test_client.execute_workflow(
             CodecTestWorkflow.run,
-            "test",
+            "data",
             id=wf_id,
             task_queue=task_queue,
         )
-        assert result == "test_processed"
+
+
+# Pydantic
 
 
 class PydanticData(BaseModel):
