@@ -72,21 +72,17 @@ class SerializationContext(ABC):
     Provides contextual information during serialization and deserialization operations.
 
     Examples:
-
     - In client code, when starting a workflow, or sending a signal/update/query to a workflow, or
       receiving the result of an update/query, or handling an exception from a workflow, the context
       type is :py:class:`WorkflowSerializationContext` and the workflow ID set of the target
       workflow will be set in the context.
-
     - In workflow code, when operating on a payload being sent/received to/from a child workflow, or
       handling an exception from a child workflow, the context type is
       :py:class:`WorkflowSerializationContext` and the workflow ID is that of the child workflow,
       not of the currently executing (i.e. parent) workflow.
-
     - In workflow code, when operating on a payload to be sent/received to/from an activity, the
       context type is :py:class:`ActivitySerializationContext` and the workflow ID is that of the
       currently-executing workflow. ActivitySerializationContext is also set on operations
-
     """
 
     pass
@@ -407,11 +403,11 @@ class CompositePayloadConverter(PayloadConverter, WithSerializationContext):
 
     def with_context(self, context: Optional[SerializationContext]) -> Self:
         """Return a new instance with the given context."""
-        instance = type(self).__new__(type(self))
         converters = [
             c.with_context(context) if isinstance(c, WithSerializationContext) else c
             for c in self.converters.values()
         ]
+        instance = type(self).__new__(type(self))
         CompositePayloadConverter.__init__(instance, *converters)
         return instance
 

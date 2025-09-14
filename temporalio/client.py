@@ -6511,9 +6511,9 @@ class _ClientImpl(OutboundInterceptor):
         failure = temporalio.api.failure.v1.Failure()
         await data_converter.encode_failure(input.error, failure)
         last_heartbeat_details = (
-            None
-            if not input.last_heartbeat_details
-            else await data_converter.encode_wrapper(input.last_heartbeat_details)
+            await data_converter.encode_wrapper(input.last_heartbeat_details)
+            if input.last_heartbeat_details
+            else None
         )
         if isinstance(input.id_or_token, AsyncActivityIDReference):
             await self._client.workflow_service.respond_activity_task_failed_by_id(
