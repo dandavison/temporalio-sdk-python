@@ -69,9 +69,24 @@ logger = getLogger(__name__)
 class SerializationContext(ABC):
     """Base serialization context.
 
-    This provides contextual information during serialization and deserialization
-    operations. Different contexts (activity, workflow, etc.) can provide
-    specialized information.
+    Provides contextual information during serialization and deserialization operations.
+
+    Examples:
+
+    - In client code, when starting a workflow, or sending a signal/update/query to a workflow, or
+      receiving the result of an update/query, or handling an exception from a workflow, the context
+      type is :py:class:`WorkflowSerializationContext` and the workflow ID set of the target
+      workflow will be set in the context.
+
+    - In workflow code, when operating on a payload being sent/received to/from a child workflow, or
+      handling an exception from a child workflow, the context type is
+      :py:class:`WorkflowSerializationContext` and the workflow ID is that of the child workflow,
+      not of the currently executing (i.e. parent) workflow.
+
+    - In workflow code, when operating on a payload to be sent/received to/from an activity, the
+      context type is :py:class:`ActivitySerializationContext` and the workflow ID is that of the
+      currently-executing workflow. ActivitySerializationContext is also set on operations
+
     """
 
     pass
@@ -81,13 +96,14 @@ class SerializationContext(ABC):
 class WorkflowSerializationContext(SerializationContext):
     """Serialization context for workflows.
 
-    Matches .NET SDK's ISerializationContext.Workflow.
+    See :py:class:`SerializationContext` for more details.
 
     Attributes:
         namespace: The namespace the workflow is running in.
-        workflow_id: The workflow ID. Note, when creating/describing schedules,
-            this may be the workflow ID prefix as configured, not the final
-            workflow ID when the workflow is created by the schedule.
+        workflow_id: The ID of the workflow. Note that this is the ID of the workflow of which the
+            payload being operated on is an input or output. Note also that when creating/describing
+            schedules, this may be the workflow ID prefix as configured, not the final workflow ID
+            when the workflow is created by the schedule.
     """
 
     namespace: str
@@ -98,7 +114,7 @@ class WorkflowSerializationContext(SerializationContext):
 class ActivitySerializationContext(SerializationContext):
     """Serialization context for activities.
 
-    Matches .NET SDK's ISerializationContext.Activity.
+    See :py:class:`SerializationContext` for more details.
 
     Attributes:
         namespace: Workflow/activity namespace.
