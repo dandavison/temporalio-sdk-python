@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import inspect
+import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -34,7 +35,7 @@ from temporalio.converter import (
     WithSerializationContext,
     WorkflowSerializationContext,
 )
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 from temporalio.worker._workflow_instance import UnsandboxedWorkflowRunner
 
@@ -968,10 +969,14 @@ class FailureContextWorkflow:
         raise Exception("Unreachable")
 
 
+failure_converter_test_trace: list[TraceItem] = []
+
+
 class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext):
     def __init__(self):
         super().__init__(encode_common_attributes=False)
         self.context: Optional[SerializationContext] = None
+        self.trace: list[TraceItem] = failure_converter_test_trace
 
     def with_context(
         self, context: Optional[SerializationContext]
@@ -986,82 +991,62 @@ class ContextFailureConverter(DefaultFailureConverter, WithSerializationContext)
         payload_converter: PayloadConverter,
         failure: Failure,
     ) -> None:
-        print("🌈 to_failure")
-        if isinstance(exception, ApplicationError) and exception.details:
-            if isinstance(
-                self.context,
-                (WorkflowSerializationContext, ActivitySerializationContext),
-            ):
-                context_type = (
-                    "workflow"
-                    if isinstance(self.context, WorkflowSerializationContext)
-                    else "activity"
-                )
-                print(
-                    f"    🌈 to_failure appending {context_type}: {exception.details}"
-                )
-                exception.details[0]["items"].append(
-                    dataclasses.asdict(
-                        TraceItem(
-                            context_type=context_type,
-                            in_workflow=workflow.in_workflow(),
-                            method="to_failure",
-                            context=dataclasses.asdict(self.context),
-                        )
-                    )
-                )
-            else:
-                raise TypeError(f"self.context is {type(self.context)}")
+        print(f"🌈 to_failure: {exception.__class__}")
+        if isinstance(self.context, WorkflowSerializationContext):
+            context_type = "workflow"
+        elif isinstance(self.context, ActivitySerializationContext):
+            context_type = "activity"
+        else:
+            raise TypeError(f"self.context is {type(self.context)}")
 
+        self.trace.append(
+            TraceItem(
+                context_type=context_type,
+                in_workflow=workflow.in_workflow(),
+                method="to_failure",
+                context=dataclasses.asdict(self.context),
+            )
+        )
         super().to_failure(exception, payload_converter, failure)
 
     def from_failure(
         self, failure: Failure, payload_converter: PayloadConverter
     ) -> BaseException:
         print("🌈 from_failure")
+        print("\n".join(list(reversed(traceback.format_stack()))[:5]))
         # Let the base class create the exception
-        exception = super().from_failure(failure, payload_converter)
-        print(f"    🌈 {exception.__class__}")
-        if isinstance(exception, ApplicationError) and exception.details:
-            if isinstance(
-                self.context,
-                (WorkflowSerializationContext, ActivitySerializationContext),
-            ):
-                context_type = (
-                    "workflow"
-                    if isinstance(self.context, WorkflowSerializationContext)
-                    else "activity"
-                )
-                print(
-                    f"    🌈 from_failure appending {context_type}: {exception.details}"
-                )
-                exception.details[0]["items"].append(
-                    dataclasses.asdict(
-                        TraceItem(
-                            context_type=context_type,
-                            in_workflow=workflow.in_workflow(),
-                            method="from_failure",
-                            context=dataclasses.asdict(self.context),
-                        )
-                    )
-                )
-            else:
-                raise TypeError(f"self.context is {type(self.context)}")
-        return exception
+        if isinstance(self.context, WorkflowSerializationContext):
+            context_type = "workflow"
+        elif isinstance(self.context, ActivitySerializationContext):
+            context_type = "activity"
+        else:
+            raise TypeError(f"self.context is {type(self.context)}")
+
+        self.trace.append(
+            TraceItem(
+                context_type=context_type,
+                in_workflow=workflow.in_workflow(),
+                method="from_failure",
+                context=dataclasses.asdict(self.context),
+                # caller_location=get_caller_location(),
+            )
+        )
+        return super().from_failure(failure, payload_converter)
 
 
-async def test_failure_conversion_with_context(client: Client):
+async def test_failure_converter_with_context(client: Client):
     print()
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
+    data_converter = dataclasses.replace(
+        DataConverter.default,
+        failure_converter_class=ContextFailureConverter,
+    )
     test_client = Client(
         client.service_client,
         namespace=client.namespace,
-        data_converter=dataclasses.replace(
-            DataConverter.default,
-            failure_converter_class=ContextFailureConverter,
-        ),
+        data_converter=data_converter,
     )
     async with Worker(
         test_client,
@@ -1076,67 +1061,76 @@ async def test_failure_conversion_with_context(client: Client):
                 id=workflow_id,
                 task_queue=task_queue,
             )
-        except Exception as err:
-            assert isinstance(err, WorkflowFailureError)
-            assert isinstance(err.cause, ActivityError)
-            assert isinstance(err.cause.cause, ApplicationError)
-            pprint(err.cause.cause.details)
+            raise AssertionError("unreachable")
+        except WorkflowFailureError:
+            pass
 
-            workflow_context = dataclasses.asdict(
-                WorkflowSerializationContext(
-                    namespace="default",
-                    workflow_id=workflow_id,
-                )
+        assert isinstance(data_converter.failure_converter, ContextFailureConverter)
+
+        workflow_context = dataclasses.asdict(
+            WorkflowSerializationContext(
+                namespace="default",
+                workflow_id=workflow_id,
             )
-            activity_context = dataclasses.asdict(
-                ActivitySerializationContext(
-                    namespace="default",
-                    workflow_id=workflow_id,
-                    workflow_type="FailureContextWorkflow",
-                    activity_type="failing_activity",
-                    activity_task_queue=task_queue,
-                    is_local=False,
-                )
+        )
+        activity_context = dataclasses.asdict(
+            ActivitySerializationContext(
+                namespace="default",
+                workflow_id=workflow_id,
+                workflow_type="FailureContextWorkflow",
+                activity_type="failing_activity",
+                activity_task_queue=task_queue,
+                is_local=False,
             )
-            # 1. Exception raised in activity
-            # 2. outbound activity result to_failure(act, activity_ctx) appends and serializes
-            # 3. -> server -> WFT -> WF
-            # 4. inbound activity result from_failure(wf, activity_ctx, in_wf=False) deserializes and appends
-            # 5. outbound wf result to_failure(wf, in_wf=True) appends and serializes
-            # 6. inbound wf result from_failure(client, wf_context, in_wf=False)
-            if False:
-                assert_trace(
-                    err.cause.cause.details,
+        )
+        # 1. Exception raised in activity
+        # 2. outbound activity result to_failure(act, activity_ctx) appends and serializes
+        # 3. -> server -> WFT -> WF
+        # 4. inbound activity result from_failure(wf, activity_ctx, in_wf=False) deserializes and appends
+        # 5. outbound wf result to_failure(wf, in_wf=True) appends and serializes
+        # 6. inbound wf result from_failure(client, wf_context, in_wf=False)
+        if True:
+            assert_trace(
+                data_converter.failure_converter.trace,
+                [
+                    TraceItem(
+                        context_type="activity",
+                        context=activity_context,
+                        in_workflow=False,
+                        method="to_failure",  # outbound activity result
+                    )
+                ]
+                + (
                     [
-                        dataclasses.asdict(d)
-                        for d in [
-                            TraceItem(
-                                context_type="activity",
-                                context=activity_context,
-                                in_workflow=False,
-                                method="to_failure",  # outbound activity result
-                            ),
-                            TraceItem(
-                                context_type="activity",
-                                context=activity_context,
-                                in_workflow=False,
-                                method="from_failure",  # inbound activity result
-                            ),
-                            TraceItem(
-                                context_type="workflow",
-                                context=workflow_context,
-                                in_workflow=True,
-                                method="to_failure",  # outbound workflow result
-                            ),
-                            TraceItem(
-                                context_type="workflow",
-                                context=workflow_context,
-                                in_workflow=False,
-                                method="from_failure",  # inbound workflow result
-                            ),
-                        ]
-                    ],
+                        TraceItem(
+                            context_type="activity",
+                            context=activity_context,
+                            in_workflow=False,
+                            method="from_failure",  # inbound activity result
+                        )
+                    ]
+                    * 2  # from_failure deserializes the error and error cause
                 )
+                + [
+                    TraceItem(
+                        context_type="workflow",
+                        context=workflow_context,
+                        in_workflow=True,
+                        method="to_failure",  # outbound workflow result
+                    )
+                ]
+                + (
+                    [
+                        TraceItem(
+                            context_type="workflow",
+                            context=workflow_context,
+                            in_workflow=False,
+                            method="from_failure",  # inbound workflow result
+                        )
+                    ]
+                    * 2  # from_failure deserializes the error and error cause
+                ),
+            )
 
 
 class ContextCodec(PayloadCodec, WithSerializationContext):
