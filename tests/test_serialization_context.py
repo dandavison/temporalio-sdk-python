@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from itertools import zip_longest
 from pprint import pformat
-from typing import Any, List, Literal, Never, Optional, Sequence, Type
+from typing import Any, List, Literal, Never, Optional, Sequence, Type, cast
 from warnings import warn
 
 import pytest
@@ -983,9 +983,12 @@ class FailureConverterWithContext(DefaultFailureConverter, WithSerializationCont
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
+        assert isinstance(
+            self.context, (WorkflowSerializationContext, ActivitySerializationContext)
+        )
         test_traces[self.context.workflow_id].append(
             TraceItem(
-                context_type=context_type,
+                context_type=cast(Literal["workflow", "activity"], context_type),
                 in_workflow=workflow.in_workflow(),
                 method="to_failure",
                 context=dataclasses.asdict(self.context),
@@ -1004,9 +1007,12 @@ class FailureConverterWithContext(DefaultFailureConverter, WithSerializationCont
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
+        assert isinstance(
+            self.context, (WorkflowSerializationContext, ActivitySerializationContext)
+        )
         test_traces[self.context.workflow_id].append(
             TraceItem(
-                context_type=context_type,
+                context_type=cast(Literal["workflow", "activity"], context_type),
                 in_workflow=workflow.in_workflow(),
                 method="from_failure",
                 context=dataclasses.asdict(self.context),
