@@ -48,6 +48,8 @@ class TraceItem:
         "from_payload",
         "to_failure",
         "from_failure",
+        "encode",
+        "decode",
     ]
     context: dict[str, Any]
     in_workflow: bool
@@ -846,10 +848,10 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
         DataConverter.default,
         payload_converter_class=SerializationContextTestPayloadConverter,
     )
-    custom_client = Client(**config)
+    client = Client(**config)
 
     async with Worker(
-        custom_client,
+        client,
         task_queue=task_queue,
         workflows=[
             ExternalWorkflowTarget,
@@ -860,13 +862,13 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
         workflow_runner=UnsandboxedWorkflowRunner(),  # so that we can use isinstance
     ):
         # Test external signal
-        target_handle = await custom_client.start_workflow(
+        target_handle = await client.start_workflow(
             ExternalWorkflowTarget.run,
             id=target_workflow_id,
             task_queue=task_queue,
         )
 
-        signaler_handle = await custom_client.start_workflow(
+        signaler_handle = await client.start_workflow(
             ExternalWorkflowSignaler.run,
             args=[target_workflow_id, TraceData()],
             id=signaler_workflow_id,
@@ -953,7 +955,7 @@ class FailureConverterTestWorkflow:
         raise Exception("Unreachable")
 
 
-failure_converter_test_trace: dict[str, list[TraceItem]] = defaultdict(list)
+test_traces: dict[str, list[TraceItem]] = defaultdict(list)
 
 
 class FailureConverterWithContext(DefaultFailureConverter, WithSerializationContext):
@@ -981,7 +983,7 @@ class FailureConverterWithContext(DefaultFailureConverter, WithSerializationCont
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
-        failure_converter_test_trace[self.context.workflow_id].append(
+        test_traces[self.context.workflow_id].append(
             TraceItem(
                 context_type=context_type,
                 in_workflow=workflow.in_workflow(),
@@ -1002,7 +1004,7 @@ class FailureConverterWithContext(DefaultFailureConverter, WithSerializationCont
         else:
             raise TypeError(f"self.context is {type(self.context)}")
 
-        failure_converter_test_trace[self.context.workflow_id].append(
+        test_traces[self.context.workflow_id].append(
             TraceItem(
                 context_type=context_type,
                 in_workflow=workflow.in_workflow(),
@@ -1022,20 +1024,19 @@ async def test_failure_converter_with_context(client: Client):
         DataConverter.default,
         failure_converter_class=FailureConverterWithContext,
     )
-    test_client = Client(
-        client.service_client,
-        namespace=client.namespace,
-        data_converter=data_converter,
-    )
+    config = client.config()
+    config["data_converter"] = data_converter
+    client = Client(**config)
+
     async with Worker(
-        test_client,
+        client,
         task_queue=task_queue,
         workflows=[FailureConverterTestWorkflow],
         activities=[failing_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         try:
-            await test_client.execute_workflow(
+            await client.execute_workflow(
                 FailureConverterTestWorkflow.run,
                 id=workflow_id,
                 task_queue=task_queue,
@@ -1063,7 +1064,7 @@ async def test_failure_converter_with_context(client: Client):
             )
         )
         assert_trace(
-            failure_converter_test_trace[workflow_id],
+            test_traces[workflow_id],
             [
                 TraceItem(
                     context_type="activity",
@@ -1103,7 +1104,7 @@ async def test_failure_converter_with_context(client: Client):
                 * 2  # from_failure deserializes the error and error cause
             ),
         )
-        del failure_converter_test_trace[workflow_id]
+        del test_traces[workflow_id]
 
 
 class PayloadCodecWithContext(PayloadCodec, WithSerializationContext):
@@ -1120,26 +1121,30 @@ class PayloadCodecWithContext(PayloadCodec, WithSerializationContext):
         return codec
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        result = []
-        for p in payloads:
-            new_p = Payload()
-            new_p.CopyFrom(p)
-            if self.context:
-                self.encode_called_with_context = True
-                new_p.metadata["has_context"] = b"true"
-            result.append(new_p)
-        return result
+        assert self.context
+        assert isinstance(self.context, WorkflowSerializationContext)
+        test_traces[self.context.workflow_id].append(
+            TraceItem(
+                context_type="workflow",
+                context=dataclasses.asdict(self.context),
+                method="encode",
+                in_workflow=workflow.in_workflow(),
+            )
+        )
+        return list(payloads)
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        result = []
-        for p in payloads:
-            new_p = Payload()
-            new_p.CopyFrom(p)
-            if self.context and new_p.metadata.get("has_context") == b"true":
-                self.decode_called_with_context = True
-                del new_p.metadata["has_context"]
-            result.append(new_p)
-        return result
+        assert self.context
+        assert isinstance(self.context, WorkflowSerializationContext)
+        test_traces[self.context.workflow_id].append(
+            TraceItem(
+                context_type="workflow",
+                context=dataclasses.asdict(self.context),
+                method="decode",
+                in_workflow=workflow.in_workflow(),
+            )
+        )
+        return list(payloads)
 
 
 @workflow.defn
@@ -1150,26 +1155,61 @@ class CodecTestWorkflow:
 
 
 async def test_codec_with_context(client: Client):
-    wf_id = str(uuid.uuid4())
+    workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
-    test_client = Client(
-        client.service_client,
-        namespace=client.namespace,
-        data_converter=dataclasses.replace(
-            DataConverter.default, payload_codec=PayloadCodecWithContext()
-        ),
+
+    client_config = client.config()
+    client_config["data_converter"] = dataclasses.replace(
+        DataConverter.default, payload_codec=PayloadCodecWithContext()
     )
+    client = Client(**client_config)
     async with Worker(
-        test_client,
+        client,
         task_queue=task_queue,
         workflows=[CodecTestWorkflow],
     ):
-        await test_client.execute_workflow(
+        await client.execute_workflow(
             CodecTestWorkflow.run,
             "data",
-            id=wf_id,
+            id=workflow_id,
             task_queue=task_queue,
         )
+    workflow_context = dataclasses.asdict(
+        WorkflowSerializationContext(
+            namespace=client.namespace,
+            workflow_id=workflow_id,
+        )
+    )
+    assert_trace(
+        test_traces[workflow_id],
+        [
+            TraceItem(
+                context_type="workflow",
+                context=workflow_context,
+                method="encode",
+                in_workflow=False,
+            ),
+            TraceItem(
+                context_type="workflow",
+                context=workflow_context,
+                method="decode",
+                in_workflow=False,
+            ),
+            TraceItem(
+                context_type="workflow",
+                context=workflow_context,
+                method="encode",
+                in_workflow=False,
+            ),
+            TraceItem(
+                context_type="workflow",
+                context=workflow_context,
+                method="decode",
+                in_workflow=False,
+            ),
+        ],
+    )
+    del test_traces[workflow_id]
 
 
 # Pydantic
