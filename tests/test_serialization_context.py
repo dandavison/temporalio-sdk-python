@@ -1254,6 +1254,70 @@ async def test_local_activity_codec_with_context(client: Client):
     del test_traces[workflow_id]
 
 
+# Test outbound Nexus operations do not have any context set
+
+
+class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
+    def __init__(self):
+        self.context = None
+
+    def with_context(
+        self, context: SerializationContext
+    ) -> PayloadCodecWithUnusedContext:
+        self.context = context
+        return self
+
+    async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        print("🌈 encode", payloads[0].data, self.context)
+        is_nexus = any("nexus-data" in str(p.data) for p in payloads)
+        assert bool(self.context) == (not is_nexus)
+        return list(payloads)
+
+    async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        print("🌈 decode", payloads[0].data, self.context)
+        is_nexus = any("nexus-data" in str(p.data) for p in payloads)
+        assert bool(self.context) == (not is_nexus)
+        return list(payloads)
+
+
+@workflow.defn
+class NexusOperationTestWorkflow:
+    @workflow.run
+    async def run(self, data: str) -> None:
+        nexus_client = workflow.create_nexus_client(
+            service="service",
+            endpoint="endpoint",
+        )
+        await nexus_client.start_operation("non-existent-operation", "nexus-data")
+
+
+async def test_nexus_operation_data_converter_lacks_context(
+    client: Client,
+):
+    print()
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    config = client.config()
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_codec=PayloadCodecWithUnusedContext(),
+    )
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[NexusOperationTestWorkflow],
+    ):
+        await client.execute_workflow(
+            NexusOperationTestWorkflow.run,
+            "workflow-data",
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+
+
 # Pydantic
 
 
