@@ -941,7 +941,10 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
 
         # We not set a serialization context for nexus operations on the caller side because it is
         # not possible to do so on the handler side.
-        payload_converter, failure_converter = self._converters_with_context(None)
+        payload_converter, failure_converter = (
+            self._context_free_payload_converter,
+            self._context_free_failure_converter,
+        )
         # Handle the four oneof variants of NexusOperationResult
         result = job.result
         if result.HasField("completed"):
@@ -3170,7 +3173,7 @@ class _NexusOperationHandle(temporalio.workflow.NexusOperationHandle[OutputT]):
         self._task = asyncio.Task(fn)
         self._start_fut: asyncio.Future[Optional[str]] = instance.create_future()
         self._result_fut: asyncio.Future[Optional[OutputT]] = instance.create_future()
-        self._payload_converter = self._instance._payload_converter
+        self._payload_converter = self._instance._context_free_payload_converter
 
     @property
     def operation_token(self) -> Optional[str]:
