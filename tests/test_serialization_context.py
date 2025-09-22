@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any, List, Literal, Optional, Sequence, Type
 
+import nexusrpc
 import pytest
 from pydantic import BaseModel
 from typing_extensions import Never
@@ -1046,6 +1048,9 @@ async def test_failure_converter_with_context(client: Client):
         del test_traces[workflow_id]
 
 
+## Test payload codec
+
+
 class PayloadCodecWithContext(PayloadCodec, WithSerializationContext):
     def __init__(self):
         self.context: Optional[SerializationContext] = None
@@ -1347,6 +1352,162 @@ async def test_child_workflow_codec_with_context(client: Client):
         ),
     ]
     del test_traces[workflow_id]
+
+
+# Payload encryption test
+
+
+class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
+    """
+    The outbound data for encoding must always be the string "outbound". "Encrypt" it by replacing
+    it with a key that is derived from the context available during encoding. On decryption, assert
+    that the same key can be derived from the context available during decoding, and return the
+    string "inbound".
+    """
+
+    def __init__(self):
+        self.context: Optional[SerializationContext] = None
+
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> PayloadEncryptionCodec:
+        self.context = context
+        return self
+
+    async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        [p] = payloads
+        assert p.data.decode() == '"outbound"'
+        key = self._get_encryption_key()
+        return [Payload(data=key.encode())]
+
+    async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        [p] = payloads
+        assert json.loads(p.data.decode()) == self._get_encryption_key()
+        return [Payload(data=b"inbound")]
+
+    def _get_encryption_key(self) -> str:
+        if self.context:
+            assert isinstance(
+                self.context,
+                (WorkflowSerializationContext, ActivitySerializationContext),
+            )
+            context = dataclasses.asdict(self.context)
+        else:
+            context = {}
+        return json.dumps({k: v for k, v in sorted(context.items()) if k != "trace"})
+
+
+@activity.defn
+async def payload_encryption_activity(input: str) -> str:
+    assert input == "inbound"
+    return ""
+
+
+@workflow.defn
+class PayloadEncryptionChildWorkflow:
+    @workflow.run
+    async def run(self, data: str) -> str:
+        assert data == "inbound"
+        return ""
+
+
+@nexusrpc.service
+class PayloadEncryptionService:
+    payload_encryption_operation: nexusrpc.Operation[str, str]
+
+
+@nexusrpc.handler.service_handler
+class PayloadEncryptionServiceHandler:
+    @nexusrpc.handler.sync_operation
+    async def payload_encryption_operation(
+        self, _: nexusrpc.handler.StartOperationContext, data: str
+    ) -> str:
+        assert data == "inbound"
+        return ""
+
+
+@workflow.defn
+class PayloadEncryptionWorkflow:
+    def __init__(self):
+        self.received_signal = False
+        self.received_update = False
+
+    @workflow.run
+    async def run(self, data: str) -> str:
+        await workflow.wait_condition(
+            lambda: (self.received_signal and self.received_update)
+        )
+        assert "inbound" == await workflow.execute_activity(
+            payload_encryption_activity,
+            "outbound",
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        assert "inbound" == await workflow.execute_child_workflow(
+            PayloadEncryptionChildWorkflow.run,
+            "outbound",
+            id=f"{workflow.info().workflow_id}_child",
+        )
+        return "outbound"
+
+    @workflow.query
+    def query(self, data: str) -> str:
+        assert data == "inbound"
+        return "outbound"
+
+    @workflow.signal
+    def signal(self, data: str) -> None:
+        assert data == "inbound"
+        self.received_signal = True
+
+    @workflow.update
+    def update(self, data: str) -> str:
+        assert data == "inbound"
+        self.received_update = True
+        return "outbound"
+
+    @update.validator
+    def update_validator(self, data: str) -> None:
+        assert data == "inbound"
+
+
+async def test_payload_encryption_with_context(
+    client: Client,
+):
+    """
+    "Encrypt" outbound payloads with a key using all available context fields, in order to demonstrate
+    that the same context is available to decrypt inbound payloads.
+    """
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    config = client.config()
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_codec=PayloadEncryptionCodec(),
+    )
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[PayloadEncryptionWorkflow, PayloadEncryptionChildWorkflow],
+        activities=[payload_encryption_activity],
+        nexus_service_handlers=[PayloadEncryptionServiceHandler()],
+    ):
+        wf_handle = await client.start_workflow(
+            PayloadEncryptionWorkflow.run,
+            "outbound",
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+        assert "inbound" == await wf_handle.query(
+            PayloadEncryptionWorkflow.query, "outbound"
+        )
+        await wf_handle.signal(PayloadEncryptionWorkflow.signal, "outbound")
+        assert "inbound" == await wf_handle.execute_update(
+            PayloadEncryptionWorkflow.update, "outbound"
+        )
+        assert "inbound" == await wf_handle.result()
 
 
 # Test outbound Nexus operations do not have any context set
