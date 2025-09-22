@@ -1254,6 +1254,101 @@ async def test_local_activity_codec_with_context(client: Client):
     del test_traces[workflow_id]
 
 
+# Child workflow codec test
+
+
+@workflow.defn
+class ChildWorkflowCodecTestWorkflow:
+    @workflow.run
+    async def run(self, data: TraceData) -> TraceData:
+        return await workflow.execute_child_workflow(
+            EchoWorkflow.run,
+            data,
+            id=f"{workflow.info().workflow_id}-child",
+        )
+
+
+async def test_child_workflow_codec_with_context(client: Client):
+    workflow_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    config = client.config()
+    config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_codec=PayloadCodecWithContext(),
+    )
+    client = Client(**config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[ChildWorkflowCodecTestWorkflow, EchoWorkflow],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        await client.execute_workflow(
+            ChildWorkflowCodecTestWorkflow.run,
+            TraceData(),
+            id=workflow_id,
+            task_queue=task_queue,
+        )
+
+    parent_workflow_context = dataclasses.asdict(
+        WorkflowSerializationContext(
+            namespace=client.namespace,
+            workflow_id=workflow_id,
+        )
+    )
+
+    child_workflow_context = dataclasses.asdict(
+        WorkflowSerializationContext(
+            namespace=client.namespace,
+            workflow_id=f"{workflow_id}-child",
+        )
+    )
+
+    # The expectation is that child workflows should use their own context for encoding/decoding,
+    # similar to how .NET and Java handle it
+    assert test_traces[workflow_id] == [
+        # Parent workflow input
+        TraceItem(
+            context=parent_workflow_context,
+            method="encode",
+        ),
+        TraceItem(
+            context=parent_workflow_context,
+            method="decode",
+        ),
+        # Child workflow input - should use child's context
+        TraceItem(
+            context=child_workflow_context,
+            method="encode",
+        ),
+        TraceItem(
+            context=child_workflow_context,
+            method="decode",
+        ),
+        # Child workflow result - should use child's context
+        TraceItem(
+            context=child_workflow_context,
+            method="encode",
+        ),
+        TraceItem(
+            context=child_workflow_context,
+            method="decode",
+        ),
+        # Parent workflow result
+        TraceItem(
+            context=parent_workflow_context,
+            method="encode",
+        ),
+        TraceItem(
+            context=parent_workflow_context,
+            method="decode",
+        ),
+    ]
+    del test_traces[workflow_id]
+
+
 # Test outbound Nexus operations do not have any context set
 
 
