@@ -210,14 +210,16 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._defn = det.defn
         self._workflow_input: Optional[ExecuteWorkflowInput] = None
         self._info = det.info
+        self._context_free_payload_converter = det.payload_converter_class()
+        self._context_free_failure_converter = det.failure_converter_class()
         self._payload_converter, self._failure_converter = (
             self._converters_with_context(
                 temporalio.converter.WorkflowSerializationContext(
                     namespace=det.info.namespace,
                     workflow_id=det.info.workflow_id,
                 ),
-                det.payload_converter_class(),
-                det.failure_converter_class(),
+                self._context_free_payload_converter,
+                self._context_free_failure_converter,
             )
         )
 
@@ -2068,18 +2070,18 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         temporalio.converter.FailureConverter,
     ]:
         """Construct workflow payload and failure converters with the given context."""
-        base_payload_converter = base_payload_converter or self._payload_converter
-        base_failure_converter = base_failure_converter or self._failure_converter
+        payload_converter = base_payload_converter or self._payload_converter
+        failure_converter = base_failure_converter or self._failure_converter
         if context:
             if isinstance(
-                base_payload_converter, temporalio.converter.WithSerializationContext
+                payload_converter, temporalio.converter.WithSerializationContext
             ):
-                base_payload_converter = base_payload_converter.with_context(context)
+                payload_converter = payload_converter.with_context(context)
             if isinstance(
-                base_failure_converter, temporalio.converter.WithSerializationContext
+                failure_converter, temporalio.converter.WithSerializationContext
             ):
-                base_failure_converter = base_failure_converter.with_context(context)
-        return base_payload_converter, base_failure_converter
+                failure_converter = failure_converter.with_context(context)
+        return payload_converter, failure_converter
 
     def _instantiate_workflow_object(self) -> Any:
         if not self._workflow_input:
