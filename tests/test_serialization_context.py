@@ -1214,9 +1214,7 @@ async def test_local_activity_codec_with_context(client: Client):
         )
     )
 
-    # Note: Local activities have partial activity context support through codec
-    # The input encode uses workflow context, but the decode uses activity context
-    # The result encode uses activity context, but the decode uses workflow context
+    # Note: Local activities use activity context for both encoding and decoding
     assert test_traces[workflow_id] == [
         # Workflow input
         TraceItem(
@@ -1227,9 +1225,9 @@ async def test_local_activity_codec_with_context(client: Client):
             context=workflow_context,
             method="decode",
         ),
-        # Local activity input - encode uses workflow context
+        # Local activity input - encode uses activity context with is_local=True
         TraceItem(
-            context=workflow_context,
+            context=local_activity_context,
             method="encode",
         ),
         # Local activity input - decode uses activity context with is_local=True
@@ -1242,9 +1240,9 @@ async def test_local_activity_codec_with_context(client: Client):
             context=local_activity_context,
             method="encode",
         ),
-        # Local activity result - decode uses workflow context
+        # Local activity result - decode uses activity context with is_local=True
         TraceItem(
-            context=workflow_context,
+            context=local_activity_context,
             method="decode",
         ),
         # Workflow result
@@ -1314,7 +1312,17 @@ async def test_child_workflow_codec_with_context(client: Client):
 
     # The expectation is that child workflows should use their own context for encoding/decoding,
     # similar to how .NET and Java handle it
-    assert test_traces[workflow_id] == [
+    # Traces are stored under both parent and child workflow IDs
+    child_workflow_id = f"{workflow_id}-child"
+    
+    # Combine traces from parent and child workflows
+    all_traces = (
+        test_traces[workflow_id][:2]  # Parent workflow input
+        + test_traces[child_workflow_id]  # All child workflow operations
+        + test_traces[workflow_id][2:]  # Parent workflow result
+    )
+    
+    assert all_traces == [
         # Parent workflow input
         TraceItem(
             context=parent_workflow_context,
