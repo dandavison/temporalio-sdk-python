@@ -520,12 +520,7 @@ async def test_async_activity_completion_payload_conversion(
         await activity_handle.complete(data)
         result = await wf_handle.result()
 
-        # project down since activity completion by a client does not have access to most activity
-        # context fields
-        def project(trace_item: TraceItem) -> str:
-            return trace_item.method
-
-        assert [project(item) for item in result.items] == [
+        assert [item.method for item in result.items] == [
             "to_payload",  # Outbound activity input
             "to_payload",  # Outbound activity heartbeat data
             "from_payload",  # Inbound activity result
@@ -1528,15 +1523,14 @@ class AssertNexusLacksContextPayloadCodec(PayloadCodec, WithSerializationContext
         codec.context = context
         return codec
 
-    async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
+    async def _assert_context_iff_not_nexus(
+        self, payloads: Sequence[Payload]
+    ) -> List[Payload]:
         [payload] = payloads
         assert bool(self.context) == (payload.data.decode() != '"nexus-data"')
         return list(payloads)
 
-    async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        [payload] = payloads
-        assert bool(self.context) == (payload.data.decode() != '"nexus-data"')
-        return list(payloads)
+    encode = decode = _assert_context_iff_not_nexus
 
 
 @nexusrpc.handler.service_handler
@@ -1567,9 +1561,6 @@ async def test_nexus_payload_codec_operations_lack_context(
     """
     encode() and decode() on nexus payloads should not have any context set.
     """
-    workflow_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
     config = client.config()
     config["data_converter"] = dataclasses.replace(
         DataConverter.default,
@@ -1579,16 +1570,16 @@ async def test_nexus_payload_codec_operations_lack_context(
 
     async with Worker(
         client,
-        task_queue=task_queue,
+        task_queue=str(uuid.uuid4()),
         workflows=[NexusOperationTestWorkflow],
         nexus_service_handlers=[NexusOperationTestServiceHandler()],
-    ):
-        await create_nexus_endpoint(task_queue, client)
+    ) as worker:
+        await create_nexus_endpoint(worker.task_queue, client)
         await client.execute_workflow(
             NexusOperationTestWorkflow.run,
             "workflow-data",
-            id=workflow_id,
-            task_queue=task_queue,
+            id=str(uuid.uuid4()),
+            task_queue=worker.task_queue,
         )
 
 
