@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import inspect
 import json
 import uuid
 from collections import defaultdict
@@ -1368,120 +1367,46 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
     string "inbound".
     """
 
-    # Class variable shared across all instances
-    _next_tag = 1000
-
     def __init__(self):
         self.context: Optional[SerializationContext] = None
 
     def with_context(
         self, context: Optional[SerializationContext]
     ) -> PayloadEncryptionCodec:
-        # Create new instance with the context
         codec = PayloadEncryptionCodec()
         codec.context = context
         return codec
 
-    @classmethod
-    def _get_tag(cls) -> str:
-        """Generate a unique tag for pairing encode/decode operations"""
-        tag = f"#{cls._next_tag}"
-        cls._next_tag += 1
-        return tag
-
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        # Get context info for debugging
-        context_type = type(self.context).__name__ if self.context else "None"
-        context_key = self._get_encryption_key()
-
-        # Handle single payload
-        [p] = payloads
-        data = p.data.decode()
-
-        # Only encode our specific test payload
-        if data != '"outbound"':
-            return list(payloads)
-
-        # Generate unique tag for this encode/decode pair
-        tag = self._get_tag()
-
-        # Log the operation
-        print(f"📤 ENCODE {tag} [{context_type}]: data={data!r}")
-        print(f"   Context key: {context_key}")
-        for line in get_caller_location():
-            print(f"    {line}")
-        print("--------------------------------")
-
-        # Preserve original encoding metadata and add our own marker
-        metadata = dict(p.metadata)
-        metadata["encrypted"] = b"true"
-
-        # Embed tag in the payload data itself
-        tagged_data = f"{tag}|{json.dumps(context_key)}".encode()
-
+        [payload] = payloads
         return [
             Payload(
-                metadata=metadata,
-                data=tagged_data,
+                metadata=payload.metadata,
+                data=json.dumps(self._get_encryption_key()).encode(),
             )
         ]
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        # Get context info for debugging
-        context_type = type(self.context).__name__ if self.context else "None"
-        context_key = self._get_encryption_key()
-
-        # Handle single payload
-        [p] = payloads
-
-        # Check if this was encrypted by us
-        if p.metadata.get("encrypted") != b"true":
-            return list(payloads)
-
-        # Extract tag and stored key from payload data
-        data = p.data.decode()
-        tag, stored_key_json = data.split("|", 1)
-        stored_key = json.loads(stored_key_json)
-
-        # Log the operation
-        print(f"📥 DECODE {tag} [{context_type}]: encrypted payload")
-        print(f"   Context key: {context_key}")
-        # Verify context
-        if stored_key != context_key:
-            print("   ❌ CONTEXT MISMATCH!")
-            print(f"      Encoded with: {stored_key}")
-            print(f"      Decoding with: {context_key}")
-            for line in get_caller_location():
-                print(f"    {line}")
-            print("--------------------------------")
-            assert False, f"Context mismatch: encoded with {stored_key}, decoding with {context_key}"
-
-        # Preserve original encoding metadata but remove our marker
-        metadata = dict(p.metadata)
-        del metadata["encrypted"]
-
-        print("   ✅ Context matched, decryption successful")
-        for line in get_caller_location():
-            print(f"    {line}")
-        print("--------------------------------")
+        [payload] = payloads
+        assert json.loads(payload.data.decode()) == self._get_encryption_key()
+        metadata = dict(payload.metadata)
         return [Payload(metadata=metadata, data=b'"inbound"')]
 
     def _get_encryption_key(self) -> str:
-        if self.context:
-            assert isinstance(
+        context = (
+            dataclasses.asdict(self.context)
+            if isinstance(
                 self.context,
                 (WorkflowSerializationContext, ActivitySerializationContext),
             )
-            context = dataclasses.asdict(self.context)
-        else:
-            context = {}
-        # Sort keys and remove non-essential fields for stable comparison
-        return json.dumps({k: v for k, v in sorted(context.items()) if k != "trace"})
+            else {}
+        )
+        return json.dumps({k: v for k, v in sorted(context.items())})
 
 
 @activity.defn
-async def payload_encryption_activity(input: str) -> str:
-    assert input == "inbound"
+async def payload_encryption_activity(data: str) -> str:
+    assert data == "inbound"
     return "outbound"
 
 
@@ -1559,7 +1484,6 @@ async def test_payload_encryption_with_context(
     "Encrypt" outbound payloads with a key using all available context fields, in order to demonstrate
     that the same context is available to decrypt inbound payloads.
     """
-    print("\n")
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
@@ -1596,34 +1520,25 @@ async def test_payload_encryption_with_context(
 # Test outbound Nexus operations do not have any context set
 
 
-class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
+class AssertNexusLacksContextPayloadCodec(PayloadCodec, WithSerializationContext):
     def __init__(self):
         self.context = None
 
     def with_context(
         self, context: SerializationContext
-    ) -> PayloadCodecWithUnusedContext:
-        # Create a new instance with the context (required by WithSerializationContext contract)
-        codec = PayloadCodecWithUnusedContext()
+    ) -> AssertNexusLacksContextPayloadCodec:
+        codec = AssertNexusLacksContextPayloadCodec()
         codec.context = context
         return codec
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        print("🌈 encode", payloads[0].data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
-        is_nexus = any("nexus-data" in str(p.data) for p in payloads)
-        assert bool(self.context) == (not is_nexus)
+        [payload] = payloads
+        assert bool(self.context) == (payload.data.decode() != '"nexus-data"')
         return list(payloads)
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        print("🌈 decode", payloads[0].data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
-        is_nexus = any("nexus-data" in str(p.data) for p in payloads)
-        assert bool(self.context) == (not is_nexus)
+        [payload] = payloads
+        assert bool(self.context) == (payload.data.decode() != '"nexus-data"')
         return list(payloads)
 
 
@@ -1649,16 +1564,19 @@ class NexusOperationTestWorkflow:
         )
 
 
-async def test_nexus_operation_data_converter_lacks_context(
+async def test_nexus_payload_codec_operations_lack_context(
     client: Client,
 ):
+    """
+    encode() and decode() on nexus payloads should not have any context set.
+    """
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
     config = client.config()
     config["data_converter"] = dataclasses.replace(
         DataConverter.default,
-        payload_codec=PayloadCodecWithUnusedContext(),
+        payload_codec=AssertNexusLacksContextPayloadCodec(),
     )
     client = Client(**config)
 
@@ -1749,37 +1667,3 @@ async def test_pydantic_converter_with_context(client: Client):
             task_queue=task_queue,
         )
         assert f"wf_{wf_id}" in result.trace
-
-
-def get_caller_location() -> list[str]:
-    """Get 3 stack frames starting from the first that's not in test_serialization_context.py or temporalio/converter.py."""
-    frame = inspect.currentframe()
-    result: list[str] = []
-    found_first = False
-
-    # Walk up the stack
-    while frame and len(result) < 3:
-        frame = frame.f_back
-        if not frame:
-            break
-
-        file_path = frame.f_code.co_filename
-
-        # Skip frames from test file and converter.py until we find the first one
-        if not found_first:
-            if (
-                file_path.endswith("test_serialization_context.py")
-                or file_path.endswith("temporalio/converter.py")
-                or file_path.endswith("temporalio/bridge/_visitor.py")
-                or file_path.endswith("temporalio/bridge/worker.py")
-            ):
-                continue
-            found_first = True
-
-        result.append(f"{file_path}:{frame.f_lineno}")
-
-    # Pad with "unknown:0" if we didn't get 3 frames
-    while len(result) < 3:
-        result.append("unknown:0")
-
-    return result
