@@ -184,3 +184,19 @@ class _Instance(WorkflowInstance):
 
     def get_thread_id(self) -> Optional[int]:
         return self._current_thread_id
+
+    def get_pending_command_serialization_context(
+        self, command_seq: int
+    ) -> Optional[temporalio.converter.SerializationContext]:
+        # Forward call to the sandboxed instance
+        self.importer.restriction_context.is_runtime = True
+        try:
+            self._run_code(
+                "with __temporal_importer.applied():\n"
+                "  __temporal_context = __temporal_in_sandbox.get_pending_command_serialization_context(__temporal_command_seq)\n",
+                __temporal_importer=self.importer,
+                __temporal_command_seq=command_seq,
+            )
+            return self.globals_and_locals.pop("__temporal_context", None)  # type: ignore
+        finally:
+            self.importer.restriction_context.is_runtime = False
