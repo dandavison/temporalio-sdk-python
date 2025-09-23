@@ -280,9 +280,10 @@ class _WorkflowWorker:
                 )
             )
             if data_converter.payload_codec:
+                # Set decode function
                 await temporalio.bridge.worker.decode_activation(
                     act,
-                    data_converter.payload_codec,
+                    data_converter.payload_codec.decode,
                     decode_headers=self._encode_headers,
                 )
             if not workflow:
@@ -352,9 +353,10 @@ class _WorkflowWorker:
         # Encode completion
         if data_converter.payload_codec:
             try:
+                # Set ambient context here derived from workflow.instance
                 await temporalio.bridge.worker.encode_completion(
                     completion,
-                    data_converter.payload_codec,
+                    data_converter.payload_codec.encode,
                     encode_headers=self._encode_headers,
                 )
             except Exception as err:
@@ -688,6 +690,7 @@ class _RunningWorkflow:
         with self._deadlock_can_be_interrupted_lock:
             self._deadlock_can_be_interrupted = True
         try:
+            # _RunningWorkflow.activate has access to self.instance
             return self.instance.activate(act)
         finally:
             with self._deadlock_can_be_interrupted_lock:

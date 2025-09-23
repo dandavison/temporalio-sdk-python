@@ -1751,9 +1751,12 @@ def get_caller_location() -> list[str]:
 
         # Skip frames from test file and converter.py until we find the first one
         if not found_first:
-            if "test_serialization_context.py" in file_path:
-                continue
-            if file_path.endswith("temporalio/converter.py"):
+            if (
+                file_path.endswith("test_serialization_context.py")
+                or file_path.endswith("temporalio/converter.py")
+                or file_path.endswith("temporalio/bridge/_visitor.py")
+                or file_path.endswith("temporalio/bridge/worker.py")
+            ):
                 continue
             found_first = True
 
