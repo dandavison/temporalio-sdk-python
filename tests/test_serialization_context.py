@@ -1314,14 +1314,14 @@ async def test_child_workflow_codec_with_context(client: Client):
     # similar to how .NET and Java handle it
     # Traces are stored under both parent and child workflow IDs
     child_workflow_id = f"{workflow_id}-child"
-    
+
     # Combine traces from parent and child workflows
     all_traces = (
         test_traces[workflow_id][:2]  # Parent workflow input
         + test_traces[child_workflow_id]  # All child workflow operations
         + test_traces[workflow_id][2:]  # Parent workflow result
     )
-    
+
     assert all_traces == [
         # Parent workflow input
         TraceItem(
@@ -1609,23 +1609,17 @@ class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
     def with_context(
         self, context: SerializationContext
     ) -> PayloadCodecWithUnusedContext:
-        self.context = context
-        return self
+        # Create a new instance with the context
+        codec = PayloadCodecWithUnusedContext()
+        codec.context = context
+        return codec
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        print("🌈 encode", payloads[0].data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
         is_nexus = any("nexus-data" in str(p.data) for p in payloads)
         assert bool(self.context) == (not is_nexus)
         return list(payloads)
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        print("🌈 decode", payloads[0].data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
         is_nexus = any("nexus-data" in str(p.data) for p in payloads)
         assert bool(self.context) == (not is_nexus)
         return list(payloads)

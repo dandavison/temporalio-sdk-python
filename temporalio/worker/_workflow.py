@@ -281,10 +281,12 @@ class _WorkflowWorker:
                     workflow_id=workflow_id,
                 )
             )
-            if data_converter.payload_codec:
+            if self._data_converter.payload_codec:
                 workflow_instance = workflow.instance if workflow else None
                 payload_codec = _CommandAwarePayloadCodec(
-                    workflow_instance, data_converter.payload_codec
+                    workflow_instance,
+                    self._data_converter.payload_codec,
+                    data_converter,
                 )
                 await temporalio.bridge.worker.decode_activation(
                     act,
@@ -357,9 +359,9 @@ class _WorkflowWorker:
         assert workflow
 
         # Encode completion
-        if data_converter.payload_codec:
+        if self._data_converter.payload_codec:
             payload_codec = _CommandAwarePayloadCodec(
-                workflow.instance, data_converter.payload_codec
+                workflow.instance, self._data_converter.payload_codec, data_converter
             )
             try:
                 await temporalio.bridge.worker.encode_completion(
@@ -726,9 +728,11 @@ class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
         self,
         instance: Optional[WorkflowInstance],
         base_codec: temporalio.converter.PayloadCodec,
+        workflow_data_converter: temporalio.converter.DataConverter,
     ):
         self.instance = instance
         self.base_codec = base_codec
+        self.workflow_data_converter = workflow_data_converter
 
     async def encode(
         self,
@@ -743,18 +747,27 @@ class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
         return await self._get_current_command_codec().decode(payloads)
 
     def _get_current_command_codec(self) -> temporalio.converter.PayloadCodec:
-        codec = self.base_codec
-        if self.instance:
-            if isinstance(
-                self.base_codec, temporalio.converter.WithSerializationContext
-            ):
-                if seq := temporalio.bridge._visitor.current_command_seq.get():
-                    if (
-                        context
-                        := self.instance.get_pending_command_serialization_context(seq)
-                    ):
-                        codec = self.base_codec.with_context(context)
-        return codec
+        # Check if we're processing a specific command
+        seq = temporalio.bridge._visitor.current_command_seq.get()
+        # print(f"🟡 _get_current_command_codec: seq={seq}")
+
+        if self.instance and isinstance(
+            self.base_codec, temporalio.converter.WithSerializationContext
+        ):
+            if seq:
+                # Get the context for the specific command
+                context = self.instance.get_pending_command_serialization_context(seq)
+                # print(f"🟡   context for seq {seq}: {context}")
+                if context is not None:
+                    # Apply the specific context
+                    return self.base_codec.with_context(context)
+                else:
+                    # No context (e.g., Nexus operations), use base codec without context
+                    # print(f"🟡   returning base codec without context")
+                    return self.base_codec
+        # Default to the workflow-context codec for non-command operations
+        # print(f"🟡   returning workflow-context codec")
+        return self.workflow_data_converter.payload_codec or self.base_codec
 
 
 class _InterruptDeadlockError(BaseException):
