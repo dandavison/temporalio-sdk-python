@@ -183,12 +183,15 @@ async def test_workflow_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-    client = Client(**config)
 
     async with Worker(
         client,
@@ -321,13 +324,15 @@ async def test_heartbeat_details_payload_conversion(client: Client):
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-
-    client = Client(**config)
 
     async with Worker(
         client,
@@ -387,12 +392,15 @@ async def test_local_activity_payload_conversion(client: Client):
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-    client = Client(**config)
 
     async with Worker(
         client,
@@ -488,13 +496,15 @@ async def test_async_activity_completion_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-
-    client = Client(**config)
 
     async with Worker(
         client,
@@ -554,22 +564,24 @@ async def test_signal_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
 
-    custom_client = Client(**config)
-
     async with Worker(
-        custom_client,
+        client,
         task_queue=task_queue,
         workflows=[SignalSerializationContextTestWorkflow],
         activities=[],
         workflow_runner=UnsandboxedWorkflowRunner(),  # so that we can use isinstance
     ):
-        handle = await custom_client.start_workflow(
+        handle = await client.start_workflow(
             SignalSerializationContextTestWorkflow.run,
             id=workflow_id,
             task_queue=task_queue,
@@ -626,21 +638,24 @@ async def test_query_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-    custom_client = Client(**config)
 
     async with Worker(
-        custom_client,
+        client,
         task_queue=task_queue,
         workflows=[QuerySerializationContextTestWorkflow],
         activities=[],
         workflow_runner=UnsandboxedWorkflowRunner(),  # so that we can use isinstance
     ):
-        handle = await custom_client.start_workflow(
+        handle = await client.start_workflow(
             QuerySerializationContextTestWorkflow.run,
             id=workflow_id,
             task_queue=task_queue,
@@ -710,21 +725,24 @@ async def test_update_payload_conversion(
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-    custom_client = Client(**config)
 
     async with Worker(
-        custom_client,
+        client,
         task_queue=task_queue,
         workflows=[UpdateSerializationContextTestWorkflow],
         activities=[],
         workflow_runner=UnsandboxedWorkflowRunner(),  # so that we can use isinstance
     ):
-        wf_handle = await custom_client.start_workflow(
+        wf_handle = await client.start_workflow(
             UpdateSerializationContextTestWorkflow.run,
             pass_validation,
             id=workflow_id,
@@ -818,12 +836,15 @@ async def test_external_workflow_signal_and_cancel_payload_conversion(
     signaler_workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=SerializationContextCompositePayloadConverter,
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=SerializationContextCompositePayloadConverter,
+            ),
+        }
     )
-    client = Client(**config)
 
     async with Worker(
         client,
@@ -967,9 +988,12 @@ async def test_failure_converter_with_context(client: Client):
         DataConverter.default,
         failure_converter_class=FailureConverterWithContext,
     )
-    config = client.config()
-    config["data_converter"] = data_converter
-    client = Client(**config)
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": data_converter,
+        }
+    )
 
     async with Worker(
         client,
@@ -1105,23 +1129,24 @@ class CodecTestWorkflow:
 
 async def test_codec_with_context(client: Client):
     workflow_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
-    client_config = client.config()
-    client_config["data_converter"] = dataclasses.replace(
-        DataConverter.default, payload_codec=PayloadCodecWithContext()
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default, payload_codec=PayloadCodecWithContext()
+            ),
+        }
     )
-    client = Client(**client_config)
     async with Worker(
         client,
-        task_queue=task_queue,
+        task_queue=str(uuid.uuid4()),
         workflows=[CodecTestWorkflow],
-    ):
+    ) as worker:
         await client.execute_workflow(
             CodecTestWorkflow.run,
             "data",
             id=workflow_id,
-            task_queue=task_queue,
+            task_queue=worker.task_queue,
         )
     workflow_context = dataclasses.asdict(
         WorkflowSerializationContext(
@@ -1171,11 +1196,14 @@ async def test_local_activity_codec_with_context(client: Client):
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
-    client_config = client.config()
-    client_config["data_converter"] = dataclasses.replace(
-        DataConverter.default, payload_codec=PayloadCodecWithContext()
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default, payload_codec=PayloadCodecWithContext()
+            ),
+        }
     )
-    client = Client(**client_config)
     async with Worker(
         client,
         task_queue=task_queue,
@@ -1259,26 +1287,26 @@ class ChildWorkflowCodecTestWorkflow:
 
 async def test_child_workflow_codec_with_context(client: Client):
     workflow_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_codec=PayloadCodecWithContext(),
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_codec=PayloadCodecWithContext(),
+            ),
+        }
     )
-    client = Client(**config)
-
     async with Worker(
         client,
-        task_queue=task_queue,
+        task_queue=str(uuid.uuid4()),
         workflows=[ChildWorkflowCodecTestWorkflow, EchoWorkflow],
         workflow_runner=UnsandboxedWorkflowRunner(),
-    ):
+    ) as worker:
         await client.execute_workflow(
             ChildWorkflowCodecTestWorkflow.run,
             TraceData(),
             id=workflow_id,
-            task_queue=task_queue,
+            task_queue=worker.task_queue,
         )
 
     parent_workflow_context = dataclasses.asdict(
@@ -1476,28 +1504,27 @@ async def test_payload_encryption_with_context(
     "Encrypt" outbound payloads with a key using all available context fields, in order to demonstrate
     that the same context is available to decrypt inbound payloads.
     """
-    workflow_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_codec=PayloadEncryptionCodec(),
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_codec=PayloadEncryptionCodec(),
+            ),
+        }
     )
-    client = Client(**config)
-
     async with Worker(
         client,
-        task_queue=task_queue,
+        task_queue=str(uuid.uuid4()),
         workflows=[PayloadEncryptionWorkflow, PayloadEncryptionChildWorkflow],
         activities=[payload_encryption_activity],
         nexus_service_handlers=[PayloadEncryptionServiceHandler()],
-    ):
+    ) as worker:
         wf_handle = await client.start_workflow(
             PayloadEncryptionWorkflow.run,
             "outbound",
-            id=workflow_id,
-            task_queue=task_queue,
+            id=str(uuid.uuid4()),
+            task_queue=worker.task_queue,
         )
         assert "inbound" == await wf_handle.query(
             PayloadEncryptionWorkflow.query, "outbound"
@@ -1561,13 +1588,15 @@ async def test_nexus_payload_codec_operations_lack_context(
     """
     encode() and decode() on nexus payloads should not have any context set.
     """
-    config = client.config()
-    config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_codec=AssertNexusLacksContextPayloadCodec(),
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_codec=AssertNexusLacksContextPayloadCodec(),
+            ),
+        }
     )
-    client = Client(**config)
-
     async with Worker(
         client,
         task_queue=str(uuid.uuid4()),
@@ -1633,25 +1662,26 @@ class PydanticContextWorkflow:
 
 
 async def test_pydantic_converter_with_context(client: Client):
-    wf_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
-    client_config = client.config()
-    client_config["data_converter"] = dataclasses.replace(
-        DataConverter.default,
-        payload_converter_class=PydanticConverterWithContext,
+    workflow_id = str(uuid.uuid4())
+    client = Client(
+        **{
+            **client.config(),
+            "data_converter": dataclasses.replace(
+                DataConverter.default,
+                payload_converter_class=PydanticConverterWithContext,
+            ),
+        }
     )
-    client = Client(**client_config)
 
     async with Worker(
         client,
-        task_queue=task_queue,
+        task_queue=str(uuid.uuid4()),
         workflows=[PydanticContextWorkflow],
-    ):
+    ) as worker:
         result = await client.execute_workflow(
             PydanticContextWorkflow.run,
             PydanticData(value="test"),
-            id=wf_id,
-            task_queue=task_queue,
+            id=workflow_id,
+            task_queue=worker.task_queue,
         )
-        assert f"wf_{wf_id}" in result.trace
+        assert f"wf_{workflow_id}" in result.trace
