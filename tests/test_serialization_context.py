@@ -1210,49 +1210,42 @@ async def test_local_activity_codec_with_context(client: Client):
             workflow_type=LocalActivityCodecTestWorkflow.__name__,
             activity_type=codec_test_local_activity.__name__,
             activity_task_queue=task_queue,
-            is_local=True,  # Should be True for local activities
+            is_local=True,
         )
     )
 
-    # Note: Local activities use activity context for both encoding and decoding
     assert test_traces[workflow_id] == [
-        # Workflow input
         TraceItem(
             context=workflow_context,
-            method="encode",
-        ),
-        TraceItem(
-            context=workflow_context,
-            method="decode",
-        ),
-        # Local activity input - encode uses activity context with is_local=True
-        TraceItem(
-            context=local_activity_context,
-            method="encode",
-        ),
-        # Local activity input - decode uses activity context with is_local=True
-        TraceItem(
-            context=local_activity_context,
-            method="decode",
-        ),
-        # Local activity result - encode uses activity context with is_local=True
-        TraceItem(
-            context=local_activity_context,
-            method="encode",
-        ),
-        # Local activity result - decode uses activity context with is_local=True
-        TraceItem(
-            context=local_activity_context,
-            method="decode",
-        ),
-        # Workflow result
-        TraceItem(
-            context=workflow_context,
-            method="encode",
+            method="encode",  # outbound workflow input
         ),
         TraceItem(
             context=workflow_context,
-            method="decode",
+            method="decode",  # inbound workflow input
+        ),
+        TraceItem(
+            context=local_activity_context,
+            method="encode",  # outbound local activity input
+        ),
+        TraceItem(
+            context=local_activity_context,
+            method="decode",  # inbound local activity input
+        ),
+        TraceItem(
+            context=local_activity_context,
+            method="encode",  # outbound local activity result
+        ),
+        TraceItem(
+            context=local_activity_context,
+            method="decode",  # inbound local activity result
+        ),
+        TraceItem(
+            context=workflow_context,
+            method="encode",  # outbound workflow result
+        ),
+        TraceItem(
+            context=workflow_context,
+            method="decode",  # inbound workflow result
         ),
     ]
     del test_traces[workflow_id]
@@ -1314,14 +1307,14 @@ async def test_child_workflow_codec_with_context(client: Client):
     # similar to how .NET and Java handle it
     # Traces are stored under both parent and child workflow IDs
     child_workflow_id = f"{workflow_id}-child"
-    
+
     # Combine traces from parent and child workflows
     all_traces = (
         test_traces[workflow_id][:2]  # Parent workflow input
         + test_traces[child_workflow_id]  # All child workflow operations
         + test_traces[workflow_id][2:]  # Parent workflow result
     )
-    
+
     assert all_traces == [
         # Parent workflow input
         TraceItem(
