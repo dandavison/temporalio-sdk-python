@@ -2107,43 +2107,41 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
     def get_pending_command_serialization_context(
         self, command_seq: int
     ) -> Optional[temporalio.converter.SerializationContext]:
-        if isinstance(
-            self._context_free_payload_codec,
-            temporalio.converter.WithSerializationContext,
-        ):
-            if command_seq in self._pending_activities:
-                handle = self._pending_activities[command_seq]
-                return temporalio.converter.ActivitySerializationContext(
-                    namespace=self._info.namespace,
-                    workflow_id=self._info.workflow_id,
-                    workflow_type=self._info.workflow_type,
-                    activity_type=handle._input.activity,
-                    activity_task_queue=(
-                        handle._input.task_queue
-                        if isinstance(handle._input, StartActivityInput)
-                        and handle._input.task_queue
-                        else self._info.task_queue
-                    ),
-                    is_local=isinstance(handle._input, StartLocalActivityInput),
-                )
+        if command_seq in self._pending_activities:
+            handle = self._pending_activities[command_seq]
+            return temporalio.converter.ActivitySerializationContext(
+                namespace=self._info.namespace,
+                workflow_id=self._info.workflow_id,
+                workflow_type=self._info.workflow_type,
+                activity_type=handle._input.activity,
+                activity_task_queue=(
+                    handle._input.task_queue
+                    if isinstance(handle._input, StartActivityInput)
+                    and handle._input.task_queue
+                    else self._info.task_queue
+                ),
+                is_local=isinstance(handle._input, StartLocalActivityInput),
+            )
 
-            elif command_seq in self._pending_child_workflows:
-                handle = self._pending_child_workflows[command_seq]
-                return temporalio.converter.WorkflowSerializationContext(
-                    namespace=self._info.namespace,
-                    workflow_id=handle._input.id,
-                )
+        elif command_seq in self._pending_child_workflows:
+            handle = self._pending_child_workflows[command_seq]
+            return temporalio.converter.WorkflowSerializationContext(
+                namespace=self._info.namespace,
+                workflow_id=handle._input.id,
+            )
 
-            elif command_seq in self._pending_external_signals:
-                _, workflow_id = self._pending_external_signals[command_seq]
-                return temporalio.converter.WorkflowSerializationContext(
-                    namespace=self._info.namespace,
-                    workflow_id=workflow_id,
-                )
+        elif command_seq in self._pending_external_signals:
+            _, workflow_id = self._pending_external_signals[command_seq]
+            return temporalio.converter.WorkflowSerializationContext(
+                namespace=self._info.namespace,
+                workflow_id=workflow_id,
+            )
 
-            elif command_seq in self._pending_nexus_operations:
-                # We don't set any context for nexus operations
-                return None
+        elif command_seq in self._pending_nexus_operations:
+            # Use empty context for nexus operations: users will never want to encrypt using a
+            # key derived from caller workflow context because the caller workflow context is
+            # not available on the handler side for decryption.
+            return temporalio.converter.SerializationContext()
 
     def _instantiate_workflow_object(self) -> Any:
         if not self._workflow_input:
