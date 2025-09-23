@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import inspect
 import json
 import uuid
 from collections import defaultdict
@@ -1382,18 +1383,40 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
         # Preserve original encoding metadata and add our own marker
         metadata = dict(p.metadata)
         metadata["encrypted"] = b"true"
-        return [Payload(metadata=metadata, data=json.dumps(key).encode())]
+        data = self._get_tag().encode() + json.dumps(key).encode()
+        print("🌈 => encode", data, self.context)
+        for line in get_caller_location():
+            print(line)
+        print("--------------------------------")
+        return [
+            Payload(
+                metadata=metadata,
+                data=data,
+            )
+        ]
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        print("🌈 <= decode", payloads[0].data, self.context)
+        for line in get_caller_location():
+            print(line)
+        print("--------------------------------")
         [p] = payloads
         # Check if this was encrypted by us
         if p.metadata.get("encrypted") != b"true":
             return list(payloads)
-        assert json.loads(p.data.decode()) == self._get_encryption_key()
+        data = p.data.decode()
+        if data.startswith("__"):
+            data = data[len(self._get_tag()) :]
+        assert json.loads(data) == self._get_encryption_key()
         # Preserve original encoding metadata but remove our marker
         metadata = dict(p.metadata)
         del metadata["encrypted"]
         return [Payload(metadata=metadata, data=b'"inbound"')]
+
+    def _get_tag(self) -> str:
+        import random
+
+        return f"__{int(1e5 * random.random())}__"
 
     def _get_encryption_key(self) -> str:
         if self.context:
@@ -1535,12 +1558,18 @@ class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
         print("🌈 encode", payloads[0].data, self.context)
+        for line in get_caller_location():
+            print(line)
+        print("--------------------------------")
         is_nexus = any("nexus-data" in str(p.data) for p in payloads)
         assert bool(self.context) == (not is_nexus)
         return list(payloads)
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
         print("🌈 decode", payloads[0].data, self.context)
+        for line in get_caller_location():
+            print(line)
+        print("--------------------------------")
         is_nexus = any("nexus-data" in str(p.data) for p in payloads)
         assert bool(self.context) == (not is_nexus)
         return list(payloads)
@@ -1656,3 +1685,34 @@ async def test_pydantic_converter_with_context(client: Client):
             task_queue=task_queue,
         )
         assert f"wf_{wf_id}" in result.trace
+
+
+def get_caller_location() -> list[str]:
+    """Get 3 stack frames starting from the first that's not in test_serialization_context.py or temporalio/converter.py."""
+    frame = inspect.currentframe()
+    result: list[str] = []
+    found_first = False
+
+    # Walk up the stack
+    while frame and len(result) < 3:
+        frame = frame.f_back
+        if not frame:
+            break
+
+        file_path = frame.f_code.co_filename
+
+        # Skip frames from test file and converter.py until we find the first one
+        if not found_first:
+            if "test_serialization_context.py" in file_path:
+                continue
+            if file_path.endswith("temporalio/converter.py"):
+                continue
+            found_first = True
+
+        result.append(f"{file_path}:{frame.f_lineno}")
+
+    # Pad with "unknown:0" if we didn't get 3 frames
+    while len(result) < 3:
+        result.append("unknown:0")
+
+    return result
