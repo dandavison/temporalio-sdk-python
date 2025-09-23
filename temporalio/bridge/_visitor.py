@@ -376,9 +376,7 @@ class PayloadVisitor:
     async def _visit_coresdk_workflow_commands_WorkflowCommand(self, fs, o):
         if o.HasField("user_metadata"):
             await self._visit_temporal_api_sdk_v1_UserMetadata(fs, o.user_metadata)
-        if o.HasField("start_timer"):
-            current_command_seq.set(o.start_timer.seq)
-        elif o.HasField("schedule_activity"):
+        if o.HasField("schedule_activity"):
             token = current_command_seq.set(o.schedule_activity.seq)
             try:
                 await self._visit_coresdk_workflow_commands_ScheduleActivity(
@@ -390,10 +388,6 @@ class PayloadVisitor:
             await self._visit_coresdk_workflow_commands_QueryResult(
                 fs, o.respond_to_query
             )
-        elif o.HasField("request_cancel_activity"):
-            current_command_seq.set(o.request_cancel_activity.seq)
-        elif o.HasField("cancel_timer"):
-            current_command_seq.set(o.cancel_timer.seq)
         elif o.HasField("complete_workflow_execution"):
             await self._visit_coresdk_workflow_commands_CompleteWorkflowExecution(
                 fs, o.complete_workflow_execution
@@ -414,12 +408,6 @@ class PayloadVisitor:
                 )
             finally:
                 current_command_seq.reset(token)
-        elif o.HasField("cancel_child_workflow_execution"):
-            current_command_seq.set(
-                o.cancel_child_workflow_execution.child_workflow_seq
-            )
-        elif o.HasField("request_cancel_external_workflow_execution"):
-            current_command_seq.set(o.request_cancel_external_workflow_execution.seq)
         elif o.HasField("signal_external_workflow_execution"):
             token = current_command_seq.set(o.signal_external_workflow_execution.seq)
             try:
@@ -428,8 +416,6 @@ class PayloadVisitor:
                 )
             finally:
                 current_command_seq.reset(token)
-        elif o.HasField("cancel_signal_workflow"):
-            current_command_seq.set(o.cancel_signal_workflow.seq)
         elif o.HasField("schedule_local_activity"):
             token = current_command_seq.set(o.schedule_local_activity.seq)
             try:
@@ -438,8 +424,6 @@ class PayloadVisitor:
                 )
             finally:
                 current_command_seq.reset(token)
-        elif o.HasField("request_cancel_local_activity"):
-            current_command_seq.set(o.request_cancel_local_activity.seq)
         elif o.HasField("upsert_workflow_search_attributes"):
             await self._visit_coresdk_workflow_commands_UpsertWorkflowSearchAttributes(
                 fs, o.upsert_workflow_search_attributes
@@ -460,8 +444,6 @@ class PayloadVisitor:
                 )
             finally:
                 current_command_seq.reset(token)
-        elif o.HasField("request_cancel_nexus_operation"):
-            current_command_seq.set(o.request_cancel_nexus_operation.seq)
 
     async def _visit_coresdk_workflow_completion_Success(self, fs, o):
         for v in o.commands:

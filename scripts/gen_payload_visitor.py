@@ -63,16 +63,13 @@ def emit_singular(
 
 
 def emit_singular_with_seq(
-    field_name: str,
-    access_expr: str,
-    child_method: str,
-    presence_word: str,
-    seq_field_name: str = "seq",
+    field_name: str, access_expr: str, child_method: str, presence_word: str
 ) -> str:
-    # Helper to emit a singular field visit that sets the seq contextvar
+    # Helper to emit a singular field visit that sets the seq contextvar, with presence check but
+    # without headers guard since this is used for commands only.
     return f"""\
         {presence_word} o.HasField("{field_name}"):
-            token = current_command_seq.set({access_expr}.{seq_field_name})
+            token = current_command_seq.set({access_expr}.seq)
             try:
                 await self._visit_{child_method}(fs, {access_expr})
             finally:
@@ -276,94 +273,45 @@ class PayloadVisitor:
                         )
                     )
 
+        commands_with_seq = {
+            "start_timer",
+            "cancel_timer",
+            "schedule_activity",
+            "schedule_local_activity",
+            "request_cancel_activity",
+            "request_cancel_local_activity",
+            "start_child_workflow_execution",
+            "request_cancel_external_workflow_execution",
+            "signal_external_workflow_execution",
+            "cancel_signal_workflow",
+            "schedule_nexus_operation",
+            "request_cancel_nexus_operation",
+        }
         # Process oneof fields as if/elif chains
-        # Special handling for WorkflowCommand to set seq contextvar
-        if desc.full_name == "coresdk.workflow_commands.WorkflowCommand":
-            # Commands with seq fields
-            commands_with_seq = {
-                "start_timer",
-                "cancel_timer",
-                "schedule_activity",
-                "schedule_local_activity",
-                "request_cancel_activity",
-                "request_cancel_local_activity",
-                "start_child_workflow_execution",
-                "request_cancel_external_workflow_execution",
-                "signal_external_workflow_execution",
-                "cancel_signal_workflow",
-                "schedule_nexus_operation",
-                "request_cancel_nexus_operation",
-            }
-            commands_with_child_seq = {"cancel_child_workflow_execution"}
-
-            for oneof_idx, fields in oneof_fields.items():
-                oneof_lines = []
-                first = True
-                for field in fields:
-                    child_desc = field.message_type
-                    child_has_payload = self.walk(child_desc)
-                    has_payload |= child_has_payload
-
+        for oneof_idx, fields in oneof_fields.items():
+            oneof_lines = []
+            first = True
+            for field in fields:
+                child_desc = field.message_type
+                child_has_payload = self.walk(child_desc)
+                has_payload |= child_has_payload
+                if child_has_payload:
                     if_word = "if" if first else "elif"
-
-                    # Set context for commands with seq, regardless of whether they have payloads
-                    if field.name in commands_with_seq:
-                        if child_has_payload:
-                            line = emit_singular_with_seq(
-                                field.name,
-                                f"o.{field.name}",
-                                name_for(child_desc),
-                                if_word,
-                            )
-                        else:
-                            # Even if no payloads, still set the context
-                            line = f"""\
-        {if_word} o.HasField("{field.name}"):
-            current_command_seq.set(o.{field.name}.seq)"""
-                        first = False
-                        oneof_lines.append(line)
-                    elif field.name in commands_with_child_seq:
-                        if child_has_payload:
-                            line = emit_singular_with_seq(
-                                field.name,
-                                f"o.{field.name}",
-                                name_for(child_desc),
-                                if_word,
-                                seq_field_name="child_workflow_seq",
-                            )
-                        else:
-                            # Even if no payloads, still set the context
-                            line = f"""\
-        {if_word} o.HasField("{field.name}"):
-            current_command_seq.set(o.{field.name}.child_workflow_seq)"""
-                        first = False
-                        oneof_lines.append(line)
-                    elif child_has_payload:
+                    first = False
+                    if (
+                        desc.full_name == "coresdk.workflow_commands.WorkflowCommand"
+                        and field.name in commands_with_seq
+                    ):
+                        line = emit_singular_with_seq(
+                            field.name, f"o.{field.name}", name_for(child_desc), if_word
+                        )
+                    else:
                         line = emit_singular(
                             field.name, f"o.{field.name}", name_for(child_desc), if_word
                         )
-                        first = False
-                        oneof_lines.append(line)
-                if oneof_lines:
-                    lines.extend(oneof_lines)
-        else:
-            # Normal processing for non-WorkflowCommand messages
-            for oneof_idx, fields in oneof_fields.items():
-                oneof_lines = []
-                first = True
-                for field in fields:
-                    child_desc = field.message_type
-                    child_has_payload = self.walk(child_desc)
-                    has_payload |= child_has_payload
-                    if child_has_payload:
-                        if_word = "if" if first else "elif"
-                        first = False
-                        line = emit_singular(
-                            field.name, f"o.{field.name}", name_for(child_desc), if_word
-                        )
-                        oneof_lines.append(line)
-                if oneof_lines:
-                    lines.extend(oneof_lines)
+                    oneof_lines.append(line)
+            if oneof_lines:
+                lines.extend(oneof_lines)
 
         self.generated[key] = has_payload
         self.in_progress.discard(key)
