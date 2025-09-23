@@ -223,6 +223,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._defn = det.defn
         self._workflow_input: Optional[ExecuteWorkflowInput] = None
         self._info = det.info
+        self._context_free_payload_codec = det.data_converter.payload_codec
         self._context_free_payload_converter = (
             det.data_converter.payload_converter_class()
         )
@@ -239,7 +240,6 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                 self._context_free_failure_converter,
             )
         )
-        self._payload_codec = det.data_converter.payload_codec
 
         self._extern_functions = det.extern_functions
         self._disable_eager_activity_execution = det.disable_eager_activity_execution
@@ -2108,7 +2108,8 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self, command_seq: int
     ) -> Optional[temporalio.converter.SerializationContext]:
         if isinstance(
-            self._payload_codec, temporalio.converter.WithSerializationContext
+            self._context_free_payload_codec,
+            temporalio.converter.WithSerializationContext,
         ):
             if command_seq in self._pending_activities:
                 handle = self._pending_activities[command_seq]
@@ -2142,7 +2143,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
 
             elif command_seq in self._pending_nexus_operations:
                 # We don't set any context for nexus operations
-                pass
+                return None
 
     def _instantiate_workflow_object(self) -> Any:
         if not self._workflow_input:
