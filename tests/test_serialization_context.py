@@ -45,6 +45,7 @@ from temporalio.converter import (
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 from temporalio.worker._workflow_instance import UnsandboxedWorkflowRunner
+from tests.helpers.nexus import create_nexus_endpoint, make_nexus_endpoint_name
 
 
 @dataclass
@@ -1626,21 +1627,31 @@ class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
         return list(payloads)
 
 
+@nexusrpc.handler.service_handler
+class NexusOperationTestServiceHandler:
+    @nexusrpc.handler.sync_operation
+    async def operation(
+        self, _: nexusrpc.handler.StartOperationContext, data: str
+    ) -> str:
+        return data
+
+
 @workflow.defn
 class NexusOperationTestWorkflow:
     @workflow.run
     async def run(self, data: str) -> None:
         nexus_client = workflow.create_nexus_client(
-            service="service",
-            endpoint="endpoint",
+            service=NexusOperationTestServiceHandler,
+            endpoint=make_nexus_endpoint_name(workflow.info().task_queue),
         )
-        await nexus_client.start_operation("non-existent-operation", "nexus-data")
+        await nexus_client.start_operation(
+            NexusOperationTestServiceHandler.operation, input="nexus-data"
+        )
 
 
 async def test_nexus_operation_data_converter_lacks_context(
     client: Client,
 ):
-    print()
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
@@ -1655,7 +1666,9 @@ async def test_nexus_operation_data_converter_lacks_context(
         client,
         task_queue=task_queue,
         workflows=[NexusOperationTestWorkflow],
+        nexus_service_handlers=[NexusOperationTestServiceHandler()],
     ):
+        await create_nexus_endpoint(task_queue, client)
         await client.execute_workflow(
             NexusOperationTestWorkflow.run,
             "workflow-data",
