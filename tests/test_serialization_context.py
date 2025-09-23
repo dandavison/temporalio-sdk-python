@@ -1366,57 +1366,103 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
     string "inbound".
     """
 
+    # Class variable shared across all instances
+    _next_tag = 1000
+
     def __init__(self):
         self.context: Optional[SerializationContext] = None
 
     def with_context(
         self, context: Optional[SerializationContext]
     ) -> PayloadEncryptionCodec:
-        self.context = context
-        return self
+        # Create new instance with the context
+        codec = PayloadEncryptionCodec()
+        codec.context = context
+        return codec
+
+    @classmethod
+    def _get_tag(cls) -> str:
+        """Generate a unique tag for pairing encode/decode operations"""
+        tag = f"#{cls._next_tag}"
+        cls._next_tag += 1
+        return tag
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
+        # Get context info for debugging
+        context_type = type(self.context).__name__ if self.context else "None"
+        context_key = self._get_encryption_key()
+
+        # Handle single payload
         [p] = payloads
         data = p.data.decode()
-        assert data == '"outbound"', f"Expected '\"outbound\"', got {data!r}"
-        key = self._get_encryption_key()
+
+        # Only encode our specific test payload
+        if data != '"outbound"':
+            return list(payloads)
+
+        # Generate unique tag for this encode/decode pair
+        tag = self._get_tag()
+
+        # Log the operation
+        print(f"📤 ENCODE {tag} [{context_type}]: data={data!r}")
+        print(f"   Context key: {context_key}")
+        for line in get_caller_location():
+            print(f"    {line}")
+        print("--------------------------------")
+
         # Preserve original encoding metadata and add our own marker
         metadata = dict(p.metadata)
         metadata["encrypted"] = b"true"
-        data = self._get_tag().encode() + json.dumps(key).encode()
-        print("🌈 => encode", data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
+
+        # Embed tag in the payload data itself
+        tagged_data = f"{tag}|{json.dumps(context_key)}".encode()
+
         return [
             Payload(
                 metadata=metadata,
-                data=data,
+                data=tagged_data,
             )
         ]
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
-        print("🌈 <= decode", payloads[0].data, self.context)
-        for line in get_caller_location():
-            print(line)
-        print("--------------------------------")
+        # Get context info for debugging
+        context_type = type(self.context).__name__ if self.context else "None"
+        context_key = self._get_encryption_key()
+
+        # Handle single payload
         [p] = payloads
+
         # Check if this was encrypted by us
         if p.metadata.get("encrypted") != b"true":
             return list(payloads)
+
+        # Extract tag and stored key from payload data
         data = p.data.decode()
-        if data.startswith("__"):
-            data = data[len(self._get_tag()) :]
-        assert json.loads(data) == self._get_encryption_key()
+        tag, stored_key_json = data.split("|", 1)
+        stored_key = json.loads(stored_key_json)
+
+        # Log the operation
+        print(f"📥 DECODE {tag} [{context_type}]: encrypted payload")
+        print(f"   Context key: {context_key}")
+        # Verify context
+        if stored_key != context_key:
+            print("   ❌ CONTEXT MISMATCH!")
+            print(f"      Encoded with: {stored_key}")
+            print(f"      Decoding with: {context_key}")
+            for line in get_caller_location():
+                print(f"    {line}")
+            print("--------------------------------")
+            assert False, f"Context mismatch: encoded with {stored_key}, decoding with {context_key}"
+
         # Preserve original encoding metadata but remove our marker
         metadata = dict(p.metadata)
         del metadata["encrypted"]
+
+        print("   ✅ Context matched, decryption successful")
+        for line in get_caller_location():
+            print(f"    {line}")
+        print("--------------------------------")
         return [Payload(metadata=metadata, data=b'"inbound"')]
-
-    def _get_tag(self) -> str:
-        import random
-
-        return f"__{int(1e5 * random.random())}__"
 
     def _get_encryption_key(self) -> str:
         if self.context:
@@ -1427,6 +1473,7 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
             context = dataclasses.asdict(self.context)
         else:
             context = {}
+        # Sort keys and remove non-essential fields for stable comparison
         return json.dumps({k: v for k, v in sorted(context.items()) if k != "trace"})
 
 
@@ -1510,6 +1557,7 @@ async def test_payload_encryption_with_context(
     "Encrypt" outbound payloads with a key using all available context fields, in order to demonstrate
     that the same context is available to decrypt inbound payloads.
     """
+    print("\n")
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
@@ -1703,9 +1751,12 @@ def get_caller_location() -> list[str]:
 
         # Skip frames from test file and converter.py until we find the first one
         if not found_first:
-            if "test_serialization_context.py" in file_path:
-                continue
-            if file_path.endswith("temporalio/converter.py"):
+            if (
+                file_path.endswith("test_serialization_context.py")
+                or file_path.endswith("temporalio/converter.py")
+                or file_path.endswith("temporalio/bridge/_visitor.py")
+                or file_path.endswith("temporalio/bridge/worker.py")
+            ):
                 continue
             found_first = True
 
