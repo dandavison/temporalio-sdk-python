@@ -1376,14 +1376,24 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
         [p] = payloads
-        assert p.data.decode() == '"outbound"'
+        data = p.data.decode()
+        assert data == '"outbound"', f"Expected '\"outbound\"', got {data!r}"
         key = self._get_encryption_key()
-        return [Payload(data=key.encode())]
+        # Preserve original encoding metadata and add our own marker
+        metadata = dict(p.metadata)
+        metadata["encrypted"] = b"true"
+        return [Payload(metadata=metadata, data=json.dumps(key).encode())]
 
     async def decode(self, payloads: Sequence[Payload]) -> List[Payload]:
         [p] = payloads
+        # Check if this was encrypted by us
+        if p.metadata.get("encrypted") != b"true":
+            return list(payloads)
         assert json.loads(p.data.decode()) == self._get_encryption_key()
-        return [Payload(data=b"inbound")]
+        # Preserve original encoding metadata but remove our marker
+        metadata = dict(p.metadata)
+        del metadata["encrypted"]
+        return [Payload(metadata=metadata, data=b'"inbound"')]
 
     def _get_encryption_key(self) -> str:
         if self.context:
@@ -1400,7 +1410,7 @@ class PayloadEncryptionCodec(PayloadCodec, WithSerializationContext):
 @activity.defn
 async def payload_encryption_activity(input: str) -> str:
     assert input == "inbound"
-    return ""
+    return "outbound"
 
 
 @workflow.defn
@@ -1408,7 +1418,7 @@ class PayloadEncryptionChildWorkflow:
     @workflow.run
     async def run(self, data: str) -> str:
         assert data == "inbound"
-        return ""
+        return "outbound"
 
 
 @nexusrpc.service
@@ -1423,7 +1433,7 @@ class PayloadEncryptionServiceHandler:
         self, _: nexusrpc.handler.StartOperationContext, data: str
     ) -> str:
         assert data == "inbound"
-        return ""
+        return "outbound"
 
 
 @workflow.defn
