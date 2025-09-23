@@ -24,6 +24,7 @@ from typing import (
 
 import temporalio.activity
 import temporalio.api.common.v1
+import temporalio.bridge._visitor
 import temporalio.bridge.client
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
@@ -254,6 +255,7 @@ class _WorkflowWorker:
             temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion()
         )
         completion.successful.SetInParent()
+        workflow = None
         try:
             if LOG_PROTOS:
                 logger.debug("Received workflow activation:\n%s", act)
@@ -280,9 +282,13 @@ class _WorkflowWorker:
                 )
             )
             if data_converter.payload_codec:
+                workflow_instance = workflow.instance if workflow else None
+                payload_codec = _CommandAwarePayloadCodec(
+                    workflow_instance, data_converter.payload_codec
+                )
                 await temporalio.bridge.worker.decode_activation(
                     act,
-                    data_converter.payload_codec,
+                    payload_codec.decode,
                     decode_headers=self._encode_headers,
                 )
             if not workflow:
@@ -348,13 +354,17 @@ class _WorkflowWorker:
                 )
 
         completion.run_id = act.run_id
+        assert workflow
 
         # Encode completion
         if data_converter.payload_codec:
+            payload_codec = _CommandAwarePayloadCodec(
+                workflow.instance, data_converter.payload_codec
+            )
             try:
                 await temporalio.bridge.worker.encode_completion(
                     completion,
-                    data_converter.payload_codec,
+                    payload_codec.encode,
                     encode_headers=self._encode_headers,
                 )
             except Exception as err:
@@ -703,6 +713,48 @@ class _RunningWorkflow:
                 temporalio.bridge.runtime.Runtime._raise_in_thread(
                     deadlocked_thread_id, _InterruptDeadlockError
                 )
+
+
+class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
+    """A payload codec that sets serialization context for the associated command.
+
+    This codec responds to the :py:data:`temporalio.bridge._visitor.current_command_seq` context
+    variable set by the payload visitor.
+    """
+
+    def __init__(
+        self,
+        instance: Optional[WorkflowInstance],
+        base_codec: temporalio.converter.PayloadCodec,
+    ):
+        self.instance = instance
+        self.base_codec = base_codec
+
+    async def encode(
+        self,
+        payloads: Sequence[temporalio.api.common.v1.Payload],
+    ) -> List[temporalio.api.common.v1.Payload]:
+        return await self._get_current_command_codec().encode(payloads)
+
+    async def decode(
+        self,
+        payloads: Sequence[temporalio.api.common.v1.Payload],
+    ) -> List[temporalio.api.common.v1.Payload]:
+        return await self._get_current_command_codec().decode(payloads)
+
+    def _get_current_command_codec(self) -> temporalio.converter.PayloadCodec:
+        codec = self.base_codec
+        if self.instance:
+            if isinstance(
+                self.base_codec, temporalio.converter.WithSerializationContext
+            ):
+                if seq := temporalio.bridge._visitor.current_command_seq.get():
+                    if (
+                        context
+                        := self.instance.get_pending_command_serialization_context(seq)
+                    ):
+                        codec = self.base_codec.with_context(context)
+        return codec
 
 
 class _InterruptDeadlockError(BaseException):

@@ -167,6 +167,20 @@ class WorkflowInstance(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def get_pending_command_serialization_context(
+        self, command_seq: int
+    ) -> Optional[temporalio.converter.SerializationContext]:
+        """Return the serialization context for a pending command.
+
+        Args:
+            command_seq: The sequence number of the command.
+
+        Returns:
+            The serialization context for the command, or None if not found.
+        """
+        raise NotImplementedError
+
     def get_thread_id(self) -> Optional[int]:
         """Return the thread identifier that this workflow is running on.
 
@@ -225,6 +239,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                 self._context_free_failure_converter,
             )
         )
+        self._payload_codec = det.data_converter.payload_codec
 
         self._extern_functions = det.extern_functions
         self._disable_eager_activity_execution = det.disable_eager_activity_execution
@@ -2088,6 +2103,46 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             ):
                 failure_converter = failure_converter.with_context(context)
         return payload_converter, failure_converter
+
+    def get_pending_command_serialization_context(
+        self, command_seq: int
+    ) -> Optional[temporalio.converter.SerializationContext]:
+        if isinstance(
+            self._payload_codec, temporalio.converter.WithSerializationContext
+        ):
+            if command_seq in self._pending_activities:
+                handle = self._pending_activities[command_seq]
+                return temporalio.converter.ActivitySerializationContext(
+                    namespace=self._info.namespace,
+                    workflow_id=self._info.workflow_id,
+                    workflow_type=self._info.workflow_type,
+                    activity_type=handle._input.activity,
+                    activity_task_queue=(
+                        handle._input.task_queue
+                        if isinstance(handle._input, StartActivityInput)
+                        and handle._input.task_queue
+                        else self._info.task_queue
+                    ),
+                    is_local=isinstance(handle._input, StartLocalActivityInput),
+                )
+
+            elif command_seq in self._pending_child_workflows:
+                handle = self._pending_child_workflows[command_seq]
+                return temporalio.converter.WorkflowSerializationContext(
+                    namespace=self._info.namespace,
+                    workflow_id=handle._input.id,
+                )
+
+            elif command_seq in self._pending_external_signals:
+                _, workflow_id = self._pending_external_signals[command_seq]
+                return temporalio.converter.WorkflowSerializationContext(
+                    namespace=self._info.namespace,
+                    workflow_id=workflow_id,
+                )
+
+            elif command_seq in self._pending_nexus_operations:
+                # We don't set any context for nexus operations
+                pass
 
     def _instantiate_workflow_object(self) -> Any:
         if not self._workflow_input:
