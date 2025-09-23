@@ -79,3 +79,9 @@ class InSandbox:
     ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
         """Send activation to this instance."""
         return self.instance.activate(act)
+
+    def get_pending_command_serialization_context(
+        self, command_seq: int
+    ) -> Any:  # Using Any since SerializationContext may not be available in sandbox
+        """Get pending command serialization context."""
+        return self.instance.get_pending_command_serialization_context(command_seq)
