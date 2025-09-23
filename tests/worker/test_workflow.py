@@ -1610,10 +1610,10 @@ class CustomWorkflowInstance(WorkflowInstance):
         self._runner._pairs.append((act, comp))
         return comp
 
-    def get_pending_command_serialization_context(
-        self, command_seq: int
-    ) -> Optional[temporalio.converter.SerializationContext]:
-        return self._unsandboxed.get_pending_command_serialization_context(command_seq)
+    def get_payload_codec(
+        self, command_seq: Optional[int]
+    ) -> Optional[temporalio.converter.PayloadCodec]:
+        return self._unsandboxed.get_payload_codec(command_seq)
 
 
 async def test_workflow_with_custom_runner(client: Client):

@@ -6,7 +6,7 @@
 
 import dataclasses
 import logging
-from typing import Any, Type
+from typing import Any, Optional, Type
 
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
@@ -80,8 +80,8 @@ class InSandbox:
         """Send activation to this instance."""
         return self.instance.activate(act)
 
-    def get_pending_command_serialization_context(
-        self, command_seq: int
+    def get_payload_codec(
+        self, command_seq: Optional[int]
     ) -> Any:  # Using Any since SerializationContext may not be available in sandbox
-        """Get pending command serialization context."""
-        return self.instance.get_pending_command_serialization_context(command_seq)
+        """Get payload codec."""
+        return self.instance.get_payload_codec(command_seq)
