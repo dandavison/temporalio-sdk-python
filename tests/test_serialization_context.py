@@ -1602,8 +1602,10 @@ class PayloadCodecWithUnusedContext(PayloadCodec, WithSerializationContext):
     def with_context(
         self, context: SerializationContext
     ) -> PayloadCodecWithUnusedContext:
-        self.context = context
-        return self
+        # Create a new instance with the context (required by WithSerializationContext contract)
+        codec = PayloadCodecWithUnusedContext()
+        codec.context = context
+        return codec
 
     async def encode(self, payloads: Sequence[Payload]) -> List[Payload]:
         print("🌈 encode", payloads[0].data, self.context)

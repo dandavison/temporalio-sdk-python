@@ -2151,6 +2151,15 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             )
             return self._context_free_payload_codec.with_context(context)
 
+        elif command_seq in self._pending_external_signals:
+            # Use the target workflow's context for external signals
+            _, workflow_id = self._pending_external_signals[command_seq]
+            context = temporalio.converter.WorkflowSerializationContext(
+                namespace=self._info.namespace,
+                workflow_id=workflow_id,
+            )
+            return self._context_free_payload_codec.with_context(context)
+
         elif command_seq in self._pending_nexus_operations:
             # Use empty context for nexus operations: users will never want to encrypt using a
             # key derived from caller workflow context because the caller workflow context is
