@@ -572,7 +572,8 @@ class _WorkflowWorker:
 
         # Create instance from details
         det = WorkflowInstanceDetails(
-            data_converter=self._data_converter,
+            payload_converter_class=self._data_converter.payload_converter_class,
+            failure_converter_class=self._data_converter.failure_converter_class,
             interceptor_classes=self._interceptor_classes,
             defn=defn,
             info=info,

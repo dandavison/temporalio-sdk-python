@@ -135,7 +135,8 @@ class WorkflowRunner(ABC):
 class WorkflowInstanceDetails:
     """Immutable details for creating a workflow instance."""
 
-    data_converter: temporalio.converter.DataConverter
+    payload_converter_class: Type[temporalio.converter.PayloadConverter]
+    failure_converter_class: Type[temporalio.converter.FailureConverter]
     interceptor_classes: Sequence[Type[WorkflowInboundInterceptor]]
     defn: temporalio.workflow._Definition
     info: temporalio.workflow.Info
@@ -224,13 +225,8 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._defn = det.defn
         self._workflow_input: Optional[ExecuteWorkflowInput] = None
         self._info = det.info
-        self._context_free_payload_codec = det.data_converter.payload_codec
-        self._context_free_payload_converter = (
-            det.data_converter.payload_converter_class()
-        )
-        self._context_free_failure_converter = (
-            det.data_converter.failure_converter_class()
-        )
+        self._context_free_payload_converter = det.payload_converter_class()
+        self._context_free_failure_converter = det.failure_converter_class()
         self._payload_converter, self._failure_converter = (
             self._converters_with_context(
                 temporalio.converter.WorkflowSerializationContext(
