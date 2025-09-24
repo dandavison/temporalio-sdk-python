@@ -169,9 +169,11 @@ class WorkflowInstance(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_payload_codec(
-        self, command_seq: Optional[int]
-    ) -> Optional[temporalio.converter.PayloadCodec]:
+    def get_payload_codec_with_context(
+        self,
+        payload_codec: temporalio.converter.PayloadCodec,
+        command_seq: Optional[int],
+    ) -> temporalio.converter.PayloadCodec:
         """Return a payload codec with appropriate serialization context.
 
         Args:
@@ -2095,10 +2097,11 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         return payload_converter, failure_converter
 
     # _WorkflowInstanceImpl.get_pending_command_serialization_context
-    def get_payload_codec(
-        self, command_seq: Optional[int]
-    ) -> Optional[temporalio.converter.PayloadCodec]:
-        payload_codec = self._context_free_payload_codec
+    def get_payload_codec_with_context(
+        self,
+        payload_codec: temporalio.converter.PayloadCodec,
+        command_seq: Optional[int],
+    ) -> temporalio.converter.PayloadCodec:
         if not isinstance(
             payload_codec,
             temporalio.converter.WithSerializationContext,
