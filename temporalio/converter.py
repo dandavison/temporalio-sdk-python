@@ -417,18 +417,24 @@ class CompositePayloadConverter(PayloadConverter, WithSerializationContext):
         return values
 
     def with_context(self, context: SerializationContext) -> Self:
-        """Return a new instance with context set on the component converters"""
+        """Return a new instance with context set on the component converters.
+
+        If none of the component converters support with_context, return self.
+        """
+        converters: list[EncodingPayloadConverter] = []
+        any_with_context = False
+        for c in self.converters.values():
+            if isinstance(c, WithSerializationContext):
+                converters.append(c.with_context(context))
+                any_with_context = True
+            else:
+                converters.append(c)
+
+        if not any_with_context:
+            return self
+
         new_instance = type(self)()
-        new_instance._set_converters(
-            *(
-                (
-                    c.with_context(context)
-                    if isinstance(c, WithSerializationContext)
-                    else c
-                )
-                for c in self.converters.values()
-            )
-        )
+        new_instance._set_converters(*converters)
         return new_instance
 
 
