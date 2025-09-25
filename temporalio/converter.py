@@ -138,11 +138,18 @@ class ActivitySerializationContext(BaseWorkflowSerializationContext):
 
 # TODO: duck typing or nominal typing?
 class WithSerializationContext(ABC):
-    """Interface for objects that can use serialization context.
+    """Interface for classes that can use serialization context.
 
-    This is similar to the .NET IWithSerializationContext<T> interface.
-    Objects implementing this interface can receive contextual information
-    during serialization and deserialization.
+    The following classes may implement this interface:
+    - :py:class:`PayloadConverter`
+    - :py:class:`PayloadCodec`
+    - :py:class:`FailureConverter`
+    - :py:class:`EncodingPayloadConverter`
+
+    During data converter operations (encoding/decoding, serialization/deserialization, and failure
+    conversion), instances of classes implementing this interface will be replaced by the result of
+    calling with_context(context). This allows overridden methods (encode/decode,
+    to_payload/from_payload, etc) to use the context.
     """
 
     def with_context(self, context: SerializationContext) -> Self:
