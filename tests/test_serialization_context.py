@@ -1743,3 +1743,57 @@ async def test_pydantic_converter_with_context(client: Client):
             task_queue=task_queue,
         )
         assert f"wf_{wf_id}" in result.trace
+
+
+# Test customized DefaultPayloadConverter
+
+# The SDK's CompositePayloadConverter comes with a with_context implementation that ensures that its
+# component EncodingPayloadConverters will be replaced with the results of calling with_context() on
+# them, if they support with_context (this happens when we call data_converter._with_context). In
+# this test, the user has subclassed CompositePayloadConverter. The test confirms that the
+# CompositePayloadConverter's with_context yields an instance of the user's subclass.
+
+
+class UserMethodCalledError(Exception):
+    pass
+
+
+class CustomPayloadConverter(DefaultPayloadConverter):
+    def to_payloads(
+        self, values: Sequence[Any]
+    ) -> List[temporalio.api.common.v1.Payload]:
+        raise UserMethodCalledError
+
+    def from_payloads(
+        self,
+        payloads: Sequence[temporalio.api.common.v1.Payload],
+        type_hints: Optional[List[Type]] = None,
+    ) -> List[Any]:
+        raise NotImplementedError
+
+
+async def test_user_customization_of_default_payload_converter(
+    client: Client,
+):
+    wf_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    client_config = client.config()
+    client_config["data_converter"] = dataclasses.replace(
+        DataConverter.default,
+        payload_converter_class=CustomPayloadConverter,
+    )
+    client = Client(**client_config)
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[EchoWorkflow],
+    ):
+        with pytest.raises(UserMethodCalledError):
+            await client.execute_workflow(
+                EchoWorkflow.run,
+                TraceData(),
+                id=wf_id,
+                task_queue=task_queue,
+            )
