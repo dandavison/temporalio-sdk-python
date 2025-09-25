@@ -1759,25 +1759,15 @@ class UserMethodCalledError(Exception):
 
 
 class CustomEncodingPayloadConverter(
-    EncodingPayloadConverter, WithSerializationContext
+    JSONPlainPayloadConverter, WithSerializationContext
 ):
     @property
     def encoding(self) -> str:
-        return "json/plain"
+        return "custom-encoding-that-does-not-clash-with-default-converters"
 
     def __init__(self):
         super().__init__()
         self.context: Optional[SerializationContext] = None
-
-    def to_payload(self, value: Any) -> temporalio.api.common.v1.Payload:
-        return super().to_payload(value)
-
-    def from_payload(
-        self,
-        payload: temporalio.api.common.v1.Payload,
-        type_hint: Optional[Type] = None,
-    ) -> Any:
-        raise NotImplementedError
 
     def with_context(
         self, context: Optional[SerializationContext]
