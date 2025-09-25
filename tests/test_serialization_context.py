@@ -1758,7 +1758,44 @@ class UserMethodCalledError(Exception):
     pass
 
 
-class CustomPayloadConverter(DefaultPayloadConverter):
+class CustomEncodingPayloadConverter(
+    EncodingPayloadConverter, WithSerializationContext
+):
+    @property
+    def encoding(self) -> str:
+        return "json/plain"
+
+    def __init__(self):
+        super().__init__()
+        self.context: Optional[SerializationContext] = None
+
+    def to_payload(self, value: Any) -> temporalio.api.common.v1.Payload:
+        return super().to_payload(value)
+
+    def from_payload(
+        self,
+        payload: temporalio.api.common.v1.Payload,
+        type_hint: Optional[Type] = None,
+    ) -> Any:
+        raise NotImplementedError
+
+    def with_context(
+        self, context: Optional[SerializationContext]
+    ) -> CustomEncodingPayloadConverter:
+        converter = CustomEncodingPayloadConverter()
+        converter.context = context
+        return converter
+
+
+class CustomPayloadConverter(CompositePayloadConverter):
+    def __init__(self):
+        # Add a context-aware EncodingPayloadConverter so that
+        # CompositePayloadConverter.with_context is forced to construct and return a new instance.
+        super().__init__(
+            CustomEncodingPayloadConverter(),
+            *DefaultPayloadConverter.default_encoding_payload_converters,
+        )
+
     def to_payloads(
         self, values: Sequence[Any]
     ) -> List[temporalio.api.common.v1.Payload]:
