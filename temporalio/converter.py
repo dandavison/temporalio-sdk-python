@@ -1329,7 +1329,6 @@ class DataConverter:
         return self.failure_converter.from_failure(failure, self.payload_converter)
 
     def _with_context(self, context: SerializationContext) -> Self:
-        cloned = dataclasses.replace(self)
         payload_converter = self.payload_converter
         payload_codec = self.payload_codec
         failure_converter = self.failure_converter
@@ -1339,6 +1338,16 @@ class DataConverter:
             payload_codec = payload_codec.with_context(context)
         if isinstance(failure_converter, WithSerializationContext):
             failure_converter = failure_converter.with_context(context)
+        if all(
+            new == orig
+            for new, orig in [
+                (payload_converter, self.payload_converter),
+                (payload_codec, self.payload_codec),
+                (failure_converter, self.failure_converter),
+            ]
+        ):
+            return self
+        cloned = dataclasses.replace(self)
         object.__setattr__(cloned, "payload_converter", payload_converter)
         object.__setattr__(cloned, "payload_codec", payload_codec)
         object.__setattr__(cloned, "failure_converter", failure_converter)
