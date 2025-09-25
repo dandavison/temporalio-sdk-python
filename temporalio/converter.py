@@ -349,6 +349,9 @@ class CompositePayloadConverter(PayloadConverter, WithSerializationContext):
         Args:
             converters: Payload converters to delegate to, in order.
         """
+        self._set_converters(*converters)
+
+    def _set_converters(self, *converters: EncodingPayloadConverter) -> None:
         self.converters = {c.encoding.encode(): c for c in converters}
 
     def to_payloads(
@@ -413,16 +416,20 @@ class CompositePayloadConverter(PayloadConverter, WithSerializationContext):
                 ) from err
         return values
 
-    def with_context(self, context: SerializationContext) -> CompositePayloadConverter:
+    def with_context(self, context: SerializationContext) -> Self:
         """Return a new instance with context set on the component converters"""
-        return CompositePayloadConverter(
+        new_instance = type(self)()
+        new_instance._set_converters(
             *(
-                c.with_context(context)
-                if isinstance(c, WithSerializationContext)
-                else c
+                (
+                    c.with_context(context)
+                    if isinstance(c, WithSerializationContext)
+                    else c
+                )
                 for c in self.converters.values()
             )
         )
+        return new_instance
 
 
 class DefaultPayloadConverter(CompositePayloadConverter):
