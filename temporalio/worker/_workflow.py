@@ -753,7 +753,7 @@ class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
             return self.context_free_payload_codec
 
         if context := self.instance.get_serialization_context(
-            temporalio.bridge._visitor.current_command_info.get(),
+            temporalio.worker._command_aware_visitor.current_command_info.get(),
         ):
             return self.context_free_payload_codec.with_context(context)
 
