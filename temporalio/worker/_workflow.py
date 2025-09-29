@@ -37,6 +37,7 @@ import temporalio.converter
 import temporalio.exceptions
 import temporalio.workflow
 
+from . import _command_aware_visitor
 from ._interceptor import (
     Interceptor,
     WorkflowInboundInterceptor,
@@ -753,7 +754,7 @@ class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
             return self.context_free_payload_codec
 
         if context := self.instance.get_serialization_context(
-            temporalio.bridge._visitor.current_command_info.get(),
+            _command_aware_visitor.current_command_info.get(),
         ):
             return self.context_free_payload_codec.with_context(context)
 
