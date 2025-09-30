@@ -45,6 +45,7 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
         "CancelTimer": CommandType.COMMAND_TYPE_CANCEL_TIMER,
         "RequestCancelActivity": CommandType.COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK,
         "RequestCancelLocalActivity": CommandType.COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK,
+        "CancelSignalWorkflow": None,
         # Resolutions (map to their corresponding command types)
         "ResolveActivity": CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK,
         "ResolveChildWorkflowExecutionStart": CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
@@ -71,7 +72,7 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
                     and hasattr(attr.DESCRIPTOR, "fields_by_name")
                     and "seq" in attr.DESCRIPTOR.fields_by_name
                 ):
-                    command_type = self._COMMAND_TYPE_MAP.get(name)
+                    command_type = self._COMMAND_TYPE_MAP[name]
                     if command_type:
                         self._add_override(
                             "coresdk_workflow_commands", name, command_type
@@ -86,7 +87,7 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
                     and hasattr(attr.DESCRIPTOR, "fields_by_name")
                     and "seq" in attr.DESCRIPTOR.fields_by_name
                 ):
-                    command_type = self._COMMAND_TYPE_MAP.get(name)
+                    command_type = self._COMMAND_TYPE_MAP[name]
                     if command_type:
                         self._add_override(
                             "coresdk_workflow_activation", name, command_type
