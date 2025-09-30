@@ -3,7 +3,7 @@
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, Type
 
 from temporalio.api.enums.v1.command_type_pb2 import CommandType
 from temporalio.bridge._visitor import PayloadVisitor, VisitorFunctions
@@ -64,19 +64,23 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
     def _create_override_methods(self) -> None:
         """Dynamically create override methods for all protos with seq fields."""
         # Process workflow commands
-        for name in _get_workflow_command_protos_with_seq():
-            command_type = self._COMMAND_TYPE_MAP[name]
+        for proto_class in _get_workflow_command_protos_with_seq():
+            command_type = self._COMMAND_TYPE_MAP.get(proto_class.__name__)
             if command_type:
-                self._add_override(name, "coresdk_workflow_commands", command_type)
+                self._add_override(
+                    proto_class, "coresdk_workflow_commands", command_type
+                )
 
         # Process activation jobs
-        for name in _get_workflow_activation_protos_with_seq():
-            command_type = self._COMMAND_TYPE_MAP[name]
+        for proto_class in _get_workflow_activation_protos_with_seq():
+            command_type = self._COMMAND_TYPE_MAP.get(proto_class.__name__)
             if command_type:
-                self._add_override(name, "coresdk_workflow_activation", command_type)
+                self._add_override(
+                    proto_class, "coresdk_workflow_activation", command_type
+                )
 
     def _add_override(
-        self, name: str, module: str, command_type: CommandType.ValueType
+        self, proto_class: Type[Any], module: str, command_type: CommandType.ValueType
     ) -> None:
         """Add an override method that sets command context.
 
@@ -84,7 +88,7 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
         Commands without payloads (e.g., CancelTimer) don't need context
         because they don't serialize anything.
         """
-        method_name = f"_visit_{module}_{name}"
+        method_name = f"_visit_{module}_{proto_class.__name__}"
         parent_method = getattr(PayloadVisitor, method_name, None)
 
         if not parent_method:
@@ -114,21 +118,15 @@ def current_command(
             current_command_info.reset(token)
 
 
-def _get_workflow_command_protos_with_seq() -> Iterator[str]:
-    """Get names of all workflow command protos with a seq field."""
-    for (
-        name,
-        descriptor,
-    ) in workflow_commands_pb2.DESCRIPTOR.message_types_by_name.items():
+def _get_workflow_command_protos_with_seq() -> Iterator[Type[Any]]:
+    """Get concrete classes of all workflow command protos with a seq field."""
+    for descriptor in workflow_commands_pb2.DESCRIPTOR.message_types_by_name.values():
         if "seq" in descriptor.fields_by_name:
-            yield name
+            yield descriptor._concrete_class
 
 
-def _get_workflow_activation_protos_with_seq() -> Iterator[str]:
-    """Get names of all workflow activation protos with a seq field."""
-    for (
-        name,
-        descriptor,
-    ) in workflow_activation_pb2.DESCRIPTOR.message_types_by_name.items():
+def _get_workflow_activation_protos_with_seq() -> Iterator[Type[Any]]:
+    """Get concrete classes of all workflow activation protos with a seq field."""
+    for descriptor in workflow_activation_pb2.DESCRIPTOR.message_types_by_name.values():
         if "seq" in descriptor.fields_by_name:
-            yield name
+            yield descriptor._concrete_class
