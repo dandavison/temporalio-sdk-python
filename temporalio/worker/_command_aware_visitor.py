@@ -64,34 +64,16 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
     def _create_override_methods(self) -> None:
         """Dynamically create override methods for all protos with seq fields."""
         # Process workflow commands
-        for name in dir(workflow_commands_pb2):
-            if not name.startswith("_"):
-                attr = getattr(workflow_commands_pb2, name)
-                if (
-                    hasattr(attr, "DESCRIPTOR")
-                    and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                    and "seq" in attr.DESCRIPTOR.fields_by_name
-                ):
-                    command_type = self._COMMAND_TYPE_MAP[name]
-                    if command_type:
-                        self._add_override(
-                            "coresdk_workflow_commands", name, command_type
-                        )
+        for name in _get_workflow_command_protos_with_seq():
+            command_type = self._COMMAND_TYPE_MAP[name]
+            if command_type:
+                self._add_override("coresdk_workflow_commands", name, command_type)
 
         # Process activation jobs
-        for name in dir(workflow_activation_pb2):
-            if not name.startswith("_"):
-                attr = getattr(workflow_activation_pb2, name)
-                if (
-                    hasattr(attr, "DESCRIPTOR")
-                    and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                    and "seq" in attr.DESCRIPTOR.fields_by_name
-                ):
-                    command_type = self._COMMAND_TYPE_MAP[name]
-                    if command_type:
-                        self._add_override(
-                            "coresdk_workflow_activation", name, command_type
-                        )
+        for name in _get_workflow_activation_protos_with_seq():
+            command_type = self._COMMAND_TYPE_MAP[name]
+            if command_type:
+                self._add_override("coresdk_workflow_activation", name, command_type)
 
     def _add_override(
         self, module: str, name: str, command_type: CommandType.ValueType
@@ -126,3 +108,29 @@ def current_command(
     finally:
         if token:
             current_command_info.reset(token)
+
+
+def _get_workflow_command_protos_with_seq() -> Iterator[str]:
+    """Get names of all workflow command protos with a seq field."""
+    for name in dir(workflow_commands_pb2):
+        if not name.startswith("_"):
+            attr = getattr(workflow_commands_pb2, name)
+            if (
+                hasattr(attr, "DESCRIPTOR")
+                and hasattr(attr.DESCRIPTOR, "fields_by_name")
+                and "seq" in attr.DESCRIPTOR.fields_by_name
+            ):
+                yield name
+
+
+def _get_workflow_activation_protos_with_seq() -> Iterator[str]:
+    """Get names of all workflow activation protos with a seq field."""
+    for name in dir(workflow_activation_pb2):
+        if not name.startswith("_"):
+            attr = getattr(workflow_activation_pb2, name)
+            if (
+                hasattr(attr, "DESCRIPTOR")
+                and hasattr(attr.DESCRIPTOR, "fields_by_name")
+                and "seq" in attr.DESCRIPTOR.fields_by_name
+            ):
+                yield name
