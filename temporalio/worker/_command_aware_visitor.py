@@ -3,26 +3,12 @@
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 
 from temporalio.api.enums.v1.command_type_pb2 import CommandType
 from temporalio.bridge._visitor import PayloadVisitor, VisitorFunctions
-from temporalio.bridge.proto.workflow_activation import (
-    ResolveActivity,
-    ResolveChildWorkflowExecution,
-    ResolveChildWorkflowExecutionStart,
-    ResolveNexusOperation,
-    ResolveNexusOperationStart,
-    ResolveRequestCancelExternalWorkflow,
-    ResolveSignalExternalWorkflow,
-)
-from temporalio.bridge.proto.workflow_commands.workflow_commands_pb2 import (
-    ScheduleActivity,
-    ScheduleLocalActivity,
-    ScheduleNexusOperation,
-    SignalExternalWorkflowExecution,
-    StartChildWorkflowExecution,
-)
+from temporalio.bridge.proto.workflow_activation import workflow_activation_pb2
+from temporalio.bridge.proto.workflow_commands import workflow_commands_pb2
 
 
 @dataclass(frozen=True)
@@ -40,111 +26,90 @@ current_command_info: contextvars.ContextVar[Optional[CommandInfo]] = (
 
 
 class CommandAwarePayloadVisitor(PayloadVisitor):
-    """Payload visitor that sets command context during traversal."""
+    """Payload visitor that sets command context during traversal.
 
-    # Override workflow command visitor
-    async def _visit_coresdk_workflow_commands_ScheduleActivity(
-        self,
-        fs: VisitorFunctions,
-        o: ScheduleActivity,
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK, o.seq):
-            await super()._visit_coresdk_workflow_commands_ScheduleActivity(fs, o)
+    Override  methods are created for all workflow commands and activation jobs that have a 'seq'
+    field.
+    """
 
-    async def _visit_coresdk_workflow_commands_ScheduleLocalActivity(
-        self, fs: VisitorFunctions, o: ScheduleLocalActivity
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK, o.seq):
-            await super()._visit_coresdk_workflow_commands_ScheduleLocalActivity(fs, o)
+    _COMMAND_TYPE_MAP = {
+        # Commands
+        "ScheduleActivity": CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK,
+        "ScheduleLocalActivity": CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK,
+        "StartChildWorkflowExecution": CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
+        "SignalExternalWorkflowExecution": CommandType.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION,
+        "RequestCancelExternalWorkflowExecution": CommandType.COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION,
+        "ScheduleNexusOperation": CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION,
+        "RequestCancelNexusOperation": CommandType.COMMAND_TYPE_REQUEST_CANCEL_NEXUS_OPERATION,
+        "StartTimer": CommandType.COMMAND_TYPE_START_TIMER,
+        "CancelTimer": CommandType.COMMAND_TYPE_CANCEL_TIMER,
+        "RequestCancelActivity": CommandType.COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK,
+        "RequestCancelLocalActivity": CommandType.COMMAND_TYPE_REQUEST_CANCEL_ACTIVITY_TASK,
+        # Resolutions (map to their corresponding command types)
+        "ResolveActivity": CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK,
+        "ResolveChildWorkflowExecutionStart": CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
+        "ResolveChildWorkflowExecution": CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION,
+        "ResolveSignalExternalWorkflow": CommandType.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION,
+        "ResolveRequestCancelExternalWorkflow": CommandType.COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION,
+        "ResolveNexusOperationStart": CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION,
+        "ResolveNexusOperation": CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION,
+        "FireTimer": CommandType.COMMAND_TYPE_START_TIMER,
+    }
 
-    async def _visit_coresdk_workflow_commands_StartChildWorkflowExecution(
-        self, fs: VisitorFunctions, o: StartChildWorkflowExecution
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_commands_StartChildWorkflowExecution(
-                fs, o
-            )
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._create_override_methods()
 
-    async def _visit_coresdk_workflow_commands_SignalExternalWorkflowExecution(
-        self, fs: VisitorFunctions, o: SignalExternalWorkflowExecution
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_commands_SignalExternalWorkflowExecution(
-                fs, o
-            )
+    def _create_override_methods(self) -> None:
+        """Dynamically create override methods for all protos with seq fields."""
+        # Process workflow commands
+        for name in dir(workflow_commands_pb2):
+            if not name.startswith("_"):
+                attr = getattr(workflow_commands_pb2, name)
+                if (
+                    hasattr(attr, "DESCRIPTOR")
+                    and hasattr(attr.DESCRIPTOR, "fields_by_name")
+                    and "seq" in attr.DESCRIPTOR.fields_by_name
+                ):
+                    command_type = self._COMMAND_TYPE_MAP.get(name)
+                    if command_type:
+                        self._add_override(
+                            "coresdk_workflow_commands", name, command_type
+                        )
 
-    async def _visit_coresdk_workflow_commands_ScheduleNexusOperation(
-        self, fs: VisitorFunctions, o: ScheduleNexusOperation
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION, o.seq):
-            await super()._visit_coresdk_workflow_commands_ScheduleNexusOperation(fs, o)
+        # Process activation jobs
+        for name in dir(workflow_activation_pb2):
+            if not name.startswith("_"):
+                attr = getattr(workflow_activation_pb2, name)
+                if (
+                    hasattr(attr, "DESCRIPTOR")
+                    and hasattr(attr.DESCRIPTOR, "fields_by_name")
+                    and "seq" in attr.DESCRIPTOR.fields_by_name
+                ):
+                    command_type = self._COMMAND_TYPE_MAP.get(name)
+                    if command_type:
+                        self._add_override(
+                            "coresdk_workflow_activation", name, command_type
+                        )
 
-    # Override activation job visitors
-    async def _visit_coresdk_workflow_activation_ResolveActivity(
-        self, fs: VisitorFunctions, o: ResolveActivity
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_ACTIVITY_TASK, o.seq):
-            await super()._visit_coresdk_workflow_activation_ResolveActivity(fs, o)
+    def _add_override(
+        self, module: str, name: str, command_type: CommandType.ValueType
+    ) -> None:
+        """Add an override method that sets command context."""
+        method_name = f"_visit_{module}_{name}"
 
-    async def _visit_coresdk_workflow_activation_ResolveChildWorkflowExecutionStart(
-        self, fs: VisitorFunctions, o: ResolveChildWorkflowExecutionStart
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_activation_ResolveChildWorkflowExecutionStart(
-                fs, o
-            )
+        # Create the override method
+        async def override_method(self: Any, fs: VisitorFunctions, o: Any) -> None:
+            with current_command(command_type, o.seq):
+                # Call the parent class's method
+                parent_method = getattr(PayloadVisitor, method_name, None)
+                if parent_method:
+                    await parent_method(self, fs, o)
 
-    async def _visit_coresdk_workflow_activation_ResolveChildWorkflowExecution(
-        self, fs: VisitorFunctions, o: ResolveChildWorkflowExecution
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_START_CHILD_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_activation_ResolveChildWorkflowExecution(
-                fs, o
-            )
-
-    async def _visit_coresdk_workflow_activation_ResolveSignalExternalWorkflow(
-        self, fs: VisitorFunctions, o: ResolveSignalExternalWorkflow
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_activation_ResolveSignalExternalWorkflow(
-                fs, o
-            )
-
-    async def _visit_coresdk_workflow_activation_ResolveRequestCancelExternalWorkflow(
-        self, fs: VisitorFunctions, o: ResolveRequestCancelExternalWorkflow
-    ):
-        with current_command(
-            CommandType.COMMAND_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION, o.seq
-        ):
-            await super()._visit_coresdk_workflow_activation_ResolveRequestCancelExternalWorkflow(
-                fs, o
-            )
-
-    async def _visit_coresdk_workflow_activation_ResolveNexusOperationStart(
-        self, fs: VisitorFunctions, o: ResolveNexusOperationStart
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION, o.seq):
-            await super()._visit_coresdk_workflow_activation_ResolveNexusOperationStart(
-                fs, o
-            )
-
-    async def _visit_coresdk_workflow_activation_ResolveNexusOperation(
-        self, fs: VisitorFunctions, o: ResolveNexusOperation
-    ):
-        with current_command(CommandType.COMMAND_TYPE_SCHEDULE_NEXUS_OPERATION, o.seq):
-            await super()._visit_coresdk_workflow_activation_ResolveNexusOperation(
-                fs, o
-            )
+        # Bind the method to this instance
+        setattr(
+            self, method_name, override_method.__get__(self, CommandAwarePayloadVisitor)
+        )
 
 
 @contextmanager
