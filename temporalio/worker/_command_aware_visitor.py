@@ -67,16 +67,16 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
         for name in _get_workflow_command_protos_with_seq():
             command_type = self._COMMAND_TYPE_MAP[name]
             if command_type:
-                self._add_override("coresdk_workflow_commands", name, command_type)
+                self._add_override(name, "coresdk_workflow_commands", command_type)
 
         # Process activation jobs
         for name in _get_workflow_activation_protos_with_seq():
             command_type = self._COMMAND_TYPE_MAP[name]
             if command_type:
-                self._add_override("coresdk_workflow_activation", name, command_type)
+                self._add_override(name, "coresdk_workflow_activation", command_type)
 
     def _add_override(
-        self, module: str, name: str, command_type: CommandType.ValueType
+        self, name: str, module: str, command_type: CommandType.ValueType
     ) -> None:
         """Add an override method that sets command context."""
         method_name = f"_visit_{module}_{name}"
