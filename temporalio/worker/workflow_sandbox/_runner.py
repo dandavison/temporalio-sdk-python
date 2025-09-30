@@ -15,12 +15,11 @@ import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.common
 import temporalio.converter
-import temporalio.worker._workflow_instance
 import temporalio.workflow
+from temporalio.worker import _command_aware_visitor
 
 from ...api.common.v1.message_pb2 import Payloads
 from ...api.failure.v1.message_pb2 import Failure
-from .. import _command_aware_visitor
 
 # Workflow instance has to be relative import
 from .._workflow_instance import (

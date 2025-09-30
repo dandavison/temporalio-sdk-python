@@ -725,10 +725,10 @@ class _RunningWorkflow:
 
 @dataclass(frozen=True)
 class _CommandAwarePayloadCodec(temporalio.converter.PayloadCodec):
-    """A payload codec that sets serialization context for the associated command.
+    """A payload codec that sets serialization context for the command associated with each payload.
 
-    This codec responds to the :py:data:`temporalio.bridge._visitor.current_command_seq` context
-    variable set by the payload visitor.
+    This codec responds to the context variable set by
+    :py:class:`_command_aware_visitor.CommandAwarePayloadVisitor`.
     """
 
     instance: WorkflowInstance

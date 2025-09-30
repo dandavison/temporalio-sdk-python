@@ -13,8 +13,7 @@ import temporalio.bridge.proto.workflow_completion
 import temporalio.converter
 import temporalio.worker._workflow_instance
 import temporalio.workflow
-
-from .. import _command_aware_visitor
+from temporalio.worker import _command_aware_visitor
 
 logger = logging.getLogger(__name__)
 
