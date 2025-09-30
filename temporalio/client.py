@@ -1273,6 +1273,139 @@ class Client:
             )
         )
 
+    # - TODO: Overloads for no-param, single-param, multi-param
+    # - TODO: Support sync and async activity functions
+    async def start_activity(
+        self,
+        activity: Callable[..., ReturnType],
+        *,
+        args: Sequence[Any],
+        id: str,
+        task_queue: str,
+        # Either schedule_to_close_timeout or start_to_close_timeout must be present
+        schedule_to_close_timeout: Optional[timedelta] = None,
+        start_to_close_timeout: Optional[timedelta] = None,
+        schedule_to_start_timeout: Optional[timedelta] = None,
+        heartbeat_timeout: Optional[timedelta] = None,
+        id_reuse_policy: temporalio.common.WorkflowIDReusePolicy = temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy: temporalio.common.WorkflowIDConflictPolicy = temporalio.common.WorkflowIDConflictPolicy.FAIL,
+        retry_policy: Optional[temporalio.common.RetryPolicy] = None,
+        search_attributes: Optional[
+            Union[
+                temporalio.common.SearchAttributes,
+                temporalio.common.TypedSearchAttributes,
+            ]
+        ] = None,
+        static_summary: Optional[str] = None,
+        static_details: Optional[str] = None,
+        priority: temporalio.common.Priority = temporalio.common.Priority.default,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> ActivityHandle[ReturnType]:
+        """Start an activity and return its handle.
+
+        Args:
+            activity: The activity function to execute.
+            args: Arguments to pass to the activity.
+            id: Unique identifier for the activity. Required.
+            task_queue: Task queue to send the activity to.
+            schedule_to_close_timeout: Total time allowed for the activity from schedule to completion.
+            start_to_close_timeout: Time allowed for a single execution attempt.
+            schedule_to_start_timeout: Time allowed for the activity to sit in the task queue.
+            heartbeat_timeout: Time between heartbeats before the activity is considered failed.
+            id_reuse_policy: How to handle reusing activity IDs from closed activities.
+            id_conflict_policy: How to handle activity ID conflicts with running activities.
+            retry_policy: Retry policy for the activity.
+            search_attributes: Search attributes to attach to the activity.
+            static_summary: A single-line fixed summary for this workflow execution that may appear
+                in the UI/CLI. This can be in single-line Temporal markdown format.
+            static_details: General fixed details for this workflow execution that may appear in
+                UI/CLI. This can be in Temporal markdown format and can span multiple lines. This is
+                a fixed value on the workflow that cannot be updated. For details that can be
+                updated, use :py:meth:`temporalio.workflow.get_current_details` within the workflow.
+            priority: Priority metadata.
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+
+        Returns:
+            A handle to the started activity.
+        """
+        # Issues workflowservice StartActivityExecution
+        raise NotImplementedError
+
+    # Same parameters as start_activity
+    # (*args **kwargs is just temporary to avoid duplicating parameter lists while they're being designed)
+    async def execute_activity(self, *args, **kwargs) -> ReturnType:
+        """
+        Start an activity, wait for it to complete, and return its result.
+        """
+        handle = await self.start_activity(*args, **kwargs)
+        return await handle.result()
+
+    async def list_activities(
+        self,
+        query: Optional[str] = None,
+        *,
+        page_size: int = 1000,
+        next_page_token: Optional[bytes] = None,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> ActivityExecutionAsyncIterator:
+        """List activities started outside of a workflow.
+
+        Args:
+            query: A Temporal visibility filter for activities.
+            page_size: Maximum number of results to return per page.
+            next_page_token: Token for getting the next page of results.
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        # Issues a workflowservice ListActivityExecutions call
+        raise NotImplementedError
+
+    async def count_activities(
+        self,
+        query: Optional[str] = None,
+        *,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> int:
+        """Count activities matching the query.
+
+        Args:
+            query: A Temporal visibility filter for activities.
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+
+        Returns:
+            Count of activities.
+        """
+        # Issues a workflowservice CountActivityExecutions call
+        raise NotImplementedError
+
+    async def get_activity_handle(
+        self,
+        activity_id: str,
+        *,
+        workflow_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        task_token: Optional[bytes] = None,
+    ) -> ActivityHandle[Any]:
+        """Get a handle to an existing activity.
+
+        Args:
+            activity_id: The activity ID.
+            workflow_id: The workflow ID if the activity was started from a workflow.
+            run_id:      The run ID. If not provided, targets the latest run.
+            task_token:  Optional task token for the activity if the activity was
+                         started from a workflow. Cannot be set if any of the id parameters
+                         are set.
+
+        Returns:
+            A handle to the activity.
+        """
+        raise NotImplementedError
+
     @overload
     def get_async_activity_handle(
         self, *, workflow_id: str, run_id: Optional[str], activity_id: str
@@ -1292,6 +1425,10 @@ class Client:
         task_token: Optional[bytes] = None,
     ) -> AsyncActivityHandle:
         """Get an async activity handle.
+
+        .. warning::
+            DEPRECATED: This method is deprecated and will be removed in a future version.
+            Use :py:meth:`Client.get_activity_handle` instead.
 
         Either the workflow_id, run_id, and activity_id can be provided, or a
         singular task_token can be provided.
@@ -2713,6 +2850,144 @@ class WithStartWorkflowOperation(Generic[SelfType, ReturnType]):
         return await self._workflow_handle
 
 
+class ActivityExecutionAsyncIterator:
+    """Asynchronous iterator for :py:class:`ActivityExecution` values."""
+
+    def __aiter__(self) -> ActivityExecutionAsyncIterator:
+        """Return self as the iterator."""
+        return self
+
+    async def __anext__(self) -> ActivityExecution:
+        """Return the next execution on this iterator.
+
+        Fetch next page if necessary.
+        """
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class ActivityExecution:
+    """Info for a single activity execution from list response."""
+
+    activity_id: str
+    """Activity ID."""
+
+    run_id: str
+    """Run ID of the activity."""
+
+    activity_type: str
+    """Type name of the activity."""
+
+    scheduled_time: datetime
+    """Time the activity was originally scheduled."""
+
+    close_time: Optional[datetime]
+    """Time the activity reached a terminal status, if closed."""
+
+    status: temporalio.common.ActivityExecutionStatus
+    """Current status of the activity."""
+
+    search_attributes: temporalio.common.SearchAttributes
+    """Search attributes from the start request."""
+
+    task_queue: str
+    """Task queue the activity was scheduled on."""
+
+    state_transition_count: int
+    """Number of state transitions."""
+
+    execution_duration: Optional[timedelta]
+    """Duration from scheduled to close time, only populated if closed."""
+
+
+@dataclass(frozen=True)
+class ActivityExecutionDescription:
+    """Detailed information about an activity execution from describe response."""
+
+    activity_id: str
+    """Activity ID."""
+
+    run_id: str
+    """Run ID of the activity."""
+
+    activity_type: str
+    """Type name of the activity."""
+
+    status: temporalio.common.ActivityExecutionStatus
+    """Current status of the activity."""
+
+    run_state: Optional[temporalio.common.PendingActivityState]
+    """More detailed breakdown if status is RUNNING."""
+
+    heartbeat_details: Sequence[Any]
+    """Details from the last heartbeat."""
+
+    last_heartbeat_time: Optional[datetime]
+    """Time of the last heartbeat."""
+
+    last_started_time: Optional[datetime]
+    """Time the last attempt was started."""
+
+    attempt: int
+    """Current attempt number."""
+
+    maximum_attempts: int
+    """Maximum number of attempts allowed."""
+
+    scheduled_time: datetime
+    """Time the activity was originally scheduled."""
+
+    expiration_time: datetime
+    """Scheduled time plus schedule_to_close_timeout."""
+
+    last_failure: Optional[Exception]
+    """Failure from the last failed attempt, if any."""
+
+    last_worker_identity: str
+    """Identity of the last worker that processed the activity."""
+
+    current_retry_interval: Optional[timedelta]
+    """Time until the next retry, if applicable."""
+
+    last_attempt_complete_time: Optional[datetime]
+    """Time when the last attempt completed."""
+
+    next_attempt_schedule_time: Optional[datetime]
+    """Time when the next attempt will be scheduled."""
+
+    task_queue: str
+    """Task queue the activity is scheduled on."""
+
+    paused: bool
+    """Whether the activity is paused."""
+
+    input: Sequence[Any]
+    """Serialized activity input."""
+
+    state_transition_count: int
+    """Number of state transitions."""
+
+    search_attributes: temporalio.common.SearchAttributes
+    """Search attributes."""
+
+    eager_execution_requested: bool
+    """Whether eager execution was requested."""
+
+    canceled_reason: Optional[str]
+    """Reason for cancellation, if cancel was requested."""
+
+    raw_info: Any
+    """Raw proto response."""
+
+
+@dataclass(frozen=True)
+class ActivityIDReference:
+    """Reference to a standalone activity."""
+
+    activity_id: str
+    run_id: Optional[str]
+
+
 @dataclass(frozen=True)
 class AsyncActivityIDReference:
     """Reference to an async activity by its qualified ID."""
@@ -2722,15 +2997,11 @@ class AsyncActivityIDReference:
     activity_id: str
 
 
-class AsyncActivityHandle:
-    """Handle representing an external activity for completion and heartbeat."""
+class _BaseActivityHandle:
+    """Handle representing an activity."""
 
-    def __init__(
-        self, client: Client, id_or_token: Union[AsyncActivityIDReference, bytes]
-    ) -> None:
-        """Create an async activity handle."""
-        self._client = client
-        self._id_or_token = id_or_token
+    _client: Client
+    _id_or_token: Union[ActivityIDReference, AsyncActivityIDReference, bytes]
 
     async def heartbeat(
         self,
@@ -2828,6 +3099,127 @@ class AsyncActivityHandle:
                 rpc_timeout=rpc_timeout,
             ),
         )
+
+
+# TODO: This name is suboptimal now. We could deprecate it and introduce WorkflowActivityHandle as a
+# preferred alias.
+class AsyncActivityHandle(_BaseActivityHandle):
+    """Handle representing an activity started by a workflow."""
+
+    def __init__(
+        self, client: Client, id_or_token: Union[AsyncActivityIDReference, bytes]
+    ) -> None:
+        """Create an handle to an activity started by a workflow."""
+        self._client = client
+        self._id_or_token = id_or_token
+
+
+# TODO: in the future when messages can be sent to activities, we will want the activity handle to
+# be generic in the activity type in addition to the return type (as WorkflowHandle), to support
+# static type inference for signal/query/update.
+class ActivityHandle(Generic[ReturnType], _BaseActivityHandle):
+    """Handle representing a standalone activity execution."""
+
+    def __init__(self, client: Client, id: str, run_id: Optional[str] = None) -> None:
+        """Create an activity handle.
+
+        Args:
+            client: The client that created the activity handle.
+            id: The activity ID.
+            run_id: The run ID of the activity.
+        """
+        self._client = client
+        self._id_or_token = ActivityIDReference(activity_id=id, run_id=run_id)
+        self.run_id = run_id
+
+    # TODO: do we support something like `follow_runs: bool`?
+    async def result(
+        self,
+        *,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> ReturnType:
+        """Wait for result of the activity.
+
+        Args:
+            rpc_metadata: Headers used on the RPC call. Keys here override
+                client-level RPC metadata keys.
+            rpc_timeout: Optional RPC deadline to set for each RPC call. Note,
+                this is the timeout for each history RPC call not this overall
+                function.
+
+        Returns:
+            The result of the activity.
+
+        Raises:
+            :py:class:`ActivityFailureError`: If the activity completed with a failure.
+        """
+        # Repeatedly issues workflowservice GetActivityResult long-polls.
+        raise NotImplementedError
+
+    async def cancel(
+        self,
+        *,
+        reason: Optional[str] = None,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> None:
+        """Request cancellation of the activity.
+
+        Requesting cancellation of an activity does not automatically transition the activity to
+        canceled status. If the activity is heartbeating, a :py:class:`exceptions.CancelledError`
+        exception will be raised when receiving the heartbeat response; if the activity allows this
+        exception to bubble out, the activity will transition to canceled status. If the activity it
+        is not heartbeating, this method will have no effect on activity status.
+
+        Args:
+            reason: Reason for the cancellation. Recorded and available via describe.
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        raise NotImplementedError
+
+    async def terminate(
+        self,
+        *,
+        reason: Optional[str] = None,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> None:
+        """Terminate the activity execution immediately.
+
+        Termination does not reach the worker and the activity code cannot react to it.
+        A terminated activity may have a running attempt and will be requested to be
+        canceled by the server when it heartbeats.
+
+        Args:
+            reason: Reason for the termination.
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        raise NotImplementedError
+
+    async def describe(
+        self,
+        *,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> ActivityExecutionDescription:
+        """Describe the activity execution.
+
+        Args:
+            rpc_metadata: Headers used on the RPC call.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+
+        Returns:
+            Activity execution description.
+        """
+        raise NotImplementedError
+
+    # TODO:
+    # pause
+    # reset
+    # update_options
 
 
 @dataclass
@@ -5211,6 +5603,21 @@ class WorkflowUpdateRPCTimeoutOrCancelledError(RPCTimeoutOrCancelledError):
         super().__init__("Timeout or cancellation waiting for update")
 
 
+class ActivityFailureError(temporalio.exceptions.TemporalError):
+    """Error that occurs when a standalone activity is unsuccessful."""
+
+    def __init__(self, *, cause: BaseException) -> None:
+        """Create activity failure error."""
+        super().__init__("Activity execution failed")
+        self.__cause__ = cause
+
+    @property
+    def cause(self) -> BaseException:
+        """Cause of the activity failure."""
+        assert self.__cause__
+        return self.__cause__
+
+
 class AsyncActivityCancelledError(temporalio.exceptions.TemporalError):
     """Error that occurs when async activity attempted heartbeat but was cancelled."""
 
@@ -5450,7 +5857,7 @@ class StartWorkflowUpdateWithStartInput:
 class HeartbeatAsyncActivityInput:
     """Input for :py:meth:`OutboundInterceptor.heartbeat_async_activity`."""
 
-    id_or_token: Union[AsyncActivityIDReference, bytes]
+    id_or_token: Union[AsyncActivityIDReference, ActivityIDReference, bytes]
     details: Sequence[Any]
     rpc_metadata: Mapping[str, Union[str, bytes]]
     rpc_timeout: Optional[timedelta]
@@ -5460,7 +5867,7 @@ class HeartbeatAsyncActivityInput:
 class CompleteAsyncActivityInput:
     """Input for :py:meth:`OutboundInterceptor.complete_async_activity`."""
 
-    id_or_token: Union[AsyncActivityIDReference, bytes]
+    id_or_token: Union[AsyncActivityIDReference, ActivityIDReference, bytes]
     result: Optional[Any]
     rpc_metadata: Mapping[str, Union[str, bytes]]
     rpc_timeout: Optional[timedelta]
@@ -5470,7 +5877,7 @@ class CompleteAsyncActivityInput:
 class FailAsyncActivityInput:
     """Input for :py:meth:`OutboundInterceptor.fail_async_activity`."""
 
-    id_or_token: Union[AsyncActivityIDReference, bytes]
+    id_or_token: Union[AsyncActivityIDReference, ActivityIDReference, bytes]
     error: Exception
     last_heartbeat_details: Sequence[Any]
     rpc_metadata: Mapping[str, Union[str, bytes]]
@@ -5481,7 +5888,7 @@ class FailAsyncActivityInput:
 class ReportCancellationAsyncActivityInput:
     """Input for :py:meth:`OutboundInterceptor.report_cancellation_async_activity`."""
 
-    id_or_token: Union[AsyncActivityIDReference, bytes]
+    id_or_token: Union[AsyncActivityIDReference, ActivityIDReference, bytes]
     details: Sequence[Any]
     rpc_metadata: Mapping[str, Union[str, bytes]]
     rpc_timeout: Optional[timedelta]
