@@ -112,25 +112,19 @@ def current_command(
 
 def _get_workflow_command_protos_with_seq() -> Iterator[str]:
     """Get names of all workflow command protos with a seq field."""
-    for name in dir(workflow_commands_pb2):
-        if not name.startswith("_"):
-            attr = getattr(workflow_commands_pb2, name)
-            if (
-                hasattr(attr, "DESCRIPTOR")
-                and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                and "seq" in attr.DESCRIPTOR.fields_by_name
-            ):
-                yield name
+    for (
+        name,
+        descriptor,
+    ) in workflow_commands_pb2.DESCRIPTOR.message_types_by_name.items():
+        if "seq" in descriptor.fields_by_name:
+            yield name
 
 
 def _get_workflow_activation_protos_with_seq() -> Iterator[str]:
     """Get names of all workflow activation protos with a seq field."""
-    for name in dir(workflow_activation_pb2):
-        if not name.startswith("_"):
-            attr = getattr(workflow_activation_pb2, name)
-            if (
-                hasattr(attr, "DESCRIPTOR")
-                and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                and "seq" in attr.DESCRIPTOR.fields_by_name
-            ):
-                yield name
+    for (
+        name,
+        descriptor,
+    ) in workflow_activation_pb2.DESCRIPTOR.message_types_by_name.items():
+        if "seq" in descriptor.fields_by_name:
+            yield name

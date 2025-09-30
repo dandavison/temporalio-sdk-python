@@ -16,28 +16,18 @@ def test_command_aware_visitor_covers_all_protos_with_seq():
     that has a 'seq' field gets an override for command context tracking.
     """
     # Find all workflow command message types that have a seq field
-    commands_with_seq = set()
-    for field_name in dir(workflow_commands_pb2):
-        if not field_name.startswith("_"):
-            attr = getattr(workflow_commands_pb2, field_name)
-            if (
-                hasattr(attr, "DESCRIPTOR")
-                and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                and "seq" in attr.DESCRIPTOR.fields_by_name
-            ):
-                commands_with_seq.add(field_name)
+    commands_with_seq = {
+        name
+        for name, descriptor in workflow_commands_pb2.DESCRIPTOR.message_types_by_name.items()
+        if "seq" in descriptor.fields_by_name
+    }
 
     # Find all workflow activation job message types that have a seq field
-    activation_jobs_with_seq = set()
-    for field_name in dir(workflow_activation_pb2):
-        if not field_name.startswith("_"):
-            attr = getattr(workflow_activation_pb2, field_name)
-            if (
-                hasattr(attr, "DESCRIPTOR")
-                and hasattr(attr.DESCRIPTOR, "fields_by_name")
-                and "seq" in attr.DESCRIPTOR.fields_by_name
-            ):
-                activation_jobs_with_seq.add(field_name)
+    activation_jobs_with_seq = {
+        name
+        for name, descriptor in workflow_activation_pb2.DESCRIPTOR.message_types_by_name.items()
+        if "seq" in descriptor.fields_by_name
+    }
 
     # Create a visitor instance to check its overrides
     visitor = CommandAwarePayloadVisitor()
