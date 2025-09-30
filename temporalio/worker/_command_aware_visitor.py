@@ -78,21 +78,25 @@ class CommandAwarePayloadVisitor(PayloadVisitor):
     def _add_override(
         self, name: str, module: str, command_type: CommandType.ValueType
     ) -> None:
-        """Add an override method that sets command context."""
+        """Add an override method that sets command context.
+
+        Only creates overrides for commands that have payload fields.
+        Commands without payloads (e.g., CancelTimer) don't need context
+        because they don't serialize anything.
+        """
         method_name = f"_visit_{module}_{name}"
+        parent_method = getattr(PayloadVisitor, method_name, None)
 
-        # Create the override method
-        async def override_method(self: Any, fs: VisitorFunctions, o: Any) -> None:
+        if not parent_method:
+            # No visitor method means no payload fields to visit
+            return
+
+        # Create override as a simple closure that captures self
+        async def override_method(fs: VisitorFunctions, o: Any) -> None:
             with current_command(command_type, o.seq):
-                # Call the parent class's method
-                parent_method = getattr(PayloadVisitor, method_name, None)
-                if parent_method:
-                    await parent_method(self, fs, o)
+                await parent_method(self, fs, o)
 
-        # Bind the method to this instance
-        setattr(
-            self, method_name, override_method.__get__(self, CommandAwarePayloadVisitor)
-        )
+        setattr(self, method_name, override_method)
 
 
 @contextmanager
