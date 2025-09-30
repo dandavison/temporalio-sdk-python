@@ -11,117 +11,9 @@ This module contains two complementary tests:
    - Definitive test that all protos with seq are handled
 """
 
-import inspect
-
-from temporalio.bridge._visitor import PayloadVisitor
 from temporalio.bridge.proto.workflow_activation import workflow_activation_pb2
 from temporalio.bridge.proto.workflow_commands import workflow_commands_pb2
 from temporalio.worker._command_aware_visitor import CommandAwarePayloadVisitor
-
-
-def test_command_aware_visitor_handles_all_seq_commands():
-    """Ensure CommandAwarePayloadVisitor overrides all visitor methods for messages with seq fields.
-
-    This test will fail if:
-    1. We remove an expected override from CommandAwarePayloadVisitor
-    2. New commands/resolutions are added that might need handling
-    """
-    # Methods we expect to be overridden for context tracking
-    expected_overrides = {
-        # Workflow commands that need context
-        "_visit_coresdk_workflow_commands_ScheduleActivity",
-        "_visit_coresdk_workflow_commands_ScheduleLocalActivity",
-        "_visit_coresdk_workflow_commands_StartChildWorkflowExecution",
-        "_visit_coresdk_workflow_commands_SignalExternalWorkflowExecution",
-        "_visit_coresdk_workflow_commands_ScheduleNexusOperation",
-        # Activation resolutions that need context
-        "_visit_coresdk_workflow_activation_ResolveActivity",
-        "_visit_coresdk_workflow_activation_ResolveChildWorkflowExecutionStart",
-        "_visit_coresdk_workflow_activation_ResolveChildWorkflowExecution",
-        "_visit_coresdk_workflow_activation_ResolveSignalExternalWorkflow",
-        "_visit_coresdk_workflow_activation_ResolveRequestCancelExternalWorkflow",
-        "_visit_coresdk_workflow_activation_ResolveNexusOperationStart",
-        "_visit_coresdk_workflow_activation_ResolveNexusOperation",
-    }
-
-    # Commands/resolutions we know have seq but don't need context tracking
-    known_seq_no_context = {
-        # Cancel/timer commands - have seq but don't need context
-        "_visit_coresdk_workflow_commands_CancelTimer",
-        "_visit_coresdk_workflow_commands_CancelSignalWorkflow",
-        "_visit_coresdk_workflow_commands_RequestCancelActivity",
-        "_visit_coresdk_workflow_commands_RequestCancelLocalActivity",
-        "_visit_coresdk_workflow_commands_RequestCancelExternalWorkflowExecution",
-        "_visit_coresdk_workflow_commands_RequestCancelNexusOperation",
-        "_visit_coresdk_workflow_commands_StartTimer",
-        # Timer resolution - has seq but doesn't need context
-        "_visit_coresdk_workflow_activation_FireTimer",
-    }
-
-    # Methods that don't have seq fields (false positives from pattern matching)
-    known_no_seq = {
-        # SignalWorkflow is an incoming signal, no seq
-        "_visit_coresdk_workflow_activation_SignalWorkflow",
-        # Child workflow start cancelled doesn't have seq
-        "_visit_coresdk_workflow_activation_ResolveChildWorkflowExecutionStartCancelled",
-    }
-
-    # Get actual overridden methods in CommandAwarePayloadVisitor
-    actual_overrides = {
-        name
-        for name in CommandAwarePayloadVisitor.__dict__
-        if name.startswith("_visit_coresdk_workflow_")
-    }
-
-    # Check we have all expected overrides
-    missing = expected_overrides - actual_overrides
-    assert not missing, (
-        f"CommandAwarePayloadVisitor is missing expected overrides: {missing}"
-    )
-
-    # Check for unexpected overrides (might be OK, but worth reviewing)
-    unexpected = actual_overrides - expected_overrides
-    assert not unexpected, (
-        f"CommandAwarePayloadVisitor has unexpected overrides: {unexpected}\n"
-        f"If these are correct, add them to expected_overrides in this test."
-    )
-
-    # Find all visitor methods in base class that look like they handle seq
-    base_methods = {
-        name
-        for name, method in inspect.getmembers(PayloadVisitor)
-        if name.startswith("_visit_coresdk_workflow_") and callable(method)
-    }
-
-    # Methods that likely have seq based on naming patterns
-    potential_seq_methods = {
-        name
-        for name in base_methods
-        if any(
-            pattern in name
-            for pattern in [
-                "Schedule",
-                "Start",
-                "Signal",
-                "Cancel",
-                "Request",
-                "Resolve",
-                "Fire",
-                "Nexus",
-            ]
-        )
-    }
-
-    # Check for new methods that might need handling
-    all_known = expected_overrides | known_seq_no_context | known_no_seq
-    potentially_unhandled = potential_seq_methods - all_known
-
-    assert not potentially_unhandled, (
-        f"New visitor methods detected that might have seq fields: {potentially_unhandled}\n"
-        f"If they need context tracking, add overrides to CommandAwarePayloadVisitor.\n"
-        f"If they have seq but don't need context, add to known_seq_no_context in this test.\n"
-        f"If they don't have seq at all, update the pattern matching in this test."
-    )
 
 
 def test_command_aware_visitor_covers_all_protos_with_seq():
@@ -213,16 +105,16 @@ def test_command_aware_visitor_covers_all_protos_with_seq():
     # Check commands
     for command in commands_needing_context:
         method_name = f"_visit_coresdk_workflow_commands_{command}"
-        assert method_name in visitor_overrides, (
-            f"CommandAwarePayloadVisitor missing override for command with seq: {command}"
-        )
+        assert (
+            method_name in visitor_overrides
+        ), f"CommandAwarePayloadVisitor missing override for command with seq: {command}"
 
     # Check activation jobs
     for job in activation_jobs_needing_context:
         method_name = f"_visit_coresdk_workflow_activation_{job}"
-        assert method_name in visitor_overrides, (
-            f"CommandAwarePayloadVisitor missing override for activation job with seq: {job}"
-        )
+        assert (
+            method_name in visitor_overrides
+        ), f"CommandAwarePayloadVisitor missing override for activation job with seq: {job}"
 
     # Verify we're not overriding things that don't have seq
     for override_name in visitor_overrides:
