@@ -363,17 +363,21 @@ class _WorkflowWorker:
         completion.run_id = act.run_id
 
         # Encode completion
-        if self._data_converter.payload_codec and workflow:
+        if self._data_converter.payload_codec:
             assert data_converter.payload_codec
-            payload_codec = _CommandAwarePayloadCodec(
-                workflow.instance,
-                context_free_payload_codec=self._data_converter.payload_codec,
-                workflow_context_payload_codec=data_converter.payload_codec,
-                workflow_context=temporalio.converter.WorkflowSerializationContext(
-                    namespace=self._namespace,
-                    workflow_id=workflow.workflow_id,
-                ),
-            )
+            if workflow:
+                payload_codec = _CommandAwarePayloadCodec(
+                    workflow.instance,
+                    context_free_payload_codec=self._data_converter.payload_codec,
+                    workflow_context_payload_codec=data_converter.payload_codec,
+                    workflow_context=temporalio.converter.WorkflowSerializationContext(
+                        namespace=self._namespace,
+                        workflow_id=workflow.workflow_id,
+                    ),
+                )
+            else:
+                # When workflow is None (e.g., initialization failure), use the codec directly
+                payload_codec = data_converter.payload_codec
             try:
                 await temporalio.bridge.worker.encode_completion(
                     completion,

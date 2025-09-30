@@ -1910,12 +1910,17 @@ class InitFailureTrackingPayloadCodec(PayloadCodec):
     async def encode(
         self, payloads: Sequence[temporalio.api.common.v1.Payload]
     ) -> List[temporalio.api.common.v1.Payload]:
+        print(f"ENCODE CALLED with {len(payloads)} payloads")
         init_failure_codec_calls["encode"] = True
+        init_failure_codec_calls["encode_count"] = (
+            init_failure_codec_calls.get("encode_count", 0) + 1
+        )
         return list(payloads)
 
     async def decode(
         self, payloads: Sequence[temporalio.api.common.v1.Payload]
     ) -> List[temporalio.api.common.v1.Payload]:
+        print(f"DECODE CALLED with {len(payloads)} payloads")
         init_failure_codec_calls["decode"] = True
         return list(payloads)
 
@@ -1927,6 +1932,15 @@ class DummyWorkflow:
     @workflow.run
     async def run(self) -> str:
         return "dummy"
+
+
+@workflow.defn
+class UnregisteredWorkflow:
+    """A workflow that will NOT be registered on the worker."""
+
+    @workflow.run
+    async def run(self) -> str:
+        return "unregistered"
 
 
 @workflow.defn
@@ -1950,8 +1964,8 @@ async def test_payload_codec_called_on_workflow_initialization_failure(client: C
     """Test that payload codec encoding is called even when workflow initialization fails.
 
     This test catches a bug where completion encoding was skipped when a workflow
-    failed to initialize because the `workflow` instance was None. The payload codec
-    should still be called to encode the failure details.
+    failed to initialize. The payload codec should still be called to encode the
+    failure details.
     """
     workflow_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
@@ -1962,16 +1976,17 @@ async def test_payload_codec_called_on_workflow_initialization_failure(client: C
     codec = InitFailureTrackingPayloadCodec()
     client_config = client.config()
     client_config["data_converter"] = dataclasses.replace(
-        DataConverter.default, payload_codec=codec
+        DataConverter.default,
+        payload_codec=codec,
     )
     client = Client(**client_config)
 
     async with Worker(
         client,
         task_queue=task_queue,
-        workflows=[FailingInitWorkflow],  # Workflow that fails during init
+        workflows=[FailingInitWorkflow],
     ):
-        # Try to start workflow that will fail during initialization with payload details
+        # Start a workflow that will fail during initialization with payload details
         handle = await client.start_workflow(
             FailingInitWorkflow.run,
             id=workflow_id,
@@ -1983,8 +1998,8 @@ async def test_payload_codec_called_on_workflow_initialization_failure(client: C
         await asyncio.sleep(1)
 
         # The key assertion: the codec's encode method should have been called
-        # even though the workflow failed to initialize. Without the bug fix,
-        # this would be False because encoding was skipped when workflow was None.
+        # to encode the failure details. Without the bug fix, encoding would be
+        # skipped for initialization failures.
         assert init_failure_codec_calls.get("encode"), (
             "Payload codec encode should be called even when workflow "
             "initialization fails"
