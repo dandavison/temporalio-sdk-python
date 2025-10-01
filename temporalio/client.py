@@ -1383,23 +1383,19 @@ class Client:
         # Issues a workflowservice CountActivityExecutions call
         raise NotImplementedError
 
+    # TODO: this name is so simple/generic that users will expect it to work for workflow activities
+    # also. If we support both, we need to decide how to arrange the activity handle classes.
     async def get_activity_handle(
         self,
         activity_id: str,
         *,
-        workflow_id: Optional[str] = None,
         run_id: Optional[str] = None,
-        task_token: Optional[bytes] = None,
     ) -> ActivityHandle[Any]:
-        """Get a handle to an existing activity.
+        """Get a handle to a standalone activity.
 
         Args:
             activity_id: The activity ID.
-            workflow_id: The workflow ID if the activity was started from a workflow.
             run_id:      The run ID. If not provided, targets the latest run.
-            task_token:  Optional task token for the activity if the activity was
-                         started from a workflow. Cannot be set if any of the id parameters
-                         are set.
 
         Returns:
             A handle to the activity.
@@ -3112,6 +3108,9 @@ class AsyncActivityHandle(_BaseActivityHandle):
         """Create an handle to an activity started by a workflow."""
         self._client = client
         self._id_or_token = id_or_token
+
+
+WorkflowActivityHandle = AsyncActivityHandle
 
 
 # TODO: in the future when messages can be sent to activities, we will want the activity handle to
