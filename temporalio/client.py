@@ -3128,6 +3128,111 @@ class _BaseActivityHandle:
             ),
         )
 
+    async def pause(
+        self,
+        *,
+        reason: Optional[str] = None,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> None:
+        """Pause the activity.
+
+        Args:
+            reason: Reason for pausing the activity.
+            rpc_metadata: Headers used on the RPC call. Keys here override
+                client-level RPC metadata keys.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        if not isinstance(self._id_or_token, ActivityIDReference):
+            raise ValueError("Cannot pause activity with task token")
+
+        await self._client.workflow_service.pause_activity(
+            temporalio.api.workflowservice.v1.PauseActivityRequest(
+                namespace=self._client.namespace,
+                execution=temporalio.api.common.v1.WorkflowExecution(
+                    workflow_id=self._id_or_token.workflow_id or "",
+                    run_id=self._id_or_token.run_id or "",
+                ),
+                identity=self._client.identity,
+                id=self._id_or_token.activity_id,
+                reason=reason or "",
+            ),
+            retry=True,
+            metadata=rpc_metadata,
+            timeout=rpc_timeout,
+        )
+
+    async def unpause(
+        self,
+        *,
+        reset_attempts: bool = False,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> None:
+        """Unpause the activity.
+
+        Args:
+            reset_attempts: Whether to reset the number of attempts.
+            rpc_metadata: Headers used on the RPC call. Keys here override
+                client-level RPC metadata keys.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        if not isinstance(self._id_or_token, ActivityIDReference):
+            raise ValueError("Cannot unpause activity with task token")
+
+        await self._client.workflow_service.unpause_activity(
+            temporalio.api.workflowservice.v1.UnpauseActivityRequest(
+                namespace=self._client.namespace,
+                execution=temporalio.api.common.v1.WorkflowExecution(
+                    workflow_id=self._id_or_token.workflow_id or "",
+                    run_id=self._id_or_token.run_id or "",
+                ),
+                identity=self._client.identity,
+                id=self._id_or_token.activity_id,
+                reset_attempts=reset_attempts,
+            ),
+            retry=True,
+            metadata=rpc_metadata,
+            timeout=rpc_timeout,
+        )
+
+    async def reset(
+        self,
+        *,
+        reset_heartbeat: bool = False,
+        keep_paused: bool = False,
+        rpc_metadata: Mapping[str, Union[str, bytes]] = {},
+        rpc_timeout: Optional[timedelta] = None,
+    ) -> None:
+        """Reset the activity.
+
+        Args:
+            reset_heartbeat: Whether to reset heartbeat details.
+            keep_paused: If activity is paused, whether to keep it paused after reset.
+            rpc_metadata: Headers used on the RPC call. Keys here override
+                client-level RPC metadata keys.
+            rpc_timeout: Optional RPC deadline to set for the RPC call.
+        """
+        if not isinstance(self._id_or_token, ActivityIDReference):
+            raise ValueError("Cannot reset activity with task token")
+
+        await self._client.workflow_service.reset_activity(
+            temporalio.api.workflowservice.v1.ResetActivityRequest(
+                namespace=self._client.namespace,
+                execution=temporalio.api.common.v1.WorkflowExecution(
+                    workflow_id=self._id_or_token.workflow_id or "",
+                    run_id=self._id_or_token.run_id or "",
+                ),
+                identity=self._client.identity,
+                id=self._id_or_token.activity_id,
+                reset_heartbeat=reset_heartbeat,
+                keep_paused=keep_paused,
+            ),
+            retry=True,
+            metadata=rpc_metadata,
+            timeout=rpc_timeout,
+        )
+
 
 class WorkflowActivityHandle(_BaseActivityHandle):
     """Handle representing an activity started by a workflow."""
@@ -3248,8 +3353,6 @@ class ActivityHandle(Generic[ReturnType], _BaseActivityHandle):
         raise NotImplementedError
 
     # TODO:
-    # pause
-    # reset
     # update_options
 
 
