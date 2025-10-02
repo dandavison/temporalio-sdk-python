@@ -1351,7 +1351,7 @@ class Client:
         rpc_metadata: Mapping[str, Union[str, bytes]] = {},
         rpc_timeout: Optional[timedelta] = None,
     ) -> ActivityExecutionAsyncIterator:
-        """List activities started outside of a workflow.
+        """List activities.
 
         Args:
             query: A Temporal visibility filter for activities.
@@ -1385,7 +1385,7 @@ class Client:
 
     # TODO: this name is so simple/generic that users will expect it to work for workflow activities
     # also. If we support both, we need to decide how to arrange the activity handle classes.
-    async def get_activity_handle(
+    def get_activity_handle(
         self,
         activity_id: str,
         *,
@@ -2861,6 +2861,8 @@ class ActivityExecutionAsyncIterator:
         raise NotImplementedError
 
 
+# TODO: this is named ActivityListInfo in our draft proto PR
+# https://github.com/temporalio/api/pull/640/files
 @dataclass(frozen=True)
 class ActivityExecution:
     """Info for a single activity execution from list response."""
@@ -3131,7 +3133,6 @@ class ActivityHandle(Generic[ReturnType], _BaseActivityHandle):
         self._id_or_token = ActivityIDReference(activity_id=id, run_id=run_id)
         self.run_id = run_id
 
-    # TODO: do we support something like `follow_runs: bool`?
     async def result(
         self,
         *,
