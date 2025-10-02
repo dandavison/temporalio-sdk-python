@@ -2881,13 +2881,17 @@ class WithStartWorkflowOperation(Generic[SelfType, ReturnType]):
 
 
 class ActivityExecutionAsyncIterator:
-    """Asynchronous iterator for :py:class:`ActivityExecution` values."""
+    """Asynchronous iterator for activity execution values.
+
+    Returns either :py:class:`ActivityExecution` (for standalone activities) or
+    :py:class:`WorkflowActivityExecution` (for activities started by workflows).
+    """
 
     def __aiter__(self) -> ActivityExecutionAsyncIterator:
         """Return self as the iterator."""
         return self
 
-    async def __anext__(self) -> ActivityExecution:
+    async def __anext__(self) -> Union[ActivityExecution, WorkflowActivityExecution]:
         """Return the next execution on this iterator.
 
         Fetch next page if necessary.
@@ -2899,7 +2903,7 @@ class ActivityExecutionAsyncIterator:
 # https://github.com/temporalio/api/pull/640/files
 @dataclass(frozen=True)
 class ActivityExecution:
-    """Info for a single activity execution from list response."""
+    """Info for a standalone activity execution from list response."""
 
     activity_id: str
     """Activity ID."""
@@ -2927,6 +2931,35 @@ class ActivityExecution:
 
     state_transition_count: int
     """Number of state transitions."""
+
+    execution_duration: Optional[timedelta]
+    """Duration from scheduled to close time, only populated if closed."""
+
+
+@dataclass(frozen=True)
+class WorkflowActivityExecution:
+    """Info for a workflow activity execution from list response."""
+
+    workflow_id: str
+    """ID of the workflow that started this activity."""
+
+    workflow_run_id: Optional[str]
+    """Run ID of the workflow that started this activity."""
+
+    activity_id: str
+    """Activity ID."""
+
+    activity_type: str
+    """Type name of the activity."""
+
+    scheduled_time: datetime
+    """Time the activity was originally scheduled."""
+
+    close_time: Optional[datetime]
+    """Time the activity reached a terminal status, if closed."""
+
+    task_queue: str
+    """Task queue the activity was scheduled on."""
 
     execution_duration: Optional[timedelta]
     """Duration from scheduled to close time, only populated if closed."""
