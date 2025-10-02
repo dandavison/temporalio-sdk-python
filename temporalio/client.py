@@ -9,6 +9,7 @@ import dataclasses
 import inspect
 import json
 import re
+import typing
 import uuid
 import warnings
 from abc import ABC, abstractmethod
@@ -1383,14 +1384,41 @@ class Client:
         # Issues a workflowservice CountActivityExecutions call
         raise NotImplementedError
 
+    @typing.overload
     def get_activity_handle(
         self,
-        activity_id: str,
         *,
+        activity_id: str,
+        run_id: Optional[str] = None,
+    ) -> ActivityHandle[Any]:
+        raise NotImplementedError
+
+    @typing.overload
+    def get_activity_handle(
+        self,
+        *,
+        activity_id: str,
+        workflow_id: str,
+        run_id: Optional[str],
+    ) -> WorkflowActivityHandle:
+        raise NotImplementedError
+
+    @typing.overload
+    def get_activity_handle(
+        self,
+        *,
+        task_token: bytes,
+    ) -> WorkflowActivityHandle:
+        raise NotImplementedError
+
+    def get_activity_handle(
+        self,
+        *,
+        activity_id: Optional[str] = None,
         workflow_id: Optional[str] = None,
         run_id: Optional[str] = None,
         task_token: Optional[bytes] = None,
-    ) -> ActivityHandle[Any]:
+    ) -> Union[ActivityHandle[Any], WorkflowActivityHandle]:
         """Get a handle to an existing activity.
 
         Args:
@@ -1406,12 +1434,14 @@ class Client:
         """
         raise NotImplementedError
 
+    # Deprecated: get_activity_handle has an equivalent override
     @overload
     def get_async_activity_handle(
         self, *, workflow_id: str, run_id: Optional[str], activity_id: str
     ) -> AsyncActivityHandle:
         pass
 
+    # Deprecated: get_activity_handle has an equivalent override
     @overload
     def get_async_activity_handle(self, *, task_token: bytes) -> AsyncActivityHandle:
         pass
@@ -1424,10 +1454,10 @@ class Client:
         activity_id: Optional[str] = None,
         task_token: Optional[bytes] = None,
     ) -> AsyncActivityHandle:
-        """Get an async activity handle.
+        """Get a handle to an activity started by a workflow.
 
         .. warning::
-            DEPRECATED: This method is deprecated and will be removed in a future version.
+            DEPRECATED: This method is deprecated.
             Use :py:meth:`Client.get_activity_handle` instead.
 
         Either the workflow_id, run_id, and activity_id can be provided, or a
