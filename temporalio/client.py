@@ -1438,12 +1438,12 @@ class Client:
     @overload
     def get_async_activity_handle(
         self, *, workflow_id: str, run_id: Optional[str], activity_id: str
-    ) -> AsyncActivityHandle:
+    ) -> WorkflowActivityHandle:
         pass
 
     # Deprecated: get_activity_handle has an equivalent override
     @overload
-    def get_async_activity_handle(self, *, task_token: bytes) -> AsyncActivityHandle:
+    def get_async_activity_handle(self, *, task_token: bytes) -> WorkflowActivityHandle:
         pass
 
     def get_async_activity_handle(
@@ -1453,7 +1453,7 @@ class Client:
         run_id: Optional[str] = None,
         activity_id: Optional[str] = None,
         task_token: Optional[bytes] = None,
-    ) -> AsyncActivityHandle:
+    ) -> WorkflowActivityHandle:
         """Get a handle to an activity started by a workflow.
 
         .. warning::
@@ -1478,13 +1478,13 @@ class Client:
         if task_token is not None:
             if workflow_id is not None or run_id is not None or activity_id is not None:
                 raise ValueError("Task token cannot be present with other IDs")
-            return AsyncActivityHandle(self, task_token)
+            return WorkflowActivityHandle(self, task_token)
         elif workflow_id is not None:
             if activity_id is None:
                 raise ValueError(
                     "Workflow ID, run ID, and activity ID must all be given together"
                 )
-            return AsyncActivityHandle(
+            return WorkflowActivityHandle(
                 self,
                 AsyncActivityIDReference(
                     workflow_id=workflow_id, run_id=run_id, activity_id=activity_id
@@ -3133,9 +3133,7 @@ class _BaseActivityHandle:
         )
 
 
-# TODO: This name is suboptimal now. We could deprecate it and introduce WorkflowActivityHandle as a
-# preferred alias.
-class AsyncActivityHandle(_BaseActivityHandle):
+class WorkflowActivityHandle(_BaseActivityHandle):
     """Handle representing an activity started by a workflow."""
 
     def __init__(
@@ -3146,7 +3144,8 @@ class AsyncActivityHandle(_BaseActivityHandle):
         self._id_or_token = id_or_token
 
 
-WorkflowActivityHandle = AsyncActivityHandle
+# Deprecated alias
+AsyncActivityHandle = WorkflowActivityHandle
 
 
 # TODO: in the future when messages can be sent to activities, we will want the activity handle to
