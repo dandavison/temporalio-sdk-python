@@ -1436,17 +1436,19 @@ class Client:
 
     # Deprecated: get_activity_handle has an equivalent override
     @overload
-    def get_async_activity_handle(
+    def get_workflow_activity_handle(
         self, *, workflow_id: str, run_id: Optional[str], activity_id: str
     ) -> WorkflowActivityHandle:
         pass
 
     # Deprecated: get_activity_handle has an equivalent override
     @overload
-    def get_async_activity_handle(self, *, task_token: bytes) -> WorkflowActivityHandle:
+    def get_workflow_activity_handle(
+        self, *, task_token: bytes
+    ) -> WorkflowActivityHandle:
         pass
 
-    def get_async_activity_handle(
+    def get_workflow_activity_handle(
         self,
         *,
         workflow_id: Optional[str] = None,
@@ -1491,6 +1493,9 @@ class Client:
                 ),
             )
         raise ValueError("Task token or workflow/run/activity ID must be present")
+
+    # Deprecated alias
+    get_async_activity_handle = get_workflow_activity_handle
 
     async def create_schedule(
         self,
