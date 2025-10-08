@@ -32,6 +32,7 @@ from typing import (
     Text,
     Tuple,
     Type,
+    TypeVar,
     Union,
     cast,
     overload,
@@ -2904,114 +2905,6 @@ class WithStartWorkflowOperation(Generic[SelfType, ReturnType]):
         return await self._workflow_handle
 
 
-class ActivityExecutionAsyncIterator:
-    """Asynchronous iterator for activity execution values.
-
-    Each item yielded by the iterator is either a :py:class:`ActivityExecution` (i.e. a standalone
-    activity) or a :py:class:`WorkflowActivityExecution` (i.e. an activity started by a workflow).
-
-    You should typically use ``async for`` on this iterator and not call any of its methods.
-    """
-
-    # TODO(dan): do we want to use the "standalone" explanatory qualifier in docstrings?
-
-    def __init__(
-        self,
-        client: Client,
-        input: ListActivitiesInput,
-    ) -> None:
-        """Create an asynchronous iterator for the given input.
-
-        Users should not create this directly, but rather use
-        :py:meth:`Client.list_activities`.
-        """
-        self._client = client
-        self._input = input
-        self._next_page_token = input.next_page_token
-        self._current_page: Optional[
-            Sequence[Union[ActivityExecution, WorkflowActivityExecution]]
-        ] = None
-        self._current_page_index = 0
-        self._limit = input.limit
-        self._yielded = 0
-
-    @property
-    def current_page_index(self) -> int:
-        """Index of the entry in the current page that will be returned from
-        the next :py:meth:`__anext__` call.
-        """
-        return self._current_page_index
-
-    @property
-    def current_page(
-        self,
-    ) -> Optional[Sequence[Union[ActivityExecution, WorkflowActivityExecution]]]:
-        """Current page, if it has been fetched yet."""
-        return self._current_page
-
-    @property
-    def next_page_token(self) -> Optional[bytes]:
-        """Token for the next page request if any."""
-        return self._next_page_token
-
-    async def _fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
-        """Fetch the next page of results.
-
-        Args:
-            page_size: Specific page size to use for this request.
-        """
-        page_size = page_size or self._input.page_size
-        if self._limit is not None and self._limit - self._yielded < page_size:
-            page_size = self._limit - self._yielded
-
-        resp = await self._client.workflow_service.list_activity_executions(
-            temporalio.api.workflowservice.v1.ListActivityExecutionsRequest(
-                namespace=self._client.namespace,
-                page_size=page_size,
-                next_page_token=self._next_page_token or b"",
-                query=self._input.query or "",
-            ),
-            retry=True,
-            metadata=self._input.rpc_metadata,
-            timeout=self._input.rpc_timeout,
-        )
-
-        self._current_page = [
-            ActivityExecution._from_raw_info(
-                v, self._client.namespace, self._client.data_converter
-            )
-            if v.activity_id and not v.workflow_id
-            # Standalone activity has activity_id but no workflow_id
-            else WorkflowActivityExecution._from_raw_info(
-                v, self._client.namespace, self._client.data_converter
-            )
-            for v in resp.executions
-        ]
-        self._current_page_index = 0
-        self._next_page_token = resp.next_page_token or None
-
-    def __aiter__(self) -> ActivityExecutionAsyncIterator:
-        """Return self as the iterator."""
-        return self
-
-    async def __anext__(self) -> Union[ActivityExecution, WorkflowActivityExecution]:
-        """Get the next execution on this iterator, fetching next page if
-        necessary.
-        """
-        if self._limit is not None and self._yielded >= self._limit:
-            raise StopAsyncIteration
-        if self._current_page is None or self._current_page_index >= len(
-            self._current_page
-        ):
-            await self._fetch_next_page()
-            if not self._current_page:
-                raise StopAsyncIteration
-        ret = self._current_page[self._current_page_index]
-        self._current_page_index += 1
-        self._yielded += 1
-        return ret
-
-
 # TODO: this is named ActivityListInfo in our draft proto PR
 # https://github.com/temporalio/api/pull/640/files
 @dataclass(frozen=True)
@@ -3792,6 +3685,149 @@ class ActivityHandle(Generic[ReturnType]):
         )
 
 
+# Type variable for execution iterator types
+_ItemT = TypeVar("_ItemT")
+
+
+class _ExecutionAsyncIterator(Generic[_ItemT], ABC):
+    """Abstract base class for execution async iterators."""
+
+    def __init__(
+        self,
+        client: Client,
+    ) -> None:
+        """Create an asynchronous iterator for the given input."""
+        self._client = client
+        self._current_page: Optional[Sequence[_ItemT]] = None
+        self._current_page_index = 0
+        self._yielded = 0
+        self._limit: Optional[int] = None
+        self._next_page_token: Optional[bytes] = None
+
+    @property
+    def current_page_index(self) -> int:
+        """Index of the entry in the current page that will be returned from
+        the next :py:meth:`__anext__` call.
+        """
+        return self._current_page_index
+
+    @property
+    def current_page(self) -> Optional[Sequence[_ItemT]]:
+        """Current page, if it has been fetched yet."""
+        return self._current_page
+
+    @property
+    def next_page_token(self) -> Optional[bytes]:
+        """Token for the next page request if any."""
+        return self._next_page_token
+
+    @abstractmethod
+    async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
+        """Fetch the next page if any.
+
+        Args:
+            page_size: Override the page size this iterator was originally
+                created with.
+        """
+        raise NotImplementedError
+
+    def __aiter__(self) -> Self:
+        """Return self as the iterator."""
+        return self
+
+    async def __anext__(self) -> _ItemT:
+        """Get the next execution on this iterator, fetching next page if
+        necessary.
+        """
+        if self._limit is not None and self._yielded >= self._limit:
+            raise StopAsyncIteration
+        while True:
+            # No page? fetch and continue
+            if self._current_page is None:
+                await self.fetch_next_page()
+                continue
+            # No more left in page?
+            if self._current_page_index >= len(self._current_page):
+                # If there is a next page token, try to get another page and try
+                # again
+                if self.next_page_token is not None:
+                    await self.fetch_next_page()
+                    continue
+                # No more pages means we're done
+                raise StopAsyncIteration
+            # Get current, increment page index, and return
+            ret = self._current_page[self._current_page_index]
+            self._current_page_index += 1
+            self._yielded += 1
+            return ret
+
+
+class ActivityExecutionAsyncIterator(
+    _ExecutionAsyncIterator[Union[ActivityExecution, WorkflowActivityExecution]]
+):
+    """Asynchronous iterator for activity execution values.
+
+    Each item yielded by the iterator is either a :py:class:`ActivityExecution` (i.e. a standalone
+    activity) or a :py:class:`WorkflowActivityExecution` (i.e. an activity started by a workflow).
+
+    You should typically use ``async for`` on this iterator and not call any of its methods.
+    """
+
+    # TODO(dan): do we want to use the "standalone" explanatory qualifier in docstrings?
+
+    def __init__(
+        self,
+        client: Client,
+        input: ListActivitiesInput,
+    ) -> None:
+        """Create an asynchronous iterator for the given input.
+
+        Users should not create this directly, but rather use
+        :py:meth:`Client.list_activities`.
+        """
+        super().__init__(client)
+        self._input = input
+        self._next_page_token = input.next_page_token
+        self._limit = input.limit
+
+    async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
+        """Fetch the next page if any.
+
+        Args:
+            page_size: Override the page size this iterator was originally
+                created with.
+        """
+        page_size = page_size or self._input.page_size
+        if self._limit is not None and self._limit - self._yielded < page_size:
+            page_size = self._limit - self._yielded
+
+        resp = await self._client.workflow_service.list_activity_executions(
+            temporalio.api.workflowservice.v1.ListActivityExecutionsRequest(
+                namespace=self._client.namespace,
+                page_size=page_size or 0,
+                next_page_token=self._next_page_token or b"",
+                query=self._input.query or "",
+            ),
+            retry=True,
+            metadata=self._input.rpc_metadata,
+            timeout=self._input.rpc_timeout,
+        )
+
+        self._current_page = [
+            ActivityExecution._from_raw_info(
+                v, self._client.namespace, self._client.data_converter
+            )
+            if v.activity_id and not v.workflow_id
+            # Standalone activity has activity_id but no workflow_id
+            else WorkflowActivityExecution._from_raw_info(
+                v, self._client.namespace, self._client.data_converter
+            )
+            for v in resp.executions
+        ]
+        self._current_page_index = 0
+        self._next_page_token = resp.next_page_token or None
+
+
 @dataclass
 class WorkflowExecution:
     """Info for a single workflow execution run."""
@@ -4112,7 +4148,7 @@ class WorkflowExecutionCountAggregationGroup:
         )
 
 
-class WorkflowExecutionAsyncIterator:
+class WorkflowExecutionAsyncIterator(_ExecutionAsyncIterator[WorkflowExecution]):
     """Asynchronous iterator for :py:class:`WorkflowExecution` values.
 
     Most users should use ``async for`` on this iterator and not call any of the
@@ -4130,30 +4166,10 @@ class WorkflowExecutionAsyncIterator:
         Users should not create this directly, but rather use
         :py:meth:`Client.list_workflows`.
         """
-        self._client = client
+        super().__init__(client)
         self._input = input
         self._next_page_token = input.next_page_token
-        self._current_page: Optional[Sequence[WorkflowExecution]] = None
-        self._current_page_index = 0
         self._limit = input.limit
-        self._yielded = 0
-
-    @property
-    def current_page_index(self) -> int:
-        """Index of the entry in the current page that will be returned from
-        the next :py:meth:`__anext__` call.
-        """
-        return self._current_page_index
-
-    @property
-    def current_page(self) -> Optional[Sequence[WorkflowExecution]]:
-        """Current page, if it has been fetched yet."""
-        return self._current_page
-
-    @property
-    def next_page_token(self) -> Optional[bytes]:
-        """Token for the next page request if any."""
-        return self._next_page_token
 
     async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
         """Fetch the next page if any.
@@ -4169,7 +4185,7 @@ class WorkflowExecutionAsyncIterator:
         resp = await self._client.workflow_service.list_workflow_executions(
             temporalio.api.workflowservice.v1.ListWorkflowExecutionsRequest(
                 namespace=self._client.namespace,
-                page_size=page_size,
+                page_size=page_size or 0,
                 next_page_token=self._next_page_token or b"",
                 query=self._input.query or "",
             ),
@@ -4186,36 +4202,6 @@ class WorkflowExecutionAsyncIterator:
         ]
         self._current_page_index = 0
         self._next_page_token = resp.next_page_token or None
-
-    def __aiter__(self) -> WorkflowExecutionAsyncIterator:
-        """Return self as the iterator."""
-        return self
-
-    async def __anext__(self) -> WorkflowExecution:
-        """Get the next execution on this iterator, fetching next page if
-        necessary.
-        """
-        if self._limit is not None and self._yielded >= self._limit:
-            raise StopAsyncIteration
-        while True:
-            # No page? fetch and continue
-            if self._current_page is None:
-                await self.fetch_next_page()
-                continue
-            # No more left in page?
-            if self._current_page_index >= len(self._current_page):
-                # If there is a next page token, try to get another page and try
-                # again
-                if self._next_page_token is not None:
-                    await self.fetch_next_page()
-                    continue
-                # No more pages means we're done
-                raise StopAsyncIteration
-            # Get current, increment page index, and return
-            ret = self._current_page[self._current_page_index]
-            self._current_page_index += 1
-            self._yielded += 1
-            return ret
 
     async def map_histories(
         self,
