@@ -3722,6 +3722,21 @@ class _ExecutionAsyncIterator(Generic[_ItemT], ABC):
         return self._next_page_token
 
     @abstractmethod
+    async def _fetch_next_page_data(
+        self, *, page_size_override: Optional[int]
+    ) -> tuple[Sequence[_ItemT], Optional[bytes]]:
+        """Fetch the next page of data from the server.
+
+        Subclasses should implement this to handle their specific request types.
+
+        Args:
+            page_size_override: Optional override for the page size.
+
+        Returns:
+            Tuple of (items, next_page_token).
+        """
+        raise NotImplementedError
+
     async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
         """Fetch the next page if any.
 
@@ -3729,7 +3744,15 @@ class _ExecutionAsyncIterator(Generic[_ItemT], ABC):
             page_size: Override the page size this iterator was originally
                 created with.
         """
-        raise NotImplementedError
+        # Fetch the data using the abstract method
+        items, next_token = await self._fetch_next_page_data(
+            page_size_override=page_size
+        )
+
+        # Update state
+        self._current_page = items
+        self._current_page_index = 0
+        self._next_page_token = next_token
 
     def __aiter__(self) -> Self:
         """Return self as the iterator."""
@@ -3790,14 +3813,20 @@ class ActivityExecutionAsyncIterator(
         self._next_page_token = input.next_page_token
         self._limit = input.limit
 
-    async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
-        """Fetch the next page if any.
+    async def _fetch_next_page_data(
+        self, *, page_size_override: Optional[int]
+    ) -> tuple[
+        Sequence[Union[ActivityExecution, WorkflowActivityExecution]], Optional[bytes]
+    ]:
+        """Fetch the next page of data from the server.
 
         Args:
-            page_size: Override the page size this iterator was originally
-                created with.
+            page_size_override: Optional override for the page size.
+
+        Returns:
+            Tuple of (items, next_page_token).
         """
-        page_size = page_size or self._input.page_size
+        page_size = page_size_override or self._input.page_size
         if self._limit is not None and self._limit - self._yielded < page_size:
             page_size = self._limit - self._yielded
 
@@ -3813,7 +3842,7 @@ class ActivityExecutionAsyncIterator(
             timeout=self._input.rpc_timeout,
         )
 
-        self._current_page = [
+        items = [
             ActivityExecution._from_raw_info(
                 v, self._client.namespace, self._client.data_converter
             )
@@ -3824,8 +3853,8 @@ class ActivityExecutionAsyncIterator(
             )
             for v in resp.executions
         ]
-        self._current_page_index = 0
-        self._next_page_token = resp.next_page_token or None
+
+        return items, resp.next_page_token or None
 
 
 @dataclass
@@ -4171,14 +4200,18 @@ class WorkflowExecutionAsyncIterator(_ExecutionAsyncIterator[WorkflowExecution])
         self._next_page_token = input.next_page_token
         self._limit = input.limit
 
-    async def fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
-        """Fetch the next page if any.
+    async def _fetch_next_page_data(
+        self, *, page_size_override: Optional[int]
+    ) -> tuple[Sequence[WorkflowExecution], Optional[bytes]]:
+        """Fetch the next page of data from the server.
 
         Args:
-            page_size: Override the page size this iterator was originally
-                created with.
+            page_size_override: Optional override for the page size.
+
+        Returns:
+            Tuple of (items, next_page_token).
         """
-        page_size = page_size or self._input.page_size
+        page_size = page_size_override or self._input.page_size
         if self._limit is not None and self._limit - self._yielded < page_size:
             page_size = self._limit - self._yielded
 
@@ -4194,14 +4227,14 @@ class WorkflowExecutionAsyncIterator(_ExecutionAsyncIterator[WorkflowExecution])
             timeout=self._input.rpc_timeout,
         )
 
-        self._current_page = [
+        items = [
             WorkflowExecution._from_raw_info(
                 v, self._client.namespace, self._client.data_converter
             )
             for v in resp.executions
         ]
-        self._current_page_index = 0
-        self._next_page_token = resp.next_page_token or None
+
+        return items, resp.next_page_token or None
 
     async def map_histories(
         self,
