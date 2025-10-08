@@ -1352,10 +1352,11 @@ class Client:
         handle = await self.start_activity(*args, **kwargs)
         return await handle.result()
 
-    async def list_activities(
+    def list_activities(
         self,
         query: Optional[str] = None,
         *,
+        limit: Optional[int] = None,
         page_size: int = 1000,
         next_page_token: Optional[bytes] = None,
         rpc_metadata: Mapping[str, Union[str, bytes]] = {},
@@ -1363,15 +1364,36 @@ class Client:
     ) -> ActivityExecutionAsyncIterator:
         """List activities.
 
+        This does not make a request until the first iteration is attempted.
+        Therefore any errors will not occur until then.
+
         Args:
-            query: A Temporal visibility filter for activities.
-            page_size: Maximum number of results to return per page.
-            next_page_token: Token for getting the next page of results.
-            rpc_metadata: Headers used on the RPC call.
-            rpc_timeout: Optional RPC deadline to set for the RPC call.
+            query: A Temporal visibility list filter for activities.
+            limit: Maximum number of activities to return. If unset, all
+                activities are returned. Only applies if using the
+                returned :py:class:`ActivityExecutionAsyncIterator`
+                as an async iterator.
+            page_size: Maximum number of results for each page.
+            next_page_token: A previously obtained next page token if doing
+                pagination. Usually not needed as the iterator automatically
+                starts from the beginning.
+            rpc_metadata: Headers used on each RPC call. Keys here override
+                client-level RPC metadata keys.
+            rpc_timeout: Optional RPC deadline to set for each RPC call.
+
+        Returns:
+            An async iterator that can be used with ``async for``.
         """
-        # Issues a workflowservice ListActivityExecutions call
-        raise NotImplementedError
+        return self._impl.list_activities(
+            ListActivitiesInput(
+                query=query,
+                page_size=page_size,
+                next_page_token=next_page_token,
+                rpc_metadata=rpc_metadata,
+                rpc_timeout=rpc_timeout,
+                limit=limit,
+            )
+        )
 
     async def count_activities(
         self,
@@ -1379,19 +1401,23 @@ class Client:
         *,
         rpc_metadata: Mapping[str, Union[str, bytes]] = {},
         rpc_timeout: Optional[timedelta] = None,
-    ) -> int:
+    ) -> ActivityExecutionCount:
         """Count activities matching the query.
 
         Args:
             query: A Temporal visibility filter for activities.
-            rpc_metadata: Headers used on the RPC call.
+            rpc_metadata: Headers used on the RPC call. Keys here override
+                client-level RPC metadata keys.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
 
         Returns:
             Count of activities.
         """
-        # Issues a workflowservice CountActivityExecutions call
-        raise NotImplementedError
+        return await self._impl.count_activities(
+            CountActivitiesInput(
+                query=query, rpc_metadata=rpc_metadata, rpc_timeout=rpc_timeout
+            )
+        )
 
     def get_activity_handle(
         self,
@@ -2881,20 +2907,109 @@ class WithStartWorkflowOperation(Generic[SelfType, ReturnType]):
 class ActivityExecutionAsyncIterator:
     """Asynchronous iterator for activity execution values.
 
-    Returns either :py:class:`ActivityExecution` (for standalone activities) or
-    :py:class:`WorkflowActivityExecution` (for activities started by workflows).
+    Each item yielded by the iterator is either a :py:class:`ActivityExecution` (i.e. a standalone
+    activity) or a :py:class:`WorkflowActivityExecution` (i.e. an activity started by a workflow).
+
+    You should typically use ``async for`` on this iterator and not call any of its methods.
     """
+
+    # TODO(dan): do we want to use the "standalone" explanatory qualifier in docstrings?
+
+    def __init__(
+        self,
+        client: Client,
+        input: ListActivitiesInput,
+    ) -> None:
+        """Create an asynchronous iterator for the given input.
+
+        Users should not create this directly, but rather use
+        :py:meth:`Client.list_activities`.
+        """
+        self._client = client
+        self._input = input
+        self._next_page_token = input.next_page_token
+        self._current_page: Optional[
+            Sequence[Union[ActivityExecution, WorkflowActivityExecution]]
+        ] = None
+        self._current_page_index = 0
+        self._limit = input.limit
+        self._yielded = 0
+
+    @property
+    def current_page_index(self) -> int:
+        """Index of the entry in the current page that will be returned from
+        the next :py:meth:`__anext__` call.
+        """
+        return self._current_page_index
+
+    @property
+    def current_page(
+        self,
+    ) -> Optional[Sequence[Union[ActivityExecution, WorkflowActivityExecution]]]:
+        """Current page, if it has been fetched yet."""
+        return self._current_page
+
+    @property
+    def next_page_token(self) -> Optional[bytes]:
+        """Token for the next page request if any."""
+        return self._next_page_token
+
+    async def _fetch_next_page(self, *, page_size: Optional[int] = None) -> None:
+        """Fetch the next page of results.
+
+        Args:
+            page_size: Specific page size to use for this request.
+        """
+        page_size = page_size or self._input.page_size
+        if self._limit is not None and self._limit - self._yielded < page_size:
+            page_size = self._limit - self._yielded
+
+        resp = await self._client.workflow_service.list_activity_executions(
+            temporalio.api.workflowservice.v1.ListActivityExecutionsRequest(
+                namespace=self._client.namespace,
+                page_size=page_size,
+                next_page_token=self._next_page_token or b"",
+                query=self._input.query or "",
+            ),
+            retry=True,
+            metadata=self._input.rpc_metadata,
+            timeout=self._input.rpc_timeout,
+        )
+
+        self._current_page = [
+            ActivityExecution._from_raw_info(
+                v, self._client.namespace, self._client.data_converter
+            )
+            if v.activity_id and not v.workflow_id
+            # Standalone activity has activity_id but no workflow_id
+            else WorkflowActivityExecution._from_raw_info(
+                v, self._client.namespace, self._client.data_converter
+            )
+            for v in resp.executions
+        ]
+        self._current_page_index = 0
+        self._next_page_token = resp.next_page_token or None
 
     def __aiter__(self) -> ActivityExecutionAsyncIterator:
         """Return self as the iterator."""
         return self
 
     async def __anext__(self) -> Union[ActivityExecution, WorkflowActivityExecution]:
-        """Return the next execution on this iterator.
-
-        Fetch next page if necessary.
+        """Get the next execution on this iterator, fetching next page if
+        necessary.
         """
-        raise NotImplementedError
+        if self._limit is not None and self._yielded >= self._limit:
+            raise StopAsyncIteration
+        if self._current_page is None or self._current_page_index >= len(
+            self._current_page
+        ):
+            await self._fetch_next_page()
+            if not self._current_page:
+                raise StopAsyncIteration
+        ret = self._current_page[self._current_page_index]
+        self._current_page_index += 1
+        self._yielded += 1
+        return ret
 
 
 # TODO: this is named ActivityListInfo in our draft proto PR
@@ -2933,6 +3048,51 @@ class ActivityExecution:
     execution_duration: Optional[timedelta]
     """Duration from scheduled to close time, only populated if closed."""
 
+    raw_info: temporalio.api.activity.v1.ActivityListInfo
+    """Underlying protobuf info."""
+
+    @classmethod
+    def _from_raw_info(
+        cls,
+        info: temporalio.api.activity.v1.ActivityListInfo,
+        namespace: str,
+        converter: temporalio.converter.DataConverter,
+    ) -> Self:
+        """Create from raw proto activity list info."""
+        return cls(
+            activity_id=info.activity_id,
+            run_id=info.run_id,
+            activity_type=(
+                info.activity_type.name if info.HasField("activity_type") else ""
+            ),
+            scheduled_time=(
+                info.scheduled_time.ToDatetime().replace(tzinfo=timezone.utc)
+                if info.HasField("scheduled_time")
+                else datetime.min
+            ),
+            close_time=(
+                info.close_time.ToDatetime().replace(tzinfo=timezone.utc)
+                if info.HasField("close_time")
+                else None
+            ),
+            status=(
+                temporalio.common.ActivityExecutionStatus(info.status)
+                if info.status
+                else temporalio.common.ActivityExecutionStatus.RUNNING
+            ),
+            search_attributes=temporalio.converter.decode_search_attributes(
+                info.search_attributes
+            ),
+            task_queue=info.task_queue,
+            state_transition_count=info.state_transition_count,
+            execution_duration=(
+                info.execution_duration.ToTimedelta()
+                if info.HasField("execution_duration")
+                else None
+            ),
+            raw_info=info,
+        )
+
 
 @dataclass(frozen=True)
 class WorkflowActivityExecution:
@@ -2961,6 +3121,61 @@ class WorkflowActivityExecution:
 
     execution_duration: Optional[timedelta]
     """Duration from scheduled to close time, only populated if closed."""
+
+    raw_info: temporalio.api.activity.v1.ActivityListInfo
+    """Underlying protobuf info."""
+
+    @classmethod
+    def _from_raw_info(
+        cls,
+        info: temporalio.api.activity.v1.ActivityListInfo,
+        namespace: str,
+        converter: temporalio.converter.DataConverter,
+    ) -> Self:
+        """Create from raw proto activity list info."""
+        # For workflow activities, we expect workflow_id to be set
+        return cls(
+            workflow_id=info.workflow_id,
+            workflow_run_id=None,  # Not provided in list response
+            activity_id=info.activity_id,
+            activity_type=info.activity_type.name
+            if info.HasField("activity_type")
+            else "",
+            scheduled_time=(
+                info.scheduled_time.ToDatetime().replace(tzinfo=timezone.utc)
+                if info.HasField("scheduled_time")
+                else datetime.min
+            ),
+            close_time=(
+                info.close_time.ToDatetime().replace(tzinfo=timezone.utc)
+                if info.HasField("close_time")
+                else None
+            ),
+            task_queue=info.task_queue,
+            execution_duration=(
+                info.execution_duration.ToTimedelta()
+                if info.HasField("execution_duration")
+                else None
+            ),
+            raw_info=info,
+        )
+
+
+@dataclass(frozen=True)
+class ActivityExecutionCount:
+    """Representation of a count from a count activities call."""
+
+    count: int
+    """Total count matching the filter, if any."""
+
+    @staticmethod
+    def _from_raw(
+        resp: temporalio.api.workflowservice.v1.CountActivityExecutionsResponse,
+    ) -> ActivityExecutionCount:
+        """Create from raw proto response."""
+        return ActivityExecutionCount(
+            count=resp.count,
+        )
 
 
 @dataclass(frozen=True)
@@ -6208,6 +6423,27 @@ class DescribeActivityInput:
 
 
 @dataclass
+class ListActivitiesInput:
+    """Input for :py:meth:`OutboundInterceptor.list_activities`."""
+
+    query: Optional[str]
+    page_size: int
+    next_page_token: Optional[bytes]
+    rpc_metadata: Mapping[str, Union[str, bytes]]
+    rpc_timeout: Optional[timedelta]
+    limit: Optional[int]
+
+
+@dataclass
+class CountActivitiesInput:
+    """Input for :py:meth:`OutboundInterceptor.count_activities`."""
+
+    query: Optional[str]
+    rpc_metadata: Mapping[str, Union[str, bytes]]
+    rpc_timeout: Optional[timedelta]
+
+
+@dataclass
 class StartWorkflowUpdateInput:
     """Input for :py:meth:`OutboundInterceptor.start_workflow_update`."""
 
@@ -6560,6 +6796,18 @@ class OutboundInterceptor:
     ) -> ActivityExecutionDescription:
         """Called for every :py:meth:`ActivityHandle.describe` call."""
         return await self.next.describe_activity(input)
+
+    def list_activities(
+        self, input: ListActivitiesInput
+    ) -> ActivityExecutionAsyncIterator:
+        """Called for every :py:meth:`Client.list_activities` call."""
+        return self.next.list_activities(input)
+
+    async def count_activities(
+        self, input: CountActivitiesInput
+    ) -> ActivityExecutionCount:
+        """Called for every :py:meth:`Client.count_activities` call."""
+        return await self.next.count_activities(input)
 
     async def start_workflow_update(
         self, input: StartWorkflowUpdateInput
@@ -7066,6 +7314,26 @@ class _ClientImpl(OutboundInterceptor):
                     workflow_id=input.activity_id,  # Using activity_id as workflow_id for standalone activities
                 )
             ),
+        )
+
+    def list_activities(
+        self, input: ListActivitiesInput
+    ) -> ActivityExecutionAsyncIterator:
+        return ActivityExecutionAsyncIterator(self._client, input)
+
+    async def count_activities(
+        self, input: CountActivitiesInput
+    ) -> ActivityExecutionCount:
+        return ActivityExecutionCount._from_raw(
+            await self._client.workflow_service.count_activity_executions(
+                temporalio.api.workflowservice.v1.CountActivityExecutionsRequest(
+                    namespace=self._client.namespace,
+                    query=input.query or "",
+                ),
+                retry=True,
+                metadata=input.rpc_metadata,
+                timeout=input.rpc_timeout,
+            )
         )
 
     async def start_workflow_update(
