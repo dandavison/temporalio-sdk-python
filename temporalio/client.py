@@ -43,6 +43,7 @@ import google.protobuf.timestamp_pb2
 from google.protobuf.internal.containers import MessageMap
 from typing_extensions import Concatenate, Required, Self, TypedDict
 
+import temporalio.api.activity.v1
 import temporalio.api.common.v1
 import temporalio.api.enums.v1
 import temporalio.api.errordetails.v1
@@ -3041,6 +3042,104 @@ class ActivityExecutionDescription:
     raw_info: Any
     """Raw proto response."""
 
+    @classmethod
+    async def _from_raw_info(
+        cls,
+        info: temporalio.api.activity.v1.ActivityExecutionInfo,
+        data_converter: temporalio.converter.DataConverter,
+    ) -> Self:
+        """Create from raw proto activity info."""
+        return cls(
+            activity_id=info.activity_id,
+            run_id=info.run_id,
+            activity_type=(
+                info.activity_type.name if info.HasField("activity_type") else ""
+            ),
+            status=(
+                temporalio.common.ActivityExecutionStatus(info.status)
+                if info.status
+                else temporalio.common.ActivityExecutionStatus.RUNNING
+            ),
+            run_state=(
+                temporalio.common.PendingActivityState(info.run_state)
+                if info.run_state
+                else None
+            ),
+            heartbeat_details=(
+                # TODO(dan): are we really allowing a network call here?
+                await data_converter.decode(info.heartbeat_details.payloads)
+                if info.HasField("heartbeat_details")
+                else []
+            ),
+            last_heartbeat_time=(
+                info.last_heartbeat_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("last_heartbeat_time")
+                else None
+            ),
+            last_started_time=(
+                info.last_started_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("last_started_time")
+                else None
+            ),
+            attempt=info.attempt,
+            maximum_attempts=info.maximum_attempts,
+            scheduled_time=(
+                info.scheduled_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("scheduled_time")
+                else datetime.min
+            ),
+            expiration_time=(
+                info.expiration_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("expiration_time")
+                else datetime.min
+            ),
+            last_failure=(
+                cast(
+                    Optional[Exception],
+                    # TODO(dan): are we really allowing a network call here?
+                    await data_converter.decode_failure(info.last_failure),
+                )
+                if info.HasField("last_failure")
+                else None
+            ),
+            last_worker_identity=info.last_worker_identity,
+            current_retry_interval=(
+                info.current_retry_interval.ToTimedelta()
+                if info.HasField("current_retry_interval")
+                else None
+            ),
+            last_attempt_complete_time=(
+                info.last_attempt_complete_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("last_attempt_complete_time")
+                else None
+            ),
+            next_attempt_schedule_time=(
+                info.next_attempt_schedule_time.ToDatetime(tzinfo=timezone.utc)
+                if info.HasField("next_attempt_schedule_time")
+                else None
+            ),
+            task_queue=(
+                info.activity_options.task_queue.name
+                if info.HasField("activity_options")
+                and info.activity_options.HasField("task_queue")
+                else ""
+            ),
+            paused=info.HasField("pause_info"),
+            input=(
+                # TODO(dan): are we really allowing a network call here?
+                await data_converter.decode(info.input.payloads)
+                if info.HasField("input")
+                else []
+            ),
+            state_transition_count=info.state_transition_count,
+            search_attributes=temporalio.converter.decode_search_attributes(
+                info.search_attributes
+            ),
+            eager_execution_requested=info.eager_execution_requested,
+            canceled_reason=info.canceled_reason,
+            raw_info=info,
+        )
+
 
 @dataclass(frozen=True)
 class ActivityIDReference:
@@ -3292,7 +3391,15 @@ class ActivityHandle(Generic[ReturnType]):
             rpc_metadata: Headers used on the RPC call.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
         """
-        raise NotImplementedError
+        await self._client._impl.cancel_activity(
+            CancelActivityInput(
+                activity_id=self._id,
+                run_id=self._run_id,
+                reason=reason,
+                rpc_metadata=rpc_metadata,
+                rpc_timeout=rpc_timeout,
+            )
+        )
 
     async def terminate(
         self,
@@ -3312,7 +3419,15 @@ class ActivityHandle(Generic[ReturnType]):
             rpc_metadata: Headers used on the RPC call.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
         """
-        raise NotImplementedError
+        await self._client._impl.terminate_activity(
+            TerminateActivityInput(
+                activity_id=self._id,
+                run_id=self._run_id,
+                reason=reason,
+                rpc_metadata=rpc_metadata,
+                rpc_timeout=rpc_timeout,
+            )
+        )
 
     async def describe(
         self,
@@ -3329,7 +3444,14 @@ class ActivityHandle(Generic[ReturnType]):
         Returns:
             Activity execution description.
         """
-        raise NotImplementedError
+        return await self._client._impl.describe_activity(
+            DescribeActivityInput(
+                activity_id=self._id,
+                run_id=self._run_id,
+                rpc_metadata=rpc_metadata,
+                rpc_timeout=rpc_timeout,
+            )
+        )
 
     # TODO:
     # update_options
@@ -6054,6 +6176,38 @@ class TerminateWorkflowInput:
 
 
 @dataclass
+class CancelActivityInput:
+    """Input for :py:meth:`OutboundInterceptor.cancel_activity`."""
+
+    activity_id: str
+    run_id: str
+    reason: Optional[str]
+    rpc_metadata: Mapping[str, Union[str, bytes]]
+    rpc_timeout: Optional[timedelta]
+
+
+@dataclass
+class TerminateActivityInput:
+    """Input for :py:meth:`OutboundInterceptor.terminate_activity`."""
+
+    activity_id: str
+    run_id: str
+    reason: Optional[str]
+    rpc_metadata: Mapping[str, Union[str, bytes]]
+    rpc_timeout: Optional[timedelta]
+
+
+@dataclass
+class DescribeActivityInput:
+    """Input for :py:meth:`OutboundInterceptor.describe_activity`."""
+
+    activity_id: str
+    run_id: str
+    rpc_metadata: Mapping[str, Union[str, bytes]]
+    rpc_timeout: Optional[timedelta]
+
+
+@dataclass
 class StartWorkflowUpdateInput:
     """Input for :py:meth:`OutboundInterceptor.start_workflow_update`."""
 
@@ -6390,6 +6544,22 @@ class OutboundInterceptor:
     async def terminate_workflow(self, input: TerminateWorkflowInput) -> None:
         """Called for every :py:meth:`WorkflowHandle.terminate` call."""
         await self.next.terminate_workflow(input)
+
+    ### Activity calls
+
+    async def cancel_activity(self, input: CancelActivityInput) -> None:
+        """Called for every :py:meth:`ActivityHandle.cancel` call."""
+        await self.next.cancel_activity(input)
+
+    async def terminate_activity(self, input: TerminateActivityInput) -> None:
+        """Called for every :py:meth:`ActivityHandle.terminate` call."""
+        await self.next.terminate_activity(input)
+
+    async def describe_activity(
+        self, input: DescribeActivityInput
+    ) -> ActivityExecutionDescription:
+        """Called for every :py:meth:`ActivityHandle.describe` call."""
+        return await self.next.describe_activity(input)
 
     async def start_workflow_update(
         self, input: StartWorkflowUpdateInput
@@ -6840,6 +7010,62 @@ class _ClientImpl(OutboundInterceptor):
             req.details.payloads.extend(await data_converter.encode(input.args))
         await self._client.workflow_service.terminate_workflow_execution(
             req, retry=True, metadata=input.rpc_metadata, timeout=input.rpc_timeout
+        )
+
+    async def cancel_activity(self, input: CancelActivityInput) -> None:
+        """Cancel a standalone activity."""
+        await self._client.workflow_service.request_cancel_activity_execution(
+            temporalio.api.workflowservice.v1.RequestCancelActivityExecutionRequest(
+                namespace=self._client.namespace,
+                activity_id=input.activity_id,
+                run_id=input.run_id,
+                identity=self._client.identity,
+                request_id=str(uuid.uuid4()),
+                reason=input.reason or "",
+            ),
+            retry=True,
+            metadata=input.rpc_metadata,
+            timeout=input.rpc_timeout,
+        )
+
+    async def terminate_activity(self, input: TerminateActivityInput) -> None:
+        """Terminate a standalone activity."""
+        await self._client.workflow_service.terminate_activity_execution(
+            temporalio.api.workflowservice.v1.TerminateActivityExecutionRequest(
+                namespace=self._client.namespace,
+                activity_id=input.activity_id,
+                run_id=input.run_id,
+                reason=input.reason or "",
+                identity=self._client.identity,
+            ),
+            retry=True,
+            metadata=input.rpc_metadata,
+            timeout=input.rpc_timeout,
+        )
+
+    async def describe_activity(
+        self, input: DescribeActivityInput
+    ) -> ActivityExecutionDescription:
+        """Describe a standalone activity."""
+        resp = await self._client.workflow_service.describe_activity_execution(
+            temporalio.api.workflowservice.v1.DescribeActivityExecutionRequest(
+                namespace=self._client.namespace,
+                activity_id=input.activity_id,
+                run_id=input.run_id,
+                include_input=True,
+            ),
+            retry=True,
+            metadata=input.rpc_metadata,
+            timeout=input.rpc_timeout,
+        )
+        return await ActivityExecutionDescription._from_raw_info(
+            resp.info,
+            self._client.data_converter.with_context(
+                WorkflowSerializationContext(
+                    namespace=self._client.namespace,
+                    workflow_id=input.activity_id,  # Using activity_id as workflow_id for standalone activities
+                )
+            ),
         )
 
     async def start_workflow_update(
