@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 
 from temporalio import activity, workflow
-from temporalio.client import ActivityFailedError, Client
+from temporalio.client import ActivityExecution, ActivityFailedError, Client
 from temporalio.common import ActivityExecutionStatus
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.worker import Worker
@@ -35,6 +35,27 @@ async def test_describe(client: Client):
     assert desc.activity_type == "increment"
     assert desc.task_queue == task_queue
     assert desc.status == ActivityExecutionStatus.RUNNING
+
+
+async def test_list(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    await client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+    list_results: list[ActivityExecution] = []
+    async for result in client.list_activities(
+        query=f"activity_id={activity_id}",
+    ):
+        assert isinstance(result, ActivityExecution)
+        list_results.append(result)
+    assert len(list_results) == 1
+    assert list_results[0].activity_id == activity_id
+    assert list_results[0].status == ActivityExecutionStatus.RUNNING
 
 
 async def test_get_result(client: Client):
