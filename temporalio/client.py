@@ -1303,12 +1303,7 @@ class Client:
         id_reuse_policy: temporalio.common.IdReusePolicy = temporalio.common.IdReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.IdConflictPolicy = temporalio.common.IdConflictPolicy.FAIL,
         retry_policy: Optional[temporalio.common.RetryPolicy] = None,
-        search_attributes: Optional[
-            Union[
-                temporalio.common.SearchAttributes,
-                temporalio.common.TypedSearchAttributes,
-            ]
-        ] = None,
+        search_attributes: Optional[temporalio.common.TypedSearchAttributes] = None,
         static_summary: Optional[str] = None,
         static_details: Optional[str] = None,
         priority: temporalio.common.Priority = temporalio.common.Priority.default,
