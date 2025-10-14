@@ -221,6 +221,7 @@ async def activity_for_testing_heartbeat(input: ActivityInput) -> str:
         raise AssertionError(f"Unexpected attempt number: {info.attempt}")
 
 
+@pytest.mark.skip(reason="Manual heartbeat not supported in server yet")
 async def test_manual_heartbeat(client: Client):
     activity_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
