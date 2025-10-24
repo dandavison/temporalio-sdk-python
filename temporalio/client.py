@@ -3784,6 +3784,8 @@ class ActivityHandle(Generic[ReturnType]):
                 elif res.HasField("failure"):
                     self._known_outcome = res.failure
                     return
+                else:
+                    await asyncio.sleep(0.1)
             except RPCError as err:
                 if err.status == RPCStatusCode.DEADLINE_EXCEEDED:
                     # Deadline exceeded is expected with long polling; retry
