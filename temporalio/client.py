@@ -1290,8 +1290,8 @@ class Client:
     async def start_activity(
         self,
         activity: Union[str, Callable[..., Awaitable[ReturnType]]],
+        arg: Any,
         *,
-        args: Sequence[Any] = [],
         id: str,
         task_queue: str,
         result_type: Optional[Type] = None,
@@ -1348,7 +1348,7 @@ class Client:
         return await self._impl.start_activity(
             StartActivityInput(
                 activity_type=name,
-                args=args,
+                args=[arg],
                 id=id,
                 task_queue=task_queue,
                 ret_type=result_type or result_type_from_type_annotation,
@@ -1372,8 +1372,8 @@ class Client:
     async def execute_activity(
         self,
         activity: Union[str, Callable[..., Awaitable[ReturnType]]],
+        arg: Any,
         *,
-        args: Sequence[Any] = [],
         id: str,
         task_queue: str,
         result_type: Optional[Type] = None,
@@ -1413,7 +1413,7 @@ class Client:
         """
         handle = await self.start_activity(
             activity,
-            args=args,
+            arg,
             id=id,
             task_queue=task_queue,
             result_type=result_type,
