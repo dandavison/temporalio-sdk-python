@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import pytest
 
-from temporalio import activity, workflow
+from temporalio import activity, service, workflow
 from temporalio.client import ActivityFailedError, Client
 from temporalio.common import ActivityExecutionStatus
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -241,6 +241,13 @@ async def test_manual_heartbeat(client: Client):
         activities=[activity_for_testing_heartbeat],
         workflows=[WaitForSignalWorkflow],
     ):
+        while True:
+            try:
+                await client.get_workflow_handle(wait_for_signal_workflow_id).describe()
+                break
+            except service.RPCError:
+                await asyncio.sleep(0.1)
+
         async_activity_handle = client.get_async_activity_handle(
             activity_id=activity_id,
             run_id=activity_handle.run_id,
