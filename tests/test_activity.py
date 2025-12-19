@@ -189,7 +189,9 @@ async def test_manual_failure(client: Client):
             activity_id=activity_id,
             run_id=activity_handle.run_id,
         )
-        await async_activity_handle.fail(ApplicationError("Test failure"))
+        await async_activity_handle.fail(
+            ApplicationError("Test failure", non_retryable=True)
+        )
         with pytest.raises(ActivityFailedError) as err:
             await activity_handle.result()
         assert isinstance(err.value.cause, ApplicationError)
