@@ -62,10 +62,9 @@ TypeScript (owners: @James Watkins, @Thomas Hardy, @Chris Olszewski)
     4. New field: `is_workflow_activity` (boolean).
         1. Calculated property where possible - details vary by language.
 3. Async activities:
-    1. Workflow ID becomes optional in client calls.
-    2. Run ID refers to either workflow or activity run ID based on presence of workflow ID.
+    1. Standalone async activities should be addressable by activity ID + optional activity run ID pair. The workflow run ID parameter should not be reused for activity run ID.
 4. Serialization context:
-    1. Where applicable, standalone activities will have their own serialization context type separate from workflow activity context type. This is to avoid breaking changes for existing data converters, as converters written for workflow activities are unlikely to work correctly outside of workflow context.
+    1. Workflow ID becomes optional in activity serialization context, and in any supertypes of activity serialization context.
 
 # Core SDK
 
@@ -79,7 +78,7 @@ TypeScript (owners: @James Watkins, @Thomas Hardy, @Chris Olszewski)
 
 ## 1. New methods in `Client.ITemporalClient`
 
-A. `StartActivityAsync` and `ExecuteActivityAsync`
+A. `StartActivityAsync` and `ExecuteActivityAsync` 
 
 Both methods have multiple overloads for different ways to pass the activity name and arguments, same as `Workflows.Workflow.ExecuteActivityAsync`. One overload takes activity name as a string and arguments as a list or arbitrary objects. The other overloads take a lambda expression describing the activity invocation with arguments in place.
 
@@ -88,100 +87,100 @@ Both methods have multiple overloads for different ways to pass the activity nam
 `ExecuteActivityAsync` can be called with or without generic argument. Generic variant returns the activity result deserialized to given type. Non-generic variant waits for completion but doesn’t return result.
 
 - Method signatures
-
+    
     ```tsx
     public Task<ActivityHandle<TResult>> StartActivityAsync<TResult>(
         Expression<Func<TResult>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle> StartActivityAsync(
         Expression<Action> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle<TResult>> StartActivityAsync<TActivityInstance, TResult>(
         Expression<Func<TActivityInstance, TResult>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle> StartActivityAsync<TActivityInstance>(
         Expression<Action<TActivityInstance>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle<TResult>> StartActivityAsync<TResult>(
         Expression<Func<Task<TResult>>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle> StartActivityAsync(
         Expression<Func<Task>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle<TResult>> StartActivityAsync<TActivityInstance, TResult>(
         Expression<Func<TActivityInstance, Task<TResult>>> activityCall,
         ActivityOptions options)
-
+    
     public Task<ActivityHandle<TResult>> StartActivityAsync<TActivityInstance>(
         Expression<Func<TActivityInstance, Task>> activityCall,
         ActivityOptions options)
-
+        
     public Task<ActivityHandle<TResult>> StartActivityAsync<TResult>(
         string activity,
         IReadOnlyCollection<object?> args
         ActivityOptions options)
-
+        
     public Task<ActivityHandle> StartActivityAsync(
         string activity,
         IReadOnlyCollection<object?> args
         ActivityOptions options)
-
+    
     public Task<TResult> ExecuteActivityAsync<TResult>(
         Expression<Func<TResult>> activityCall,
         ActivityOptions options)
-
+    
     public Task ExecuteActivityAsync(
         Expression<Action> activityCall,
         ActivityOptions options)
-
+    
     public Task<TResult> ExecuteActivityAsync<TActivityInstance, TResult>(
         Expression<Func<TActivityInstance, TResult>> activityCall,
         ActivityOptions options)
-
+    
     public Task ExecuteActivityAsync<TActivityInstance>(
         Expression<Action<TActivityInstance>> activityCall,
         ActivityOptions options)
-
+    
     public Task<TResult> ExecuteActivityAsync<TResult>(
         Expression<Func<Task<TResult>>> activityCall,
         ActivityOptions options)
-
+    
     public Task ExecuteActivityAsync(
         Expression<Func<Task>> activityCall,
         ActivityOptions options)
-
+    
     public Task<TResult> ExecuteActivityAsync<TActivityInstance, TResult>(
         Expression<Func<TActivityInstance, Task<TResult>>> activityCall,
         ActivityOptions options)
-
+    
     public Task<TResult> ExecuteActivityAsync<TActivityInstance>(
         Expression<Func<TActivityInstance, Task>> activityCall,
         ActivityOptions options)
-
+        
     public Task<TResult> ExecuteActivityAsync<TResult>(
         string activity,
         IReadOnlyCollection<object?> args
         ActivityOptions options)
-
+        
     public Task ExecuteActivityAsync(
         string activity,
         IReadOnlyCollection<object?> args
         ActivityOptions options)
     ```
-
+    
 
 B. Other methods
 
 ```csharp
 public ActivityHandle GetActivityHandle(
 		string activityId, string? activityRunId);
-
+		
 public ActivityHandle<TResult> GetActivityHandle<TResult>(
 		string activityId, string? activityRunId);
 
@@ -205,36 +204,36 @@ namespace Temporalio.Client {
     {
 		    public async Task GetResultAsync(
 				    ActivityGetResultOptions? options = null);
-
+				    
 		    public async Task<TResult> GetResultAsync<TResult>(
 				    ActivityGetResultOptions? options = null);
-
+				    
 		    public async Task<ActivityExecutionDescription> DescribeAsync(
 				    ActivityDescribeOptions? options = null);
-
+				    
 		    public async Task CancelAsync(
 				    string? reason = null,
 				    ActivityCancelOptions? options = null);
-
+				    
 		    public async Task TerminateAsync(
 				    string? reason = null,
 				    ActivityTerminateOptions? options = null);
 		}
-
+		
 		public class ActivityHandle<TResult> : ActivityHandle
 		{
 				public new async Task<TResult> GetResultAsync(
 				    ActivityGetResultOptions? options = null);
 		}
-
+		
 		public class ActivityOptions : ICloneable
 		{
 				public ActivityOptions();
 				public ActivityOptions(string id, string taskQueue);
-
+		
 				public string? Id { get; set; } // required
 		    public string? TaskQueue { get; set; } // required
-
+		    
 		    public TimeSpan? ScheduleToCloseTimeout { get; set; }
 				public TimeSpan? ScheduleToStartTimeout { get; set; }
 		    public TimeSpan? StartToCloseTimeout { get; set; }
@@ -247,83 +246,97 @@ namespace Temporalio.Client {
 				    ActivityIdReusePolicy.AllowDuplicate; // imported from proto
 		    public ActivityIdConflictPolicy IdConflictPolicy { get; set; } =
 				    ActivityIdConflictPolicy.Fail; // imported from proto
-
+        
         public RpcOptions? Rpc { get; set; }
-
+		
 		    public virtual object Clone();
 		}
-
+		
 		public class ActivityGetResultOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		public class ActivityDescribeOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		public class ActivityCancelOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		public class ActivityTerminateOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		public class ActivityListOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		public class ActivityCountOptions : ICloneable
 		{
 				public RpcOptions? Rpc { get; set; }
 				public virtual object Clone();
 		}
-
+		
 		// Not a record so that there's a way to seamlessly add
 		// lazy deserialization of future fields, e.g. memo.
 		public class ActivityExecution
 		{
 				protected internal ActivityExecution();
-
-				public Api.v1.ActivityExecutionListInfo? RawListInfo { get; internal init; }
-				public string ActivityId { get; internal init; }
-				public string ActivityRunId { get; internal init; }
-				public string ActivityType { get; internal init; }
-				public DateTime? ScheduleTime { get; internal init; }
-				public DateTime? CloseTime { get; internal init; }
-				public ActivityExecutionStatus Status { get; internal init; }
-				public SearchAttributeCollection SearchAttributes { get; internal init; }
-				public string TaskQueue { get; internal init; }
-				public DateTime? ExecutionDuration { get; internal init; }
+	
+				public Api.v1.ActivityExecutionListInfo? RawListInfo { get; init; }
+				public string ActivityId { get; init; }
+				public string ActivityRunId { get; init; }
+				public string ActivityType { get; init; }
+				public DateTime? ScheduleTime { get; init; }
+				public DateTime? CloseTime { get; init; }
+				public ActivityExecutionStatus Status { get; init; }
+				public SearchAttributeCollection SearchAttributes { get; init; }
+				public string TaskQueue { get; init; }
+				public TimeSpan? ExecutionDuration { get; init; }
 		}
-
+		
 		public class ActivityExecutionDescription {
-				protected internal ActivityExecutionDescription();
+				protected internal ActivityExecutionDescription(
+						DataConverter dataConverter);
 
-				public Api.v1.ActivityExecutionInfo? RawInfo { get; internal init; }
-				public DateTime? LastHeartbeatTime { get; internal init; }
-				public DateTime? LastStartedTime { get; internal init; }
-				public RetryPolicy? RetryPolicy { get; internal init; }
-				public DateTime? ExpirationTime { get; internal init; }
-				public string? LastWorkerIdentity { get; internal init; }
-				public DateTime? CurrentRetryInterval { get; internal init; }
-				public DateTime? LastAttemptCompleteTime { get; internal init; }
-				public DateTime? NextAttemptScheduleTime { get; internal init; }
-				public WorkerDeploymentVersion LastDeploymentVersion { get; internal init; }
-				public Priority? Priority { get; internal init; }
-				public string? CanceledReason { get; internal init; }
+				public Api.v1.ActivityExecutionInfo? RawInfo { get; init; }
+				
+				public PendingActivityState RunState { get; init; }
+		    public TimeSpan? ScheduleToCloseTimeout { get; init; }
+				public TimeSpan? ScheduleToStartTimeout { get; init; }
+		    public TimeSpan? StartToCloseTimeout { get; init; }
+		    public TimeSpan? HeartbeatTimeout { get; init; }
+				public bool HasHeartbeatDetails { get; init; }
+				public RetryPolicy RetryPolicy { get; init; }
+				public DateTime? LastHeartbeatTime { get; init; }
+				public DateTime? LastStartedTime { get; init; }
+				public int Attempt { get; init; }
+				public DateTime? ExpirationTime { get; init; }
+				public Lazy<Failure>? LastFailure { get; init; }
+				public string? LastWorkerIdentity { get; init; }
+				public DateTime? CurrentRetryInterval { get; init; }
+				public DateTime? LastAttemptCompleteTime { get; init; }
+				public DateTime? NextAttemptScheduleTime { get; init; }
+				public WorkerDeploymentVersion? LastDeploymentVersion { get; init; }
+				public Priority Priority { get; init; }
+				public string? CanceledReason { get; init; }
+				public Lazy<string>? Summary { get; init; }
+				
+				public List<T> GetHeartbeatDetails<T>();
+				public List<object?> GetHeartbeatDetails(Type type);
 		}
-
+		
 		public record ActivityExecutionCount(
 				long Count,
 				IReadOnlyCollection<ActivityExecutionCount.AggregationGroup> Groups)
@@ -341,36 +354,36 @@ namespace Temporalio.Client.Interceptors
         IReadOnlyCollection<object?> Args,
         ActivityOptions Options,
         IDictionary<string, Payload>? Headers);
-
+  
     public record StartActivityOutput(
         string RunId);
-
+        
     public record GetActivityResultInput(
         string ActivityId,
         string? ActivityRunId,
         ActivityGetResultOptions Options);
-
+        
     public record DescribeActivityInput(
         string ActivityId,
         string? ActivityRunId,
         ActivityDescribeOptions Options);
-
+        
     public record CancelActivityInput(
         string ActivityId,
         string? ActivityRunId,
         string? Reason,
         ActivityCancelOptions Options);
-
+        
     public record TerminateActivityInput(
         string ActivityId,
         string? ActivityRunId,
         string? Reason,
         ActivityTerminateOptions Options);
-
+        
     public record ListActivitiesInput(
         string query,
         ActivityListOptions Options);
-
+        
     public record CountActivitiesInput(
         string query,
         ActivityCountOptions Options);
@@ -379,51 +392,15 @@ namespace Temporalio.Client.Interceptors
 
 ## 3. Changes to `Converters.ISerializationContext`
 
-The following interface definitions replace the existing definitions in backward-compatible way.
-
-```csharp
-namespace Temporalio.Converters
-{
-    public interface ISerializationContext
-    {
-		    public interface IHasWorkflow
-        {
-		        string Namespace { get; }
-            string WorkflowId { get; }
-        }
-
-				public sealed record Activity(
-            string Namespace,
-            string WorkflowId,
-            string WorkflowType,
-            string ActivityType,
-            string ActivityTaskQueue,
-            bool IsLocal) : IHasWorkflow
-        {
-		        // Throws if info is not from a workflow activity
-            public Activity(Activities.ActivityInfo info);
-        }
-
-        public sealed record Workflow(
-            string Namespace,
-            string WorkflowId) : IHasWorkflow;
-
-        public sealed record NonWorkflowActivity(
-            string Namespace,
-            string ActivityId,
-            string ActivityType,
-            string ActivityTaskQueue)
-        {
-		        // Throws if info is from a workflow activity
-            public NonWorkflowActivity(Activities.ActivityInfo info);
-        }
-    }
-}
-```
+1. `IHasWorkflow`:
+    - Field `WorkflowId` becomes nullable.
+2. `Activity`:
+    - Fields `WorkflowId` and `WorkflowType` becomes nullable.
+    - New field `string ActivityId`.
 
 ## 4. Other changes to existing types
 
-A. `Activities.ActivityInfo`
+A. `Activities.ActivityInfo` 
 
 ```csharp
 // new record fields
@@ -443,7 +420,7 @@ string? WorkflowType, // null if standalone
 bool IsInWorkflow => WorkflowId is not null;
 ```
 
-B. `Client.AsyncActivityHandle.IdReference`
+B. `Client.AsyncActivityHandle.IdReference` 
 
 ```csharp
 public record IdReference(
@@ -459,23 +436,16 @@ New methods:
 ```csharp
 public virtual Task<StartActivityOutput> StartActivityAsync(
 		StartActivityInput input);
-
+		
 public virtual Task<Payload> GetActivityResultAsync<TResult>(
 		GetActivityResultInput input);
 
-public virtual Task<ActivityExecutionDescription> AsyncDescribeActivity(
+public virtual Task<ActivityExecutionDescription> DescribeActivityAsync(
 		DescribeActivityInput input);
-
+		
 public virtual Task CancelActivityAsync(CancelActivityInput input);
 
 public virtual Task TerminateActivityAsync(TerminateActivityInput input);
-
-public virtual Task ListActivitiesAsync(StartActivityInput input);
-
-#if NETCOREAPP3_0_OR_GREATER
-public IAsyncEnumerable<ActivityExecution> ListActivitiesAsync(
-		ListActivitiesInput input);
-#endif
 
 public virtual Task<ActivityExecutionCount> CountActivitiesAsync(
 		CountActivitiesInput input);
@@ -493,23 +463,23 @@ type (
 		    ActivityID() string
 		    ActivityRunID() string // can be empty
 		    Get(ctx context.Context, valuePtr any) error
-
+		    
 		    Describe(
 		        ctx     context.Context,
 		        options DescribeActivityOptions
         ) (ActivityExecutionDescription, error)
-
+        
         Cancel(
 						ctx     context.Context,
 						options CancelActivityOptions
 				) error
-
+				
 				Terminate(
 						ctx     context.Context,
 						options TerminateActivityOptions
 				) error
 		}
-
+	
 		StartActivityOptions struct {
 		    ID                     string
 		    TaskQueue              string
@@ -524,17 +494,17 @@ type (
 		    Summary                string
 		    Priority               Priority
 		}
-
+		
 		DescribeActivityOptions struct {} // for future compatibility
-
+		
 		CancelActivityOptions struct {
 		    Reason string
 		}
-
+		
 		TerminateActivityOptions struct {
 		    Reason string
 		}
-
+		
 		ActivityExecutionMetadata struct {
 				// nil if part of ActivityExecutionDescription
 		    RawExecutionListInfo    *activitypb.ActivityExecutionListInfo
@@ -546,12 +516,9 @@ type (
 				Status                  enumspb.ActivityExecutionStatus
 				SearchAttributes        SearchAttributes
 				TaskQueue               string
-				HasStateTransitionCount bool
-				StateTransitionCount    int64
-				StateSizeBytes          int64
 				ExecutionDuration       time.Duration
 		}
-
+	
 		ActivityExecutionDescription struct {
 				ActivityExecutionMetadata
 				RawExecutionInfo        *activitypb.ActivityExecutionInfo
@@ -573,33 +540,32 @@ type (
 		}
 )
 
+func (a *ActivityExecutionDescription) HasHeartbeatDetails() bool
 // valuePtr must be a pointer to an array
 func (a *ActivityExecutionDescription) HeartbeatDetails(valuePtr any) error
 
 func (a *ActivityExecutionDescription) LastFailure() error
-func (a *ActivityExecutionDescription) HeaderReader() HeaderReader
 func (a *ActivityExecutionDescription) Summary() (string, error)
 
-type (
+type (		
 		ListActivitiesOptions struct {
 		    Query string
 		}
-
+		
 		CountActivitiesOptions struct {
 		    Query string
 		}
-
+		
 		CountActivitiesResult struct {
 		    Count  int64
 		    Groups []ActivityAggregationGroup
 		}
-
+		
 		ActivityAggregationGroup struct {
 		    GroupValues []any
 		    Count       int64
 		}
 )
-`
 ```
 
 ## 2. Changes to `client.Client` interface
@@ -648,7 +614,7 @@ CompleteActivityByID(
 RecordActivityHeartbeatByID(
     ctx        context.Context,
     namespace  string,
-    workflowID string,
+    workflowID string, 
     runID      string,
     activityID string,
     details    ...interface{}
@@ -661,8 +627,11 @@ RecordActivityHeartbeatByID(
 // New fields
 
 ActivityRunID string // empty if in workflow
-InWorkflow    bool
 Namespace     string
+
+// New method
+
+func (i *Info) IsWorkflowActivity() bool // true if i.WorkflowExecution.ID == ""
 
 // Deprecated fields
 
@@ -687,7 +656,7 @@ func (t *TestActivityEnvironment) SetRunActivitiesInWorkflow(
 ) t *TestActivityEnvironment
 
 // Documentation change: panics if SetRunActivitiesInWorkflow is set to false
-func (t *TestActivityEnvironmentNoWorkflow) ExecuteLocalActivity(
+func (t *TestActivityEnvironment) ExecuteLocalActivity(
 		activityFn interface{}, args ...interface{}
 ) (converter.EncodedValue, error)
 ```
@@ -717,10 +686,6 @@ TerminateActivity(
 		context.Context, *ClientTerminateActivityInput
 ) error
 
-ListActivities(
-		context.Context, *ClientListActivitiesInput
-) iter.Seq2[ActivityExecutionMetadata, error]
-
 CountActivities(
 		context.Context, *ClientCountActivitiesInput
 ) (CountActivitiesResult, error)
@@ -735,39 +700,32 @@ type (
 		    ActivityType string
 		    Args         []any
 		}
-
+		
 		ClientGetActivityResultInput struct {
 		    ActivityID    string
 		    ActivityRunID string
 		    valuePtr      any
 		}
-
+		
 		ClientDescribeActivityInput struct {
 		    ActivityID    string
 		    ActivityRunID string
 		    Options       *DescribeActivityOptions
 		}
-
+		
 		ClientCancelActivityInput struct {
 		    ActivityID    string
 		    ActivityRunID string
 				Options       *CancelActivityOptions
 		}
-
+		
 		ClientTerminateActivityInput struct {
 		    ActivityID    string
 		    ActivityRunID string
 				Options       *TerminateActivityOptions
 		}
-
-		ClientListActivitiesInput struct {
-		    ActivityID    string
-		    ActivityRunID string
-				Options       *ListActivitiesOptions
-		}
-
+		
 		ClientCountActivitiesInput struct {
-
 		    ActivityID    string
 		    ActivityRunID string
 				Options       *CountActivitiesOptions
@@ -780,195 +738,224 @@ type (
 ## 1. New types
 
 - A. `io.temporal.client`
-
+    
     ```java
     /*
     Example use:
-
+    
     @ActivityInterface
     interface MyActivity {
       @ActivityMethod
       String activity(int a, int b);
     }
-
-    WorkflowClient client = ...;
+    
+    ActivityClient client = ...;
     ActivityOptions options = ...;
-
+    
     // sync execution
-    String result = client.newActivityClient().execute(
+    String result = client.execute(
     	MyActivity.class, MyActivity::activity, options, 1, 2);
-
-    // async execution
-    ActivityHandle<String> handle = client.newActivityClient().start(
+    
+    // async execution with handle
+    ActivityHandle<String> handle = client.start(
     	MyActivity.class, MyActivity::activity, options, 1, 2);
     String result = handle.getResult();
-
-    */
-    public interface ActivityClient {
-    	/// Obtains untyped handle to existing activity execution.
-    	UntypedActivityHandle getHandle(
-    			String activityId,
-    			@Nullable String activityRunId);
-
-    	/// Obtains typed handle to existing activity execution.
-    	<R> ActivityHandle<R> getHandle(
-    			String activityId,
-    			@Nullable String activityRunId,
-    			Class<R> resultClass);
-
-    	/// Obtains typed handle to existing activity execution.
-    	/// For use with generic return types.
-    	<R> ActivityHandle<R> getHandle(
-    			String activityId,
-    			@Nullable String activityRunId,
-    			Class<R> resultClass,
-    			@Nullable Type resultType);
-
-    	/// Asynchronously starts activity.
-    	UntypedActivityHandle start(
-    			String activity,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<R> ActivityHandle<R> start(
-    			String activity,
-    			Class<R> resultClass,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<R> ActivityHandle<R> start(
-    			String activity,
-    			Class<R> resultClass,
-    			Type resultType,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<I> ActivityHandle<Void> start(
-    			Class<I> activityInterface,
-    			Functions.Proc1<I> activity,
-    			ActivityOptions options);
-
-    	<I, A1> ActivityHandle<Void> start(
-    			Class<I> activityInterface,
-    			Functions.Proc2<I, A1> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	<I, R> ActivityHandle<R> start(
-    			Class<I> activityInterface,
-    			Functions.Func1<I, R> activity,
-    			ActivityOptions options);
-
-    	<I, A1, R> ActivityHandle<R> start(
-    			Class<I> activityInterface,
-    			Functions.Func2<I, A1, R> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	/// Synchronously executes activity. Ignores result.
-    	void execute(
-    			String activity,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	/// Synchronously executes activity.
-    	<R> R execute(
-    			String activity,
-    			Class<R> resultClass,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<R> R execute(
-    			String activity,
-    			Class<R> resultClass,
-    			Type resultType,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<I> void execute(
-    			Class<I> activityInterface,
-    			Functions.Proc1<I> activity,
-    			ActivityOptions options);
-
-    	<I, A1> void execute(
-    			Class<I> activityInterface,
-    			Functions.Proc2<I, A1> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	<I, R> R execute(
-    			Class<I> activityInterface,
-    			Functions.Func1<I, R> activity,
-    			ActivityOptions options);
-
-    	<I, A1, R> R execute(
-    			Class<I> activityInterface,
-    			Functions.Func2<I, A1, R> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	/// Asynchronously executes activity. Returns a void future (ignores result).
-    	CompletableFuture<Void> executeAsync(
-    			String activity,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	/// Asynchronously executes activity. Returns a future with result.
-    	<R> CompletableFuture<R> executeAsync(
-    			String activity,
-    			Class<R> resultClass,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<R> CompletableFuture<R> executeAsync(
-    			String activity,
-    			Class<R> resultClass,
-    			Type resultType,
-    			ActivityOptions options,
-    			@Nullable Object... args);
-
-    	<I> CompletableFuture<Void> executeAsync(
-    			Class<I> activityInterface,
-    			Functions.Proc1<I> activity,
-    			ActivityOptions options);
-
-    	<I, A1> CompletableFuture<Void> executeAsync(
-    			Class<I> activityInterface,
-    			Class<I> activityInterface,
-    			Functions.Proc2<I, A1> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	<I, R> CompletableFuture<R> executeAsync(
-    			Class<I> activityInterface,
-    			Functions.Func1<I, R> activity,
-    			ActivityOptions options);
-
-    	<I, A1, R> CompletableFuture<R> executeAsync(
-    			Class<I> activityInterface,
-    			Functions.Func2<I, A1, R> activity,
-    			ActivityOptions options,
-    			A1 arg1);
-
-    	// Additional overloads of start, execute and executeAsync
-    	// for Proc3...Proc7, Func3...Func7 (up to 6 activity arguments).
-
-
-
-    	Stream<ActivityExecutionMetadata> listExecutions(String query);
-
+    
+    // async execution with future
+    CompletableFuture<String> resultFut = client.executeAsync(
+    	MyActivity.class, MyActivity::activity, options, 1, 2);
+    String result = resultFut.get();
+    
+    // sync execution by string
+    String result = client.newActivityClient().execute(
+    	"MyActivity.activity", String.class, options, 1, 2);
+    	
+    // get result through typed handle
+    ActivityHandle<String> handle = client.getHandle(
+    	"activityId", null, String.class);
+    String result = handle.getResult();
+    
+    // get result through untyped handle
+    UntypedActivityHandle handle = client.getHandle(
+    	"activityId", null);
+    String result = handle.getResult(String.class);
+    
+    */			
+    interface ActivityClient {
+    	public static ActivityClient newInstance();
+    	public static ActivityClient newInstance(
+    		ActivityClientOptions options);
+    
+    	ActivityCompletionClient newActivityCompletionClient();
+    	Stream<ActivityExecutionMetadata> listExecutions(String query);	
     	ActivityExecutionCount countExecutions(String query);
+    ```
+    
+    - `// getHandle, start, execute and executeAsync`
+        
+        ```java
+        	/// Obtains untyped handle to existing activity execution.
+        	UntypedActivityHandle getHandle(
+        			String activityId,
+        			@Nullable String activityRunId);
+        	
+        	/// Obtains typed handle to existing activity execution.
+        	<R> ActivityHandle<R> getHandle(
+        			String activityId,
+        			@Nullable String activityRunId,
+        			Class<R> resultClass);
+        	
+        	/// Obtains typed handle to existing activity execution.
+        	/// For use with generic return types.
+        	<R> ActivityHandle<R> getHandle(
+        			String activityId,
+        			@Nullable String activityRunId,
+        			Class<R> resultClass,
+        			@Nullable Type resultType);
+        	
+        	/// Asynchronously starts activity.
+        	UntypedActivityHandle start(
+        			String activity,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        	
+        	<R> ActivityHandle<R> start(
+        			String activity,
+        			Class<R> resultClass,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        	
+        	<R> ActivityHandle<R> start(
+        			String activity,
+        			Class<R> resultClass,
+        			Type resultType,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        			
+        	<I> ActivityHandle<Void> start(
+        			Class<I> activityInterface,
+        			Functions.Proc1<I> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1> ActivityHandle<Void> start(
+        			Class<I> activityInterface,
+        			Functions.Proc2<I, A1> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        			
+        	<I, R> ActivityHandle<R> start(
+        			Class<I> activityInterface,
+        			Functions.Func1<I, R> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1, R> ActivityHandle<R> start(
+        			Class<I> activityInterface,
+        			Functions.Func2<I, A1, R> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        	
+        	/// Synchronously executes activity. Ignores result.	
+        	void execute(
+        			String activity,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        		
+        	/// Synchronously executes activity.
+        	<R> R execute(
+        			String activity,
+        			Class<R> resultClass,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        		
+        	<R> R execute(
+        			String activity,
+        			Class<R> resultClass,
+        			Type resultType,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        			
+        	<I> void execute(
+        			Class<I> activityInterface,
+        			Functions.Proc1<I> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1> void execute(
+        			Class<I> activityInterface,
+        			Functions.Proc2<I, A1> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        			
+        	<I, R> R execute(
+        			Class<I> activityInterface,
+        			Functions.Func1<I, R> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1, R> R execute(
+        			Class<I> activityInterface,
+        			Functions.Func2<I, A1, R> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        	
+        	/// Asynchronously executes activity. Returns a void future (ignores result).
+        	CompletableFuture<Void> executeAsync(
+        			String activity,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        		
+        	/// Asynchronously executes activity. Returns a future with result.
+        	<R> CompletableFuture<R> executeAsync(
+        			String activity,
+        			Class<R> resultClass,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        		
+        	<R> CompletableFuture<R> executeAsync(
+        			String activity,
+        			Class<R> resultClass,
+        			Type resultType,
+        			ActivityOptions options,
+        			@Nullable Object... args);
+        			
+        	<I> CompletableFuture<Void> executeAsync(
+        			Class<I> activityInterface,
+        			Functions.Proc1<I> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1> CompletableFuture<Void> executeAsync(
+        			Class<I> activityInterface,
+        			Class<I> activityInterface,
+        			Functions.Proc2<I, A1> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        			
+        	<I, R> CompletableFuture<R> executeAsync(
+        			Class<I> activityInterface,
+        			Functions.Func1<I, R> activity,
+        			ActivityOptions options);
+        			
+        	<I, A1, R> CompletableFuture<R> executeAsync(
+        			Class<I> activityInterface,
+        			Functions.Func2<I, A1, R> activity,
+        			ActivityOptions options,
+        			A1 arg1);
+        			
+        	// Additional overloads of start, execute and executeAsync
+        	// for Proc3...Proc7, Func3...Func7 (up to 6 activity arguments).
+        ```
+        
+    
+    ```java
     }
-
+    
     public interface UntypedActivityHandle {
       String getActivityId();
-
+    	
     	/// Present if the handle was returned by `start` method
     	/// or if it was set when calling `getActivityHandle`.
     	/// Null if `getActivityHandle` was called with null run ID
     	/// - in that case, use `describe` to get current run ID.
     	@Nullable String getActivityRunId();
-
+    	
     	<R> R getResult(Class<R> resultClass);
     	<R> R getResult(Class<R> resultClass, @Nullable Type resultType);
     	<R> CompletableFuture<R> getResultAsync(Class<R> resultClass);
@@ -980,13 +967,40 @@ type (
     	void terminate();
     	void terminate(@Nullable String reason);
     }
-
+    
     public interface ActivityHandle<R> extends UntypedActivityHandle {
+    	public static <R> ActivityHandle<R> fromUntyped(
+    		UntypedActivityHandle handle, Class<R> resultClass);
+    	public static <R> ActivityHandle<R> fromUntyped(
+    		UntypedActivityHandle handle,
+    		Class<R> resultClass,
+    		@Nullable Type resultType);
+    
     	public R getResult();
     	public CompletableFuture<R> getResultAsync();
     }
-
-    public class ActivityOptions {
+    
+    public final class ActivityClientOptions {
+      private String namespace;
+      private DataConverter dataConverter;
+      private List<ActivityClientInterceptor> interceptors;
+      private String identity;
+      private List<ContextPropagator> contextPropagators;
+    	
+    	// + public getter for each field
+    	
+    	private ActivityClientOptions(...);
+    	
+    	public Builder newBuilder();
+    	
+    	public static class Builder {
+    		// setter for each field
+    		
+    		public ActivityOptions build();
+    	}
+    }
+    
+    public final class ActivityOptions {
       private String id;
     	private String taskQueue;
     	private Duration scheduleToCloseTimeout;
@@ -999,101 +1013,108 @@ type (
     	private SearchAttributes searchAttributes;
     	private ActivityIdReusePolicy idReusePolicy;
     	private ActivityIdConflictPolicy idConflictPolicy;
-
+    	
     	// + public getter for each field
-
+    	
     	private ActivityOptions(...);
-
+    	
     	public Builder newBuilder();
-
+    	
     	public static class Builder {
     		// setter for each field
-
+    		
     		public ActivityOptions build();
     	}
     }
-
+    
     public class ActivityExecutionMetadata {
     	public ActivityExecutionMetadata(
-    			@Nullable ActivityExecutionListInfo info,
-    			DataConverter dataConverter /* for future compatibility */);
-
+    			@Nullable ActivityExecutionListInfo info);
+    			
     	@Nullable
     	public ActivityExecutionListInfo getRawListInfo();
-
+    	
     	public String getActivityId();
     	public String getActivityRunId();
     	public String getActivityType();
+    	@Nullable
     	public Instant getScheduledTime();
+    	@Nullable
     	public Instant getCloseTime();
+    	public ActivityExecutionStatus getStatus();
     	public SearchAttributes getSearchAttributes();
     	public String getTaskQueue();
+    	@Nullable
     	public Instant getExecutionDuration();
     }
-
+    
     public class ActivityExecutionDescription extends ActivityExecutionMetadata {
     	public ActivityExecutionDescription(
     			@Nonnull ActivityExecutionInfo info,
-    			DataConverter dataConverter /* for future compatibility */) {
-    			super(null, dataConverter);
-    			...
-    	}
-
-    	@Nonnull
+    			@Nonnull DataConverter dataConverter);
+    			
     	public ActivityExecutionInfo getRawInfo();
-
-    	@Override
-    	public String getActivityId();
-    	@Override
-    	public String getActivityRunId();
-    	@Override
-    	public String getActivityType();
-    	@Override
-    	public Instant getScheduledTime();
-    	@Override
-    	public Instant getCloseTime();
-    	@Override
-    	public SearchAttributes getSearchAttributes();
-    	@Override
-    	public String getTaskQueue();
-    	@Override
-    	public Instant getExecutionDuration();
-
-    	public Instant getLastHeartbeatTime();
-    	public Instant getLastStartedTime();
+    	
+    	public PendingActivityState getRunState();
+      @Nullable
+    	public Duration getScheduleToCloseTimeout();
+    	@Nullable
+    	public Duration getScheduleToStartTimeout();
+      @Nullable
+    	public Duration getStartToCloseTimeout();
+      @Nullable
+    	public Duration getHeartbeatTimeout();
+    	public boolean hasHeartbeatDetails();
+    	public <T> List<T> getHeartbeatDetails(Class<T> valueType);
     	public RetryOptions getRetryOptions();
+    	@Nullable
+    	public Instant getLastHeartbeatTime();
+    	@Nullable
+    	public Instant getLastStartedTime();
+    	public int getAttempt();
+    	@Nullable
     	public Instant getExpirationTime();
+    	@Nullable
     	public String getLastWorkerIdentity();
+    	@Nullable
     	public Duration getCurrentRetryInterval();
+    	@Nullable
     	public Instant getLastAttemptCompleteTime();
+    	@Nullable
     	public Instant getNextAttemptScheduleTime();
+    	@Nullable
     	public WorkerDeploymentVersion getWorkerDeploymentVersion();
     	public Priority getPriority();
+    	@Nullable
     	public String getCanceledReason();
+    	@Nullable
+    	public boolean hasSummary();
+    	@Nullable
+    	public String getSummary();
     }
-
+    
     public class ActivityExecutonCount {
     	public ActivityExecutonCount(
     			long count, List<AggregationGroup> groups);
-
+    	
     	public long getCount();
-
+    	
     	/// Returns unmodifiable list.
     	public List<AggregationGroup> getGroups();
-
+    	
     	public static class AggregationGroup {
     		public AggregationGroup(long count, List<?> groupValues);
-
+    	
     		public long getCount();
-
+    		
     		/// Returns unmodifiable list.
     		public List<?> getGroupValues();
     	}
     }
     ```
+    
 
-
-B. `io.temporal.workflow.Functions`
+B. `io.temporal.workflow.Functions` 
 
 ```java
 @FunctionalInterface
@@ -1112,14 +1133,14 @@ public interface Func7<T1, T2, T3, T4, T5, T6, T7, R>
 C. `io.temporal.common.interceptors`
 
 ```java
-public interface ActivityClientCallsInterceptor {
+public interface ActivityClientInterceptor {
 	UntypedActivityHandle start(ActivityStartInput input);
 	Payload getResult(ActivityGetResultInput input);
 	ActivityExecutionDescription describe(ActivityDescribeInput input);
 	void cancel(ActivityCancelInput input);
 	void terminate(ActivityTerminateInput input);
 	ActivityExecutonCount count(ActivityCountInput input);
-
+	
 	static class ActivityStartInput {
 		public ActivityStartInput(
         @Nonnull String activityId,
@@ -1127,75 +1148,75 @@ public interface ActivityClientCallsInterceptor {
         @Nonnull client.ActivityOptions options,
         @Nonnull Object[] arguments,
         @Nonnull Header header);
-
+     
      public String getActivityId();
      public String getActivityType();
      public client.ActivityOptions getOptions();
      public Object[] getArguments();
      public Header getHeader();
 	}
-
+	
 	static class ActivityGetResultInput {
 		public ActivityGetResultInput(
       @Nonnull String activityId,
       @Nullable String activityRunId);
-
+      
     public String getActivityId();
-    public String getActivityRunId();
+    public @Nullable String getActivityRunId();
 	}
-
+	
 	static class ActivityDescribeInput {
 		public ActivityDescribeInput(
       @Nonnull String activityId,
       @Nullable String activityRunId);
-
+      
     public String getActivityId();
-    public String getActivityRunId();
+    public @Nullable String getActivityRunId();
 	}
-
+	
 	static class ActivityCancelInput {
 		public ActivityCancelInput(
       @Nonnull String activityId,
       @Nullable String activityRunId,
       @Nullable String reason);
-
+      
     public String getActivityId();
-    public String getActivityRunId();
+    public @Nullable String getActivityRunId();
     public @Nullable String getReason();
 	}
-
+	
 	static class ActivityTerminateInput {
 		public ActivityTerminateInput(
       @Nonnull String activityId,
       @Nullable String activityRunId,
       @Nullable String reason);
-
+      
     public String getActivityId();
-    public String getActivityRunId();
+    public @Nullable String getActivityRunId();
     public @Nullable String getReason();
 	}
-
+	
 	static class ActivityCountInput {
 		public ActivityCountInput(
       @Nonnull String query);
-
+      
     public String getQuery();
 	}
 }
 
 public class ActivityClientCallsInterceptorBase
 		implements ActivityClientCallsInterceptor {
-
+	
 	protected final WorkflowClientCallsInterceptor next;
-
+	
 	public ActivityClientCallsInterceptorBase(
 			ActivityClientCallsInterceptor next);
-
+	
   @Override
   public UntypedActivityHandle start(ActivityStartInput input) {
     return next.start(input);
   }
-
+  
   // etc. for other methods
 }
 ```
@@ -1210,7 +1231,7 @@ A. `io.temporal.client.WorkflowClient`
 ActivityClient newActivityClient();
 ```
 
-B. `io.temporal.activity.ActivityInfo`
+B. `io.temporal.activity.ActivityInfo` 
 
 ```java
 // New methods
@@ -1227,11 +1248,11 @@ boolean isInWorkflow();
 
 ```
 
-C. `io.temporal.activity.ActivityOptions`
+C. `io.temporal.activity.ActivityOptions` 
 
 - Documentation change: options for workflow activities only.
 
-D. `io.temporal.client.ActivityCompletionClient`
+D. `io.temporal.client.ActivityCompletionClient` 
 
 ```java
 // New methods
@@ -1299,14 +1320,14 @@ B. `Temporalio.Client`
 
 ```ruby
 class ActivityHandle
-  attr_reader activity_id: String
-  attr_reader activity_run_id: String?
+  attr_reader id: String
+  attr_reader run_id: String?
   attr_reader result_hint: Object?
-
+  
   def initialize: (
     client: Client,
-    activity_id: String,
-    activity_run_id: String?,
+    id: String,
+    run_id: String?,
     result_hint: Object?
   ) -> void
 
@@ -1330,41 +1351,45 @@ class ActivityHandle
 end
 
 class ActivityExecution
-	attr_reader raw: untyped
+	def initialize: (untyped raw) -> void
 
-  def initialize: (
-	  untyped raw,
-	  Converters::DataConverter data_converter # for future compatibility
-  ) -> void
-
+	def raw: -> untyped
 	def activity_id: -> String
-	def activity_type: -> String
 	def activity_run_id: -> String
-	def close_time: -> Time
-	def execution_duration: -> duration
-	def namespace: -> String # not present in proto, copied from client
-	def scheduled_time: -> Time
+	def activity_type: -> String
+	def scheduled_time: -> Time?
+	def close_time: -> Time?
+	def status: -> ActivityExecutionStatus
 	def search_attributes: -> SearchAttributes
-	def status: -> String
 	def task_queue: -> String
-
+	def execution_duration: -> duration?
+	
 	class Description < ActivityExecution
 	  def initialize: (
 		  untyped raw,
-		  Converters::DataConverter data_converter # for future compatibility
+		  Converters::DataConverter data_converter
 	  ) -> void
-
-	  def attempt: -> Integer
-		def canceled_reason: -> String?
-		def current_retry_interval: -> duration?
-		def eager_execution_requested?: bool
-		def last_attempt_complete_time: -> Time?
+	  
+	  def run_state: -> PendingActivityState
+		def schedule_to_close_timeout: -> duration?
+		def schedule_to_start_timeout: -> duration?
+		def start_to_close_timeout: -> duration?
+		def heartbeat_timeout: -> duration?
+		def has_heartbeat_details?: -> bool
+		def retry_policy: -> RetryPolicy
 		def last_heartbeat_time: -> Time?
 		def last_started_time: -> Time?
+	  def attempt: -> Integer
+	  def last_failure: -> ???
+		def expiration_time: -> Time?
 		def last_worker_identity: -> String?
-		def retry_policy: -> RetryPolicy?
+		def current_retry_interval: -> duration?
+		def last_attempt_complete_time: -> Time?
 		def next_attempt_schedule_time: -> Time?
-		def paused?: bool
+		def last_deployment_version: -> WorkerDeploymentVersion?
+		def priority: -> Priority
+		def canceled_reason: -> String?
+		def summary: -> String?
 	end
 end
 
@@ -1418,7 +1443,7 @@ def start_activity(
 	singleton(Activity::Definition) | Activity::Definition::Info
 	| Symbol | String activity**,
 	***Object? args,
-	id: String,
+	id: String, 
 	task_queue: String,
 	?schedule_to_close_timeout: duration?,
 	?schedule_to_start_timeout: duration?,
@@ -1439,7 +1464,7 @@ def execute_activity(
 	singleton(Activity::Definition) | Activity::Definition::Info
 	| Symbol | String activity**,
 	***Object? args,
-	id: String,
+	id: String, 
 	task_queue: String,
 	?schedule_to_close_timeout: duration?,
 	?schedule_to_start_timeout: duration?,
@@ -1502,7 +1527,7 @@ class ActivityIDReference
   attr_reader activity_run_id: String?
   attr_reader workflow_id: String?
   attr_reader workflow_run_id: String?
-
+  
   # either activity_run_id or workflow_run_id
   attr_reader run_id: String?
 
@@ -1604,17 +1629,17 @@ end
 # Maps to temporalio.api.enums.v1.ActivityIdReusePolicy
 class ActivityIDReusePolicy(IntEnum):
     ...
-
+		
 # Maps to temporalio.api.enums.v1.ActivityIdConflictPolicy
 class ActivityIDConflictPolicy(IntEnum):
     ...
-
+		
 # Maps to temporalio.api.enums.v1.ActivityExecutionStatus
 class ActivityExecutionStatus(IntEnum):
     ...
 ```
 
-`temporalio.client`
+`temporalio.client` 
 
 ```python
 class ActivityHandle(Generic[ReturnType]):
@@ -1625,7 +1650,7 @@ class ActivityHandle(Generic[ReturnType]):
     @property
     def activity_run_id(self) -> Option[str]:
 		    ...
-
+    
     async def result(
         self,
         *,
@@ -1633,7 +1658,7 @@ class ActivityHandle(Generic[ReturnType]):
         rpc_timeout: Optional[timedelta] = None,
     ) -> ReturnType:
 		    ...
-
+    
     async def describe(
         self,
         *,
@@ -1641,7 +1666,7 @@ class ActivityHandle(Generic[ReturnType]):
         rpc_timeout: Optional[timedelta] = None,
     ) -> ActivityExecutionDescription:
 		    ...
-
+    
     async def cancel(
         self,
         *,
@@ -1650,7 +1675,7 @@ class ActivityHandle(Generic[ReturnType]):
         rpc_timeout: Optional[timedelta] = None,
     ) -> None:
 		    ...
-
+    
     async def terminate(
         self,
         *,
@@ -1695,8 +1720,8 @@ class ActivityExecutionDescription(ActivityExecution):
     next_attempt_schedule_time: Optional[datetime]
     paused: bool
     run_state: Optional[temporalio.common.PendingActivityState]
-
-
+    
+    
 class ActivityExecutionAsyncIterator:
     def __init__(
         self,
@@ -1729,7 +1754,7 @@ class ActivityExecutionAsyncIterator:
 
     async def __anext__(self) -> ActivityExecution:
 		    ...
-
+		    
 @dataclass
 class ActivityExecutionCount:
     count: int
@@ -1763,7 +1788,7 @@ async def start_activity(
     # The mismatch is intentional - because activity_id should never be set
     # except in rare circumstances, but this id should always have meaningful
     # value, giving them different names avoids potential copy-paste errors.
-    id: str,
+    id: str, 
     task_queue: str,
     result_type: Optional[type] = None,
     schedule_to_close_timeout: Optional[timedelta] = None,
@@ -1918,7 +1943,7 @@ class CancelActivityInput:
     wait_for_cancel_completed: bool
     rpc_metadata: Mapping[str, Union[str, bytes]]
     rpc_timeout: Optional[timedelta]
-
+    
 @dataclass
 class TerminateActivityInput:
 		activity_id: str
@@ -1926,7 +1951,7 @@ class TerminateActivityInput:
     reason: Optional[str]
     rpc_metadata: Mapping[str, Union[str, bytes]]
     rpc_timeout: Optional[timedelta]
-
+    
 @dataclass
 class ListActivitiesInput:
     query: Optional[str]
@@ -1972,64 +1997,6 @@ workflow_id: Optional[str]
 
 ## 5. Serialization context (TODO)
 
-## 6. [AI-generated] Python Implementation Notes (Current Status)
-
-The following discrepancies exist between the spec above and the current Python SDK implementation:
-
-### Intentionally Deferred (Would Require Significant Work)
-
-1. **`GetActivityResultInput` and `get_activity_result` interceptor method**: Not implemented. The current implementation caches the result directly in `ActivityHandle._known_outcome` and doesn't expose a separate interceptor point for getting results. Adding this would require refactoring the result caching logic.
-
-2. **`ActivityExecutionDescription` does not extend `ActivityExecution`**: Python frozen dataclasses don't support inheritance well. The two classes are separate with duplicated fields. This is a stylistic difference that doesn't affect functionality.
-
-3. **Overload methods `start_activity_class`, `start_activity_method`, `execute_activity_class`, `execute_activity_method`**: Not implemented. Only the base `start_activity` and `execute_activity` methods exist. These additional overloads would provide better type inference for class-based and method-based activity definitions.
-
-4. **`get_activity_handle` is incomplete**: The method exists but raises `NotImplementedError`. When implemented, should include `result_type` parameter per spec.
-
-### Missing Fields
-
-1. **`ActivityExecution.state_transition_count: Optional[int]`**: Removed from implementation. The spec says it should be present (though not always populated).
-
-2. **`ActivityExecutionDescription.eager_execution_requested: bool`**: Missing from implementation.
-
-3. **`ActivityExecutionDescription.paused: bool`**: Missing from implementation.
-
-4. **`ActivityExecutionCountAggregationGroup.group_values`**: Spec says `Sequence[temporalio.common.SearchAttributeValue]`, implementation uses `Sequence[Any]`.
-
-### Parameter Name Discrepancies
-
-1. **`start_activity` uses `static_summary` and `static_details`**: Spec says parameter should be named `summary` (no `static_` prefix) and explicitly says "no static_details". Implementation should be updated to match spec.
-
-### Extra Items (Not in Spec)
-
-1. **`ActivityHandle.pause()`, `unpause()`, `reset()` methods**: These activity lifecycle methods are implemented but not specified. These should be removed from implementation.
-
-2. **`ActivityExecutionDescription.input: Sequence[Any]`**: Extra field providing deserialized activity input. Not in spec but useful for debugging.
-
-3. **`PendingActivityState` enum**: Added to `temporalio.common` to support `ActivityExecutionDescription.run_state`. Should be added to spec.
-
-4. **`ActivityFailedError` exception class**: New error for standalone activity failures. Should be added to spec.
-
-### Minor Type Differences
-
-1. **`ActivityHandle.activity_run_id`**: Returns `str` (always set from `StartActivityExecution` response) but spec shows `Optional[str]`. The non-optional type is correct since start always returns a run_id.
-
-2. **`ActivityExecutionDescription.retry_policy`**: Not optional in implementation, but spec says `Optional`. Should verify proto field optionality.
-
-### Implemented Correctly
-
-- All `ActivityIDReusePolicy`, `ActivityIDConflictPolicy`, `ActivityExecutionStatus` enums
-- `ActivityHandle` with `activity_id`, `activity_run_id`, `result()`, `describe()`, `cancel()`, `terminate()`
-- `ActivityExecution` with core fields (except `state_transition_count`)
-- `ActivityExecutionDescription` with most fields (except `eager_execution_requested`, `paused`)
-- `ActivityExecutionAsyncIterator` for listing
-- `ActivityExecutionCount` and `ActivityExecutionCountAggregationGroup`
-- `Client.start_activity()`, `execute_activity()`, `list_activities()`, `count_activities()`
-- `OutboundInterceptor` methods: `start_activity`, `describe_activity`, `cancel_activity`, `terminate_activity`, `list_activities`, `count_activities`
-- All input dataclasses: `StartActivityInput`, `DescribeActivityInput`, `CancelActivityInput`, `TerminateActivityInput`, `ListActivitiesInput`, `CountActivitiesInput`
-- `activity.Info` changes: `namespace`, `activity_run_id`, `in_workflow` property, optional workflow fields
-- `AsyncActivityIDReference.workflow_id` is now `Optional[str]`
-
 # TypeScript
 
 ## 1. New module `client.activity-client`
@@ -2046,7 +2013,7 @@ const client = new Client({ connection });
 const opts = {
 	taskQueue: 'task-queue',
 	startToCloseTimeout: '1 minute'
-};
+}; 
 
 // Typed activity start
 const handle = await client.activity.typed<MyActivity>().start(
@@ -2077,23 +2044,23 @@ export class ActivityClient
 	implements TypedActivityClient<UntypedActivities>
 {
   public constructor(options?: ActivityClientOptions);
-
+  
   public typed<T>(): TypedActivityClient<T> { return this; }
-
+  
   public async start(
 	  activity: string, options: ActivityOptions, ...args: any[]
   ): Promise<ActivityHandle>;
-
+  
   public async execute(
 	  activity: string, options: ActivityOptions, ...args: any[]
   ): Promise<any>;
-
+  
   public getHandle(
 	  activityId: string, activityRunId?: string
   ): ActivityHandle;
-
+  
   public list(string query): AsyncIterable<ActivityExecutionInfo>;
-
+  
   public async count(string query): Promise<CountActivitiesResult>;
 }
 
@@ -2129,7 +2096,7 @@ export type ActivityKey<T> = {
 
 export type ActivityArgs<T, K extends ActivityKey<T>> =
 	T[K] extends ActivityFunction<infer P, any> ? P : never;
-
+	
 export type ActivityResult<T, K extends ActivityKey<T>> =
 	T[K] extends ActivityFunction<any, infer R> ? R : never;
 
@@ -2139,7 +2106,7 @@ interface TypedActivityClient<T> {
 	  options: ActivityOptions,
 	  ...args: ActivityArgs<T, K>
   ): Promise<ActivityHandle<ActivityResult<T, K>>>;
-
+  
   execute<K extends ActivityKey<T>>(
 	  activity: K,
 	  options: ActivityOptions,
@@ -2227,27 +2194,27 @@ export interface ActivityClientInterceptor {
   start?: (
 	  input: ActivityStartInput, next: Next<this, 'start'>
 	) => Promise<ActivityHandle>;
-
+	
   getResult?: (
 	  input: ActivityGetResultInput, next: Next<this, 'getResult'>
 	) => Promise<any>;
-
+	
   describe?: (
 	  input: ActivityDescribeInput, next: Next<this, 'describe'>
 	) => Promise<ActivityExecutionDescription>;
-
+	
   cancel?: (
 	  input: ActivityCancelInput, next: Next<this, 'cancel'>
 	) => Promise<void>;
-
+	
   terminate?: (
 	  input: ActivityTerminateInput, next: Next<this, 'terminate'>
 	) => Promise<void>;
-
+	
   list?: (
 	  input: ActivityListInput, next: Next<this, 'list'>
 	) => AsyncIterable<ActivityExecutionInfo>;
-
+	
   count?: (
 	  input: ActivityCountInput, next: Next<this, 'count'>
 	) => Promise<CountActivitiesResult>;
@@ -2299,7 +2266,7 @@ export interface ActivityCountInput {
 
 ## 4. Other changes to existing types
 
-A. `activity.Info`
+A. `activity.Info` 
 
 ```tsx
 // new fields
@@ -2316,7 +2283,7 @@ readonly workflowExecution?: interface { ... } // undefined if standalone
 readonly workflowType?: string // undefined if standalone
 ```
 
-B. `client.async-completion-client.FullActivityId`
+B. `client.async-completion-client.FullActivityId` 
 
 ```tsx
 export interface FullActivityId {
@@ -2326,7 +2293,7 @@ export interface FullActivityId {
 }
 ```
 
-C. `common.activity-options.ActivityOptions`
+C. `common.activity-options.ActivityOptions` 
 
 - Documentation change: options for starting an activity in workflow.
     - Open questions:
