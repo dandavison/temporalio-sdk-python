@@ -35,6 +35,8 @@ async def test_describe(client: Client):
     assert desc.activity_type == "increment"
     assert desc.task_queue == task_queue
     assert desc.status == ActivityExecutionStatus.RUNNING
+    assert isinstance(desc.eager_execution_requested, bool)
+    assert isinstance(desc.paused, bool)
 
 
 async def test_get_result(client: Client):
@@ -102,6 +104,47 @@ async def test_get_activity_handle(client: Client):
         assert await handle_by_id.result() == 2
         assert await handle_by_id_and_run_id.result() == 2
         assert await handle_with_result_type.result() == 2
+
+
+async def test_list_activities(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    found = False
+    async for execution in client.list_activities(f'ActivityId = "{activity_id}"'):
+        assert execution.activity_id == activity_id
+        assert execution.state_transition_count is None or isinstance(
+            execution.state_transition_count, int
+        )
+        found = True
+    assert found
+
+
+async def test_count_activities(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    count = await client.count_activities(f'ActivityId = "{activity_id}"')
+    assert count.count >= 1
+    for group in count.groups:
+        for value in group.group_values:
+            pass
 
 
 @dataclass
