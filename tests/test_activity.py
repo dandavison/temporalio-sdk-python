@@ -6,11 +6,16 @@ from datetime import timedelta
 import pytest
 
 from temporalio import activity, workflow
-from temporalio.client import ActivityFailedError, Client
+from temporalio.client import (
+    ActivityExecutionCountAggregationGroup,
+    ActivityFailedError,
+    Client,
+)
 from temporalio.common import ActivityExecutionStatus
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.worker import Worker
+from tests.helpers import assert_eq_eventually
 
 
 @activity.defn
@@ -146,6 +151,41 @@ async def test_count_activities(client: Client):
     count = await client.count_activities(f'ActivityId = "{activity_id}"')
     assert count.count == 1
     assert count.groups == []
+
+
+async def test_count_activities_group_by(client: Client):
+    from temporalio.client import ActivityExecutionCount
+
+    task_queue = str(uuid.uuid4())
+    activity_ids = []
+
+    for _ in range(3):
+        activity_id = str(uuid.uuid4())
+        activity_ids.append(activity_id)
+        await client.start_activity(
+            increment,
+            1,
+            id=activity_id,
+            task_queue=task_queue,
+            schedule_to_close_timeout=timedelta(seconds=60),
+        )
+
+    ids_filter = " OR ".join([f'ActivityId = "{aid}"' for aid in activity_ids])
+
+    async def fetch_count() -> ActivityExecutionCount:
+        return await client.count_activities(f"({ids_filter}) GROUP BY ExecutionStatus")
+
+    await assert_eq_eventually(
+        ActivityExecutionCount(
+            count=3,
+            groups=[
+                ActivityExecutionCountAggregationGroup(
+                    count=3, group_values=["Running"]
+                ),
+            ],
+        ),
+        fetch_count,
+    )
 
 
 @dataclass
