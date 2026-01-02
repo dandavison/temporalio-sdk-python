@@ -3450,6 +3450,9 @@ class ActivityExecution:
     search_attributes: temporalio.common.SearchAttributes
     """Search attributes from the start request."""
 
+    state_transition_count: int | None
+    """Number of state transitions, if available."""
+
     status: temporalio.common.ActivityExecutionStatus
     """Current status of the activity."""
 
@@ -3490,6 +3493,9 @@ class ActivityExecution:
             search_attributes=temporalio.converter.decode_search_attributes(
                 info.search_attributes
             ),
+            state_transition_count=(
+                info.state_transition_count if info.state_transition_count else None
+            ),
             status=(
                 temporalio.common.ActivityExecutionStatus(info.status)
                 if info.status
@@ -3510,7 +3516,7 @@ class ActivityExecutionCountAggregationGroup:
     count: int
     """Count for this group."""
 
-    group_values: Sequence[Any]
+    group_values: Sequence[temporalio.common.SearchAttributeValue]
     """Values that define this group."""
 
 
@@ -3538,7 +3544,10 @@ class ActivityExecutionCount:
             groups=[
                 ActivityExecutionCountAggregationGroup(
                     count=g.count,
-                    group_values=list(g.group_values),
+                    group_values=[
+                        temporalio.converter._decode_search_attribute_value(v)
+                        for v in g.group_values
+                    ],
                 )
                 for g in resp.groups
             ],
@@ -3574,6 +3583,9 @@ class ActivityExecutionDescription:
     current_retry_interval: timedelta | None
     """Time until the next retry, if applicable."""
 
+    eager_execution_requested: bool
+    """Whether eager execution was requested for this activity."""
+
     execution_duration: timedelta | None
     """Duration from scheduled to close time, only populated if closed."""
 
@@ -3606,6 +3618,9 @@ class ActivityExecutionDescription:
 
     next_attempt_schedule_time: datetime | None
     """Time when the next attempt will be scheduled."""
+
+    paused: bool
+    """Whether the activity is paused."""
 
     raw_info: Any
     """Raw proto response."""
@@ -3655,6 +3670,7 @@ class ActivityExecutionDescription:
                 if info.HasField("current_retry_interval")
                 else None
             ),
+            eager_execution_requested=getattr(info, "eager_execution_requested", False),
             execution_duration=(
                 info.execution_duration.ToTimedelta()
                 if info.HasField("execution_duration")
@@ -3701,6 +3717,7 @@ class ActivityExecutionDescription:
                 if info.HasField("next_attempt_schedule_time")
                 else None
             ),
+            paused=getattr(info, "paused", False),
             raw_info=info,
             retry_policy=temporalio.common.RetryPolicy.from_proto(info.retry_policy),
             run_state=(
