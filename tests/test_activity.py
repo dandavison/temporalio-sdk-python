@@ -118,14 +118,17 @@ async def test_list_activities(client: Client):
         start_to_close_timeout=timedelta(seconds=5),
     )
 
-    found = False
-    async for execution in client.list_activities(f'ActivityId = "{activity_id}"'):
-        assert execution.activity_id == activity_id
-        assert execution.state_transition_count is None or isinstance(
-            execution.state_transition_count, int
-        )
-        found = True
-    assert found
+    executions = [
+        e async for e in client.list_activities(f'ActivityId = "{activity_id}"')
+    ]
+    assert len(executions) == 1
+    execution = executions[0]
+    assert execution.activity_id == activity_id
+    assert execution.activity_type == "increment"
+    assert execution.task_queue == task_queue
+    assert execution.status == ActivityExecutionStatus.RUNNING
+    # TODO: not being set by server?
+    # assert isinstance(execution.state_transition_count, int)
 
 
 async def test_count_activities(client: Client):
@@ -141,10 +144,8 @@ async def test_count_activities(client: Client):
     )
 
     count = await client.count_activities(f'ActivityId = "{activity_id}"')
-    assert count.count >= 1
-    for group in count.groups:
-        for value in group.group_values:
-            pass
+    assert count.count == 1
+    assert count.groups == []
 
 
 @dataclass
