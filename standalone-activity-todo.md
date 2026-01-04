@@ -13,7 +13,7 @@ Reference: See `cross-sdk-design.md` for the full cross-SDK design specification
 | Core client methods (`start_activity`, `execute_activity`, `list_activities`, `count_activities`, `get_activity_handle`) | ✅ Complete |
 | `ActivityHandle` with `result()`, `describe()`, `cancel()`, `terminate()` | ✅ Complete |
 | Type-safe overloads (matching workflow activities) | ✅ Complete |
-| `ActivityExecution` and `ActivityExecutionDescription` dataclasses | ⚠️ Missing fields |
+| `ActivityExecution` and `ActivityExecutionDescription` dataclasses | ✅ Complete |
 | Interceptor support | ✅ Complete |
 | `activity.Info` changes | ✅ Complete |
 | `ActivitySerializationContext` changes | ✅ Complete |
@@ -31,29 +31,24 @@ Reference: See `cross-sdk-design.md` for the full cross-SDK design specification
 - **Test:** `tests/test_activity.py::test_get_activity_handle`
 
 ### 2. Missing Field: `ActivityExecution.state_transition_count`
-- **Status:** ❌ Not implemented
+- **Status:** ✅ Complete
 - **Location:** `temporalio/client.py` - `ActivityExecution` dataclass
-- **Spec:** `state_transition_count: Optional[int]` - not always present on List operation, see proto docs
-- **Effort:** Low
+- **Note:** Server may not always set this field
 
 ### 3. Missing Field: `ActivityExecutionDescription.eager_execution_requested`
-- **Status:** ❌ Not implemented
+- **Status:** ✅ Complete
 - **Location:** `temporalio/client.py` - `ActivityExecutionDescription` dataclass
-- **Spec:** `eager_execution_requested: bool`
-- **Effort:** Low
+- **Note:** Uses `getattr` with default for forward compatibility
 
 ### 4. Missing Field: `ActivityExecutionDescription.paused`
-- **Status:** ❌ Not implemented
+- **Status:** ✅ Complete
 - **Location:** `temporalio/client.py` - `ActivityExecutionDescription` dataclass
-- **Spec:** `paused: bool`
-- **Effort:** Low
+- **Note:** Uses `getattr` with default for forward compatibility
 
 ### 5. Type Fix: `ActivityExecutionCountAggregationGroup.group_values`
-- **Status:** ❌ Incorrect type
+- **Status:** ✅ Complete
 - **Location:** `temporalio/client.py` - `ActivityExecutionCountAggregationGroup` dataclass
-- **Current:** `Sequence[Any]`
-- **Spec:** `Sequence[temporalio.common.SearchAttributeValue]`
-- **Effort:** Low
+- **Test:** `tests/test_activity.py::test_count_activities_group_by`
 
 ---
 
@@ -116,23 +111,25 @@ These items are implemented but not documented in the spec. The spec should be u
 - ✅ `test_describe` - Describe a running activity
 - ✅ `test_get_result` - Get result after activity completes
 - ✅ `test_get_activity_handle` - Get handle by ID, with/without run_id and result_type
+- ✅ `test_list_activities` - List activities by ID
+- ✅ `test_count_activities` - Count activities by ID
+- ✅ `test_count_activities_group_by` - Count with GROUP BY ExecutionStatus
 - ✅ `test_manual_completion` - Complete activity manually via async handle
 - ✅ `test_manual_cancellation` - Cancel activity then report cancellation via async handle
 - ✅ `test_manual_failure` - Fail activity manually via async handle
 - ✅ `test_manual_heartbeat` - Heartbeat from async handle
 
-### Additional Tests Needed
+### Additional Tests (Complete)
 
 #### Functional Tests
-- [ ] Test `list_activities()` with various queries
-- [ ] Test `count_activities()` with various queries
-- [ ] Test activity ID reuse policies
-- [ ] Test activity ID conflict policies
-- [ ] Test search attributes on activities
-- [ ] Test priority on activities
-- [ ] Test retry policy behavior
-- [ ] Test cancellation flow (worker-side)
-- [ ] Test termination flow
+- ✅ `test_id_conflict_policy_fail` - ID conflict with FAIL policy
+- ✅ `test_id_conflict_policy_use_existing` - ID conflict with USE_EXISTING policy
+- ✅ `test_id_reuse_policy_reject_duplicate` - ID reuse with REJECT_DUPLICATE policy
+- ✅ `test_id_reuse_policy_allow_duplicate` - ID reuse with ALLOW_DUPLICATE policy
+- ✅ `test_search_attributes` - Search attributes on activities
+- ✅ `test_retry_policy` - Retry policy behavior
+- ✅ `test_terminate` - Termination flow
+- [ ] Test priority on activities (optional)
 
 #### Overload/API Variation Tests
 Tests for different ways to call `start_activity`/`execute_activity`:

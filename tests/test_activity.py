@@ -402,6 +402,217 @@ async def test_manual_heartbeat(client: Client):
         assert await activity_handle.result() == "Test heartbeat details"
 
 
+async def test_id_conflict_policy_fail(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    from temporalio.common import ActivityIDConflictPolicy
+
+    await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        schedule_to_close_timeout=timedelta(seconds=60),
+        id_conflict_policy=ActivityIDConflictPolicy.FAIL,
+    )
+
+    with pytest.raises(RPCError) as err:
+        await client.start_activity(
+            increment,
+            1,
+            id=activity_id,
+            task_queue=task_queue,
+            schedule_to_close_timeout=timedelta(seconds=60),
+            id_conflict_policy=ActivityIDConflictPolicy.FAIL,
+        )
+    assert err.value.status == RPCStatusCode.ALREADY_EXISTS
+
+
+async def test_id_conflict_policy_use_existing(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    from temporalio.common import ActivityIDConflictPolicy
+
+    handle1 = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        schedule_to_close_timeout=timedelta(seconds=60),
+        id_conflict_policy=ActivityIDConflictPolicy.USE_EXISTING,
+    )
+
+    handle2 = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        schedule_to_close_timeout=timedelta(seconds=60),
+        id_conflict_policy=ActivityIDConflictPolicy.USE_EXISTING,
+    )
+
+    assert handle1.activity_id == handle2.activity_id
+    assert handle1.activity_run_id == handle2.activity_run_id
+
+
+async def test_id_reuse_policy_reject_duplicate(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    from temporalio.common import ActivityIDReusePolicy
+
+    handle = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+        id_reuse_policy=ActivityIDReusePolicy.REJECT_DUPLICATE,
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[increment],
+    ):
+        await handle.result()
+
+    with pytest.raises(RPCError) as err:
+        await client.start_activity(
+            increment,
+            1,
+            id=activity_id,
+            task_queue=task_queue,
+            start_to_close_timeout=timedelta(seconds=5),
+            id_reuse_policy=ActivityIDReusePolicy.REJECT_DUPLICATE,
+        )
+    assert err.value.status == RPCStatusCode.ALREADY_EXISTS
+
+
+async def test_id_reuse_policy_allow_duplicate(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    from temporalio.common import ActivityIDReusePolicy
+
+    handle1 = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+        id_reuse_policy=ActivityIDReusePolicy.ALLOW_DUPLICATE,
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[increment],
+    ):
+        await handle1.result()
+
+    handle2 = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+        id_reuse_policy=ActivityIDReusePolicy.ALLOW_DUPLICATE,
+    )
+
+    assert handle1.activity_id == handle2.activity_id
+    assert handle1.activity_run_id != handle2.activity_run_id
+
+
+async def test_search_attributes(client: Client):
+    from temporalio.common import (
+        SearchAttributeKey,
+        SearchAttributePair,
+        TypedSearchAttributes,
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    temporal_change_version_key = SearchAttributeKey.for_keyword_list(
+        "TemporalChangeVersion"
+    )
+
+    handle = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        schedule_to_close_timeout=timedelta(seconds=60),
+        search_attributes=TypedSearchAttributes(
+            [SearchAttributePair(temporal_change_version_key, ["test-1", "test-2"])]
+        ),
+    )
+
+    desc = await handle.describe()
+    assert desc.search_attributes is not None
+    assert desc.search_attributes["TemporalChangeVersion"] == ["test-1", "test-2"]
+
+
+async def test_retry_policy(client: Client):
+    from temporalio.common import RetryPolicy
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    handle = await client.start_activity(
+        increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            maximum_interval=timedelta(seconds=10),
+            backoff_coefficient=2.0,
+            maximum_attempts=3,
+        ),
+    )
+
+    desc = await handle.describe()
+    assert desc.retry_policy is not None
+    assert desc.retry_policy.initial_interval == timedelta(seconds=1)
+    assert desc.retry_policy.maximum_interval == timedelta(seconds=10)
+    assert desc.retry_policy.backoff_coefficient == 2.0
+    assert desc.retry_policy.maximum_attempts == 3
+
+
+async def test_terminate(client: Client):
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    event_workflow_id = str(uuid.uuid4())
+
+    activity_handle = await client.start_activity(
+        async_activity,
+        args=(ActivityInput(event_workflow_id=event_workflow_id),),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[async_activity],
+        workflows=[EventWorkflow],
+    ):
+        await client.execute_workflow(
+            EventWorkflow.wait,
+            id=event_workflow_id,
+            task_queue=task_queue,
+        )
+
+        await activity_handle.terminate(reason="Test termination")
+
+        with pytest.raises(ActivityFailedError):
+            await activity_handle.result()
+
+        desc = await activity_handle.describe()
+        assert desc.status == ActivityExecutionStatus.TERMINATED
+
+
 # Utilities
 
 
