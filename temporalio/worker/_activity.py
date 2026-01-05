@@ -303,7 +303,7 @@ class _ActivityWorker:
         )
         # Create serialization context for the activity
         context = temporalio.converter.ActivitySerializationContext(
-            namespace=start.workflow_namespace,
+            namespace=start.workflow_namespace or self._client.namespace,
             workflow_id=start.workflow_execution.workflow_id,
             workflow_type=start.workflow_type,
             activity_type=start.activity_type,
