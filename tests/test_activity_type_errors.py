@@ -44,6 +44,34 @@ def no_param_sync() -> str:
     return "done"
 
 
+@activity.defn
+class IncrementClass:
+    """Activity defined as a callable class."""
+
+    async def __call__(self, x: int) -> int:
+        return x + 1
+
+
+@activity.defn
+class NoParamClass:
+    """Activity class with no parameters."""
+
+    async def __call__(self) -> str:
+        return "done"
+
+
+class ActivityHolder:
+    """Class holding activity methods."""
+
+    @activity.defn
+    async def increment_method(self, x: int) -> int:
+        return x + 1
+
+    @activity.defn
+    async def no_param_method(self) -> str:
+        return "done"
+
+
 async def _test_start_activity_typed_callable_happy_path() -> None:
     client = Client(service_client=Mock(spec=ServiceClient))
 
@@ -298,6 +326,111 @@ async def _test_start_activity_sync_no_param() -> None:
 
     _handle: ActivityHandle[str] = await client.start_activity(
         no_param_sync,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+# Tests for start_activity_class and execute_activity_class
+# Note: Type inference for callable classes is limited; use args= form
+
+
+async def _test_start_activity_class_single_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _handle: ActivityHandle[int] = await client.start_activity_class(
+        IncrementClass,
+        1,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_execute_activity_class_single_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _result: int = await client.execute_activity_class(
+        IncrementClass,
+        1,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_start_activity_class_no_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _handle: ActivityHandle[str] = await client.start_activity_class(
+        NoParamClass,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_execute_activity_class_no_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _result: str = await client.execute_activity_class(
+        NoParamClass,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+# Tests for start_activity_method and execute_activity_method
+# Note: The _method variants work best with unbound methods (class references).
+# For bound methods accessed via instance, use start_activity directly.
+
+
+async def _test_start_activity_method_unbound() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    # Using unbound method reference
+    _handle: ActivityHandle[int] = await client.start_activity_method(
+        ActivityHolder.increment_method,
+        args=[1],
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_execute_activity_method_unbound() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    # Using unbound method reference
+    _result: int = await client.execute_activity_method(
+        ActivityHolder.increment_method,
+        args=[1],
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_start_activity_method_no_param_unbound() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    # Using unbound method reference
+    _handle: ActivityHandle[str] = await client.start_activity_method(
+        ActivityHolder.no_param_method,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_execute_activity_method_no_param_unbound() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    # Using unbound method reference
+    _result: str = await client.execute_activity_method(
+        ActivityHolder.no_param_method,
         id="activity-id",
         task_queue="tq",
         start_to_close_timeout=timedelta(seconds=5),
