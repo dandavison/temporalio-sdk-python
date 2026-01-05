@@ -3627,7 +3627,7 @@ class ActivityExecutionDescription:
     raw_info: Any
     """Raw proto response."""
 
-    retry_policy: temporalio.common.RetryPolicy
+    retry_policy: temporalio.common.RetryPolicy | None
     """Retry policy for the activity."""
 
     run_state: temporalio.common.PendingActivityState | None
@@ -3721,7 +3721,9 @@ class ActivityExecutionDescription:
             ),
             paused=getattr(info, "paused", False),
             raw_info=info,
-            retry_policy=temporalio.common.RetryPolicy.from_proto(info.retry_policy),
+            retry_policy=temporalio.common.RetryPolicy.from_proto(info.retry_policy)
+            if info.HasField("retry_policy")
+            else None,
             run_state=(
                 temporalio.common.PendingActivityState(info.run_state)
                 if info.run_state
