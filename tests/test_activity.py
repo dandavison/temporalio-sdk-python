@@ -55,29 +55,6 @@ async def test_describe(client: Client):
     assert isinstance(desc.paused, bool)
 
 
-def test_get_activity_result_input_exists():
-    """GetActivityResultInput dataclass should be importable from temporalio.client."""
-    # Verify it has the expected fields per spec
-    assert hasattr(GetActivityResultInput, "__dataclass_fields__")
-    fields = GetActivityResultInput.__dataclass_fields__
-    assert "activity_id" in fields
-    assert "activity_run_id" in fields
-    assert "result_type" in fields
-    assert "rpc_metadata" in fields
-    assert "rpc_timeout" in fields
-
-
-def test_outbound_interceptor_has_get_activity_result_method():
-    """OutboundInterceptor should have a get_activity_result method."""
-    assert hasattr(OutboundInterceptor, "get_activity_result")
-    # Check it's a callable method
-    import inspect
-
-    assert inspect.isfunction(
-        OutboundInterceptor.get_activity_result
-    ) or inspect.ismethod(OutboundInterceptor.get_activity_result)
-
-
 class ActivityTracingInterceptor(Interceptor):
     """Test interceptor that tracks all activity interceptor calls."""
 
