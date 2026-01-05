@@ -72,33 +72,7 @@ class GetActivityResultInput(Generic[ReturnType]):
 
 ---
 
-## 3. `ActivityExecutionDescription` Inheritance
-
-**Spec Section:** 1
-**Location:** `temporalio/client.py`, class `ActivityExecutionDescription` (line ~3558)
-
-**Spec says:**
-```python
-@dataclass(frozen=True)
-class ActivityExecutionDescription(ActivityExecution):
-    ...
-```
-
-**Current:** `ActivityExecutionDescription` is standalone with duplicated fields.
-
-### Tasks:
-- [ ] Make `ActivityExecutionDescription` inherit from `ActivityExecution`
-- [ ] Remove duplicated fields that exist in parent class:
-  - `activity_id`, `activity_run_id`, `activity_type`, `close_time`, `execution_duration`, `namespace`, `scheduled_time`, `search_attributes`, `status`, `task_queue`
-- [ ] Keep only the additional fields unique to Description:
-  - `attempt`, `canceled_reason`, `current_retry_interval`, `eager_execution_requested`, `expiration_time`, `heartbeat_details`, `input`, `last_attempt_complete_time`, `last_failure`, `last_heartbeat_time`, `last_started_time`, `last_worker_identity`, `next_attempt_schedule_time`, `paused`, `raw_info`, `retry_policy`, `run_state`
-- [ ] Update `raw_info` type in `ActivityExecution` to be `Union[ActivityExecutionListInfo, ActivityExecutionInfo]` per spec
-- [ ] Update `_from_raw_info` factory methods to handle inheritance properly
-- [ ] Note: `state_transition_count` field exists in `ActivityExecution` but not in `ActivityExecutionDescription` per spec
-
----
-
-## 4. Evaluate `input` Field in `ActivityExecutionDescription`
+## 3. Evaluate `input` Field in `ActivityExecutionDescription`
 
 **Spec Section:** 1
 **Location:** `temporalio/client.py`, line ~3598
@@ -108,7 +82,7 @@ class ActivityExecutionDescription(ActivityExecution):
 
 ### Tasks:
 - [ ] Confirm with spec owner whether `input` should be included
-- [ ] If not needed, remove the field and update `_from_raw_info`
+- [ ] If not needed, remove the field and update `_from_execution_info`
 
 ---
 
@@ -118,6 +92,7 @@ class ActivityExecutionDescription(ActivityExecution):
 - `ActivityIDReusePolicy`, `ActivityIDConflictPolicy`, `ActivityExecutionStatus` enums (mapped to proto constants)
 - `ActivityHandle` class with all methods
 - `ActivityExecution`, `ActivityExecutionAsyncIterator`, `ActivityExecutionCount` classes
+- `ActivityExecutionDescription` inherits from `ActivityExecution`
 - `list_activities`, `count_activities`, `get_activity_handle` in `Client`
 - `start_activity`, `execute_activity` in `Client`
 - Interceptor methods: `start_activity`, `cancel_activity`, `terminate_activity`, `describe_activity`, `list_activities`, `count_activities`
@@ -136,6 +111,7 @@ class ActivityExecutionDescription(ActivityExecution):
   - id_conflict_policy, id_reuse_policy
   - search_attributes, retry_policy
   - terminate
+  - ActivityExecutionDescription inherits from ActivityExecution
 
 ### Related Files to Update
 - `temporalio/client.py` - Main implementation
