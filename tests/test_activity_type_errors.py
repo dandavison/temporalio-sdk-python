@@ -46,7 +46,7 @@ def no_param_sync() -> str:
 
 @activity.defn
 class IncrementClass:
-    """Activity defined as a callable class."""
+    """Async activity defined as a callable class."""
 
     async def __call__(self, x: int) -> int:
         return x + 1
@@ -54,9 +54,25 @@ class IncrementClass:
 
 @activity.defn
 class NoParamClass:
-    """Activity class with no parameters."""
+    """Async activity class with no parameters."""
 
     async def __call__(self) -> str:
+        return "done"
+
+
+@activity.defn
+class SyncIncrementClass:
+    """Sync activity defined as a callable class."""
+
+    def __call__(self, x: int) -> int:
+        return x + 1
+
+
+@activity.defn
+class SyncNoParamClass:
+    """Sync activity class with no parameters."""
+
+    def __call__(self) -> str:
         return "done"
 
 
@@ -376,6 +392,44 @@ async def _test_execute_activity_class_no_param() -> None:
 
     _result: str = await client.execute_activity_class(
         NoParamClass,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+# Tests for sync callable classes
+
+
+async def _test_start_activity_class_sync_single_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _handle: ActivityHandle[int] = await client.start_activity_class(
+        SyncIncrementClass,
+        1,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_execute_activity_class_sync_single_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _result: int = await client.execute_activity_class(
+        SyncIncrementClass,
+        1,
+        id="activity-id",
+        task_queue="tq",
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+
+async def _test_start_activity_class_sync_no_param() -> None:
+    client = Client(service_client=Mock(spec=ServiceClient))
+
+    _handle: ActivityHandle[str] = await client.start_activity_class(
+        SyncNoParamClass,
         id="activity-id",
         task_queue="tq",
         start_to_close_timeout=timedelta(seconds=5),
