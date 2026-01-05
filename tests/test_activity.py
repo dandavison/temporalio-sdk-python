@@ -34,6 +34,48 @@ async def increment(input: int) -> int:
     return input + 1
 
 
+# Activity classes for testing start_activity_class / execute_activity_class
+@activity.defn
+class IncrementClass:
+    """Async callable class activity with a parameter."""
+
+    async def __call__(self, x: int) -> int:
+        return x + 1
+
+
+@activity.defn
+class NoParamClass:
+    """Async callable class activity with no parameters."""
+
+    async def __call__(self) -> str:
+        return "no-param-result"
+
+
+@activity.defn
+class SyncIncrementClass:
+    """Sync callable class activity with a parameter."""
+
+    def __call__(self, x: int) -> int:
+        return x + 1
+
+
+# Activity holder for testing start_activity_method / execute_activity_method
+class ActivityHolder:
+    """Class holding activity methods."""
+
+    @activity.defn
+    async def async_increment(self, x: int) -> int:
+        return x + 1
+
+    @activity.defn
+    async def async_no_param(self) -> str:
+        return "async-method-result"
+
+    @activity.defn
+    def sync_increment(self, x: int) -> int:
+        return x + 1
+
+
 async def test_describe(client: Client):
     activity_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
@@ -885,6 +927,163 @@ async def test_terminate(client: Client):
 
         desc = await activity_handle.describe()
         assert desc.status == ActivityExecutionStatus.TERMINATED
+
+
+# Tests for start_activity_class / execute_activity_class
+
+
+async def test_start_activity_class_async(client: Client):
+    """Test start_activity_class with an async callable class."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    handle = await client.start_activity_class(
+        IncrementClass,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[IncrementClass],
+    ):
+        result = await handle.result()
+        assert result == 2
+
+
+async def test_execute_activity_class_async(client: Client):
+    """Test execute_activity_class with an async callable class."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[IncrementClass],
+    ):
+        result = await client.execute_activity_class(
+            IncrementClass,
+            1,
+            id=activity_id,
+            task_queue=task_queue,
+            start_to_close_timeout=timedelta(seconds=5),
+        )
+        assert result == 2
+
+
+async def test_start_activity_class_no_param(client: Client):
+    """Test start_activity_class with a no-param callable class."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    handle = await client.start_activity_class(
+        NoParamClass,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[NoParamClass],
+    ):
+        result = await handle.result()
+        assert result == "no-param-result"
+
+
+async def test_start_activity_class_sync(client: Client):
+    """Test start_activity_class with a sync callable class."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    handle = await client.start_activity_class(
+        SyncIncrementClass,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[SyncIncrementClass],
+    ):
+        result = await handle.result()
+        assert result == 2
+
+
+# Tests for start_activity_method / execute_activity_method
+
+
+async def test_start_activity_method_async(client: Client):
+    """Test start_activity_method with an async method."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    holder = ActivityHolder()
+    handle = await client.start_activity_method(
+        ActivityHolder.async_increment,
+        1,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[holder.async_increment],
+    ):
+        result = await handle.result()
+        assert result == 2
+
+
+async def test_execute_activity_method_async(client: Client):
+    """Test execute_activity_method with an async method."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    holder = ActivityHolder()
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[holder.async_increment],
+    ):
+        result = await client.execute_activity_method(
+            ActivityHolder.async_increment,
+            1,
+            id=activity_id,
+            task_queue=task_queue,
+            start_to_close_timeout=timedelta(seconds=5),
+        )
+        assert result == 2
+
+
+async def test_start_activity_method_no_param(client: Client):
+    """Test start_activity_method with a no-param method."""
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    holder = ActivityHolder()
+    handle = await client.start_activity_method(
+        ActivityHolder.async_no_param,
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[holder.async_no_param],
+    ):
+        result = await handle.result()
+        assert result == "async-method-result"
 
 
 # Utilities
