@@ -59,7 +59,7 @@ Comparison of spec (cross-sdk-design.md, Python section) against current PR impl
 - `ActivityFailedError` exception
 - `ActivityExecutionDescription.retry_policy` is Optional
 
-### Test Coverage
+### Test Coverage ✅
 - Tests exist in `tests/test_activity.py` covering:
   - describe, get_result, get_activity_handle
   - list_activities, count_activities
@@ -68,10 +68,11 @@ Comparison of spec (cross-sdk-design.md, Python section) against current PR impl
   - search_attributes, retry_policy
   - terminate
   - ActivityExecutionDescription inherits from ActivityExecution
-  - get_activity_result interceptor
-
-### Related Files to Update
-- `temporalio/client.py` - Main implementation
-- `temporalio/common.py` - Enum mapping
-- `temporalio/activity.py` - Docstring fix
-- `tests/test_activity_type_errors.py` - Type checking tests for new methods
+  - All 7 interceptor methods have invocation tests:
+    - `test_start_activity_calls_interceptor`
+    - `test_get_activity_result_calls_interceptor`
+    - `test_describe_activity_calls_interceptor`
+    - `test_cancel_activity_calls_interceptor`
+    - `test_terminate_activity_calls_interceptor`
+    - `test_list_activities_calls_interceptor`
+    - `test_count_activities_calls_interceptor`
