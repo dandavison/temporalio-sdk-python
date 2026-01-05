@@ -948,7 +948,7 @@ async def test_start_activity_class_async(client: Client):
     async with Worker(
         client,
         task_queue=task_queue,
-        activities=[IncrementClass],
+        activities=[IncrementClass()],
     ):
         result = await handle.result()
         assert result == 2
@@ -962,7 +962,7 @@ async def test_execute_activity_class_async(client: Client):
     async with Worker(
         client,
         task_queue=task_queue,
-        activities=[IncrementClass],
+        activities=[IncrementClass()],
     ):
         result = await client.execute_activity_class(
             IncrementClass,
@@ -989,7 +989,7 @@ async def test_start_activity_class_no_param(client: Client):
     async with Worker(
         client,
         task_queue=task_queue,
-        activities=[NoParamClass],
+        activities=[NoParamClass()],
     ):
         result = await handle.result()
         assert result == "no-param-result"
@@ -997,6 +997,8 @@ async def test_start_activity_class_no_param(client: Client):
 
 async def test_start_activity_class_sync(client: Client):
     """Test start_activity_class with a sync callable class."""
+    import concurrent.futures
+
     activity_id = str(uuid.uuid4())
     task_queue = str(uuid.uuid4())
 
@@ -1008,13 +1010,15 @@ async def test_start_activity_class_sync(client: Client):
         start_to_close_timeout=timedelta(seconds=5),
     )
 
-    async with Worker(
-        client,
-        task_queue=task_queue,
-        activities=[SyncIncrementClass],
-    ):
-        result = await handle.result()
-        assert result == 2
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        async with Worker(
+            client,
+            task_queue=task_queue,
+            activities=[SyncIncrementClass()],
+            activity_executor=executor,
+        ):
+            result = await handle.result()
+            assert result == 2
 
 
 # Tests for start_activity_method / execute_activity_method
