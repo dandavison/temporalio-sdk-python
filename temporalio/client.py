@@ -3899,6 +3899,8 @@ class ActivityHandle(Generic[ReturnType]):
         self._known_outcome: (
             temporalio.api.activity.v1.ActivityExecutionOutcome | None
         ) = None
+        self._cached_result: ReturnType | None = None
+        self._result_fetched: bool = False
 
     @property
     def activity_id(self) -> str:
@@ -3962,31 +3964,24 @@ class ActivityHandle(Generic[ReturnType]):
             The result of the activity.
 
         Raises:
-            ActivityFailureError: If the activity completed with a failure.
+            ActivityFailedError: If the activity completed with a failure.
             RPCError: Activity result could not be fetched for some reason.
         """
-        await self._poll_until_outcome(
-            rpc_metadata=rpc_metadata, rpc_timeout=rpc_timeout
-        )
-        data_converter = self._data_converter_override or self._client.data_converter
-        assert self._known_outcome
-        if self._known_outcome.HasField("failure"):
-            raise ActivityFailedError(
-                cause=await data_converter.decode_failure(self._known_outcome.failure),
+        if self._result_fetched:
+            return cast(ReturnType, self._cached_result)
+
+        result = await self._client._impl.get_activity_result(
+            GetActivityResultInput(
+                activity_id=self._activity_id,
+                activity_run_id=self._activity_run_id,
+                result_type=self._result_type,
+                rpc_metadata=rpc_metadata,
+                rpc_timeout=rpc_timeout,
             )
-        payloads = self._known_outcome.result
-        if not payloads.payloads:
-            # E.g. a void workflow function in another language may not set any payloads.
-            return None  # type: ignore
-        type_hints = [self._result_type] if self._result_type else None
-        results = await data_converter.decode(payloads.payloads, type_hints)
-        if not results:
-            # Following workflow/update/query result processing. Technically not necessary since
-            # from_payloads is documented to always return non-empty
-            return None  # type: ignore
-        elif len(results) > 1:
-            warnings.warn(f"Expected single activity result, got {len(results)}")
-        return results[0]
+        )
+        self._cached_result = result
+        self._result_fetched = True
+        return result
 
     async def _poll_until_outcome(
         self,
@@ -6792,6 +6787,21 @@ class DescribeActivityInput:
 
 
 @dataclass
+class GetActivityResultInput(Generic[ReturnType]):
+    """Input for :py:meth:`OutboundInterceptor.get_activity_result`.
+
+    .. warning::
+       This API is experimental.
+    """
+
+    activity_id: str
+    activity_run_id: str | None
+    result_type: Type[ReturnType] | None
+    rpc_metadata: Mapping[str, str | bytes]
+    rpc_timeout: timedelta | None
+
+
+@dataclass
 class ListActivitiesInput:
     """Input for :py:meth:`OutboundInterceptor.list_activities`.
 
@@ -7189,6 +7199,16 @@ class OutboundInterceptor:
            This API is experimental.
         """
         return await self.next.describe_activity(input)
+
+    async def get_activity_result(
+        self, input: GetActivityResultInput[ReturnType]
+    ) -> ReturnType:
+        """Called for every :py:meth:`ActivityHandle.result` call.
+
+        .. warning::
+           This API is experimental.
+        """
+        return await self.next.get_activity_result(input)
 
     def list_activities(
         self, input: ListActivitiesInput
@@ -7812,6 +7832,55 @@ class _ClientImpl(OutboundInterceptor):
                 )
             ),
         )
+
+    async def get_activity_result(
+        self, input: GetActivityResultInput[ReturnType]
+    ) -> ReturnType:
+        """Get the result of an activity."""
+        req = temporalio.api.workflowservice.v1.PollActivityExecutionRequest(
+            namespace=self._client.namespace,
+            activity_id=input.activity_id,
+            run_id=input.activity_run_id or "",
+        )
+
+        # Poll until we have an outcome
+        outcome: temporalio.api.activity.v1.ActivityExecutionOutcome | None = None
+        while outcome is None:
+            try:
+                res = await self._client.workflow_service.poll_activity_execution(
+                    req,
+                    retry=True,
+                    metadata=input.rpc_metadata,
+                    timeout=input.rpc_timeout,
+                )
+                if res.HasField("outcome"):
+                    outcome = res.outcome
+            except RPCError as err:
+                if err.status == RPCStatusCode.DEADLINE_EXCEEDED:
+                    # Deadline exceeded is expected with long polling; retry
+                    continue
+                elif err.status == RPCStatusCode.CANCELLED:
+                    raise asyncio.CancelledError() from err
+                else:
+                    raise
+            except asyncio.CancelledError:
+                raise
+
+        # Decode the outcome
+        data_converter = self._client.data_converter
+        if outcome.HasField("failure"):
+            raise ActivityFailedError(
+                cause=await data_converter.decode_failure(outcome.failure),
+            )
+
+        # Decode result
+        type_hints: list[Type] | None = (
+            [input.result_type] if input.result_type else None
+        )
+        results = await data_converter.decode(outcome.result.payloads, type_hints)
+        if not results:
+            return cast(ReturnType, None)
+        return cast(ReturnType, results[0])
 
     def list_activities(
         self, input: ListActivitiesInput
