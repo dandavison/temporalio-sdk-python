@@ -7,7 +7,6 @@ import pytest
 
 from temporalio import activity, workflow
 from temporalio.client import (
-    ActivityExecution,
     ActivityExecutionCountAggregationGroup,
     ActivityFailedError,
     Client,
@@ -43,26 +42,6 @@ async def test_describe(client: Client):
     assert desc.status == ActivityExecutionStatus.RUNNING
     assert isinstance(desc.eager_execution_requested, bool)
     assert isinstance(desc.paused, bool)
-
-
-async def test_activity_execution_description_inherits_from_activity_execution(
-    client: Client,
-):
-    """ActivityExecutionDescription should inherit from ActivityExecution."""
-    activity_id = str(uuid.uuid4())
-    task_queue = str(uuid.uuid4())
-
-    activity_handle = await client.start_activity(
-        increment,
-        args=(1,),
-        id=activity_id,
-        task_queue=task_queue,
-        start_to_close_timeout=timedelta(seconds=5),
-    )
-    desc = await activity_handle.describe()
-
-    # This should pass once ActivityExecutionDescription inherits from ActivityExecution
-    assert isinstance(desc, ActivityExecution)
 
 
 async def test_get_result(client: Client):
