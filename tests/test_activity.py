@@ -10,6 +10,8 @@ from temporalio.client import (
     ActivityExecutionCountAggregationGroup,
     ActivityFailedError,
     Client,
+    Interceptor,
+    OutboundInterceptor,
 )
 from temporalio.common import ActivityExecutionStatus
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -42,6 +44,95 @@ async def test_describe(client: Client):
     assert desc.status == ActivityExecutionStatus.RUNNING
     assert isinstance(desc.eager_execution_requested, bool)
     assert isinstance(desc.paused, bool)
+
+
+def test_get_activity_result_input_exists():
+    """GetActivityResultInput dataclass should be importable from temporalio.client."""
+    from temporalio.client import GetActivityResultInput
+
+    # Verify it has the expected fields per spec
+    assert hasattr(GetActivityResultInput, "__dataclass_fields__")
+    fields = GetActivityResultInput.__dataclass_fields__
+    assert "activity_id" in fields
+    assert "activity_run_id" in fields
+    assert "result_type" in fields
+    assert "rpc_metadata" in fields
+    assert "rpc_timeout" in fields
+
+
+def test_outbound_interceptor_has_get_activity_result_method():
+    """OutboundInterceptor should have a get_activity_result method."""
+    assert hasattr(OutboundInterceptor, "get_activity_result")
+    # Check it's a callable method
+    import inspect
+
+    assert inspect.isfunction(
+        OutboundInterceptor.get_activity_result
+    ) or inspect.ismethod(OutboundInterceptor.get_activity_result)
+
+
+class ActivityResultTracingInterceptor(Interceptor):
+    """Test interceptor that tracks get_activity_result calls."""
+
+    def __init__(self):
+        self.get_activity_result_calls: list = []
+
+    def intercept_client(self, next: OutboundInterceptor) -> OutboundInterceptor:
+        return ActivityResultTracingOutboundInterceptor(self, next)
+
+
+class ActivityResultTracingOutboundInterceptor(OutboundInterceptor):
+    def __init__(
+        self,
+        parent: ActivityResultTracingInterceptor,
+        next: OutboundInterceptor,
+    ) -> None:
+        super().__init__(next)
+        self._parent = parent
+
+    async def get_activity_result(self, input):
+        """Track calls to get_activity_result."""
+        from temporalio.client import GetActivityResultInput
+
+        assert isinstance(input, GetActivityResultInput)
+        self._parent.get_activity_result_calls.append(input)
+        return await super().get_activity_result(input)
+
+
+async def test_activity_result_calls_interceptor(client: Client):
+    """ActivityHandle.result() should call the get_activity_result interceptor."""
+    interceptor = ActivityResultTracingInterceptor()
+
+    # Create a new client with the interceptor
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    activity_handle = await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    async with Worker(
+        intercepted_client,
+        task_queue=task_queue,
+        activities=[increment],
+    ):
+        result = await activity_handle.result()
+        assert result == 2
+
+    # Verify interceptor was called
+    assert len(interceptor.get_activity_result_calls) == 1
+    call = interceptor.get_activity_result_calls[0]
+    assert call.activity_id == activity_id
 
 
 async def test_get_result(client: Client):
