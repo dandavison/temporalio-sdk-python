@@ -3443,7 +3443,10 @@ class ActivityExecution:
     namespace: str
     """Namespace of the activity (copied from calling client)."""
 
-    raw_info: temporalio.api.activity.v1.ActivityExecutionListInfo
+    raw_info: (
+        temporalio.api.activity.v1.ActivityExecutionListInfo
+        | temporalio.api.activity.v1.ActivityExecutionInfo
+    )
     """Underlying protobuf info."""
 
     scheduled_time: datetime
@@ -3557,21 +3560,12 @@ class ActivityExecutionCount:
 
 
 @dataclass(frozen=True)
-class ActivityExecutionDescription:
+class ActivityExecutionDescription(ActivityExecution):
     """Detailed information about an activity execution not started by a workflow.
 
     .. warning::
        This API is experimental.
     """
-
-    activity_id: str
-    """Activity ID."""
-
-    activity_run_id: str | None
-    """Run ID of the activity."""
-
-    activity_type: str
-    """Type name of the activity."""
 
     attempt: int
     """Current attempt number."""
@@ -3579,17 +3573,11 @@ class ActivityExecutionDescription:
     canceled_reason: str | None
     """Reason for cancellation, if cancel was requested."""
 
-    close_time: datetime | None
-    """Time the activity reached a terminal status, if closed."""
-
     current_retry_interval: timedelta | None
     """Time until the next retry, if applicable."""
 
     eager_execution_requested: bool
     """Whether eager execution was requested for this activity."""
-
-    execution_duration: timedelta | None
-    """Duration from scheduled to close time, only populated if closed."""
 
     expiration_time: datetime
     """Scheduled time plus schedule_to_close_timeout."""
@@ -3615,17 +3603,11 @@ class ActivityExecutionDescription:
     last_worker_identity: str
     """Identity of the last worker that processed the activity."""
 
-    namespace: str
-    """Namespace of the activity (copied from calling client)."""
-
     next_attempt_schedule_time: datetime | None
     """Time when the next attempt will be scheduled."""
 
     paused: bool
     """Whether the activity is paused."""
-
-    raw_info: Any
-    """Raw proto response."""
 
     retry_policy: temporalio.common.RetryPolicy | None
     """Retry policy for the activity."""
@@ -3633,27 +3615,15 @@ class ActivityExecutionDescription:
     run_state: temporalio.common.PendingActivityState | None
     """More detailed breakdown if status is RUNNING."""
 
-    scheduled_time: datetime
-    """Time the activity was originally scheduled."""
-
-    search_attributes: temporalio.common.SearchAttributes
-    """Search attributes."""
-
-    status: temporalio.common.ActivityExecutionStatus
-    """Current status of the activity."""
-
-    task_queue: str
-    """Task queue the activity is scheduled on."""
-
     @classmethod
-    async def _from_raw_info(
+    async def _from_execution_info(
         cls,
         info: temporalio.api.activity.v1.ActivityExecutionInfo,
         input: temporalio.api.common.v1.Payloads,
         namespace: str,
         data_converter: temporalio.converter.DataConverter,
     ) -> Self:
-        """Create from raw proto activity info."""
+        """Create from raw proto activity execution info."""
         return cls(
             activity_id=info.activity_id,
             activity_run_id=info.run_id or None,
@@ -3732,6 +3702,9 @@ class ActivityExecutionDescription:
             scheduled_time=(info.schedule_time.ToDatetime(tzinfo=timezone.utc)),
             search_attributes=temporalio.converter.decode_search_attributes(
                 info.search_attributes
+            ),
+            state_transition_count=(
+                info.state_transition_count if info.state_transition_count else None
             ),
             status=(
                 temporalio.common.ActivityExecutionStatus(info.status)
@@ -7828,7 +7801,7 @@ class _ClientImpl(OutboundInterceptor):
             metadata=input.rpc_metadata,
             timeout=input.rpc_timeout,
         )
-        return await ActivityExecutionDescription._from_raw_info(
+        return await ActivityExecutionDescription._from_execution_info(
             info=resp.info,
             input=resp.input,
             namespace=self._client.namespace,
