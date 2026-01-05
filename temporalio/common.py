@@ -191,7 +191,7 @@ class ActivityIDConflictPolicy(IntEnum):
 
 
 class ActivityExecutionStatus(IntEnum):
-    """Status of a standalone activity execution.
+    """Status of an activity execution.
 
     .. warning::
        This API is experimental.

@@ -1745,7 +1745,7 @@ class Client:
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ActivityExecutionAsyncIterator:
-        """List activities.
+        """List activities not started by a workflow.
 
         .. warning::
            This API is experimental.
@@ -1788,7 +1788,7 @@ class Client:
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ActivityExecutionCount:
-        """Count activities matching the query.
+        """Count activities not started by a workflow.
 
         .. warning::
            This API is experimental.
@@ -1833,6 +1833,8 @@ class Client:
         activity_run_id: str | None = None,
     ) -> ActivityHandle[Any]:
         """Get a handle to an existing activity, as the caller of that activity.
+
+        The activity must not have been started by a workflow.
 
         .. warning::
            This API is experimental.
@@ -1883,17 +1885,17 @@ class Client:
     ) -> AsyncActivityHandle:
         """Get a handle to an activity execution that you control, for manual completion and heartbeating.
 
-        To get a handle to a standalone activity execution as the caller of that activity, see
+        To get a handle to an activity execution as the caller of that activity, see
         :py:meth:`Client.get_activity_handle`.
 
-        This function may be used to get a handle to a standalone activity started by a client, or
+        This function may be used to get a handle to an activity started by a client, or
         an activity started by a workflow.
 
         To get a handle to an activity started by a workflow, use one of the following two calls:
         - Supply ``workflow_id``, ``run_id``, and ``activity_id``
         - Supply the activity ``task_token`` alone
 
-        To get a handle to a standalone activity started by a client, supply ``activity_id`` and
+        To get a handle to an activity not started by a workflow, supply ``activity_id`` and
         ``run_id``
 
 
@@ -3417,7 +3419,7 @@ class ActivityExecutionAsyncIterator:
 
 @dataclass(frozen=True)
 class ActivityExecution:
-    """Info for a standalone activity execution from list response.
+    """Info for an activity execution not started by a workflow, from list response.
 
     .. warning::
        This API is experimental.
@@ -3556,7 +3558,7 @@ class ActivityExecutionCount:
 
 @dataclass(frozen=True)
 class ActivityExecutionDescription:
-    """Detailed information about an activity execution from describe response.
+    """Detailed information about an activity execution not started by a workflow.
 
     .. warning::
        This API is experimental.
@@ -3898,7 +3900,7 @@ class AsyncActivityHandle(WithSerializationContext):
 # be generic in the activity type in addition to the return type (as WorkflowHandle), to support
 # static type inference for signal/query/update.
 class ActivityHandle(Generic[ReturnType]):
-    """Handle representing a standalone activity execution.
+    """Handle representing an activity execution not started by a workflow.
 
     .. warning::
        This API is experimental.
@@ -6569,7 +6571,7 @@ class WorkflowUpdateRPCTimeoutOrCancelledError(RPCTimeoutOrCancelledError):
 
 
 class ActivityFailedError(temporalio.exceptions.TemporalError):
-    """Error that occurs when a standalone activity is unsuccessful.
+    """Error that occurs when an activity is unsuccessful.
 
     .. warning::
        This API is experimental.
@@ -7779,7 +7781,7 @@ class _ClientImpl(OutboundInterceptor):
         return req
 
     async def cancel_activity(self, input: CancelActivityInput) -> None:
-        """Cancel a standalone activity."""
+        """Cancel an activity."""
         await self._client.workflow_service.request_cancel_activity_execution(
             temporalio.api.workflowservice.v1.RequestCancelActivityExecutionRequest(
                 namespace=self._client.namespace,
@@ -7795,7 +7797,7 @@ class _ClientImpl(OutboundInterceptor):
         )
 
     async def terminate_activity(self, input: TerminateActivityInput) -> None:
-        """Terminate a standalone activity."""
+        """Terminate an activity."""
         await self._client.workflow_service.terminate_activity_execution(
             temporalio.api.workflowservice.v1.TerminateActivityExecutionRequest(
                 namespace=self._client.namespace,
@@ -7812,7 +7814,7 @@ class _ClientImpl(OutboundInterceptor):
     async def describe_activity(
         self, input: DescribeActivityInput
     ) -> ActivityExecutionDescription:
-        """Describe a standalone activity."""
+        """Describe an activity."""
         resp = await self._client.workflow_service.describe_activity_execution(
             temporalio.api.workflowservice.v1.DescribeActivityExecutionRequest(
                 namespace=self._client.namespace,
@@ -7831,7 +7833,7 @@ class _ClientImpl(OutboundInterceptor):
             data_converter=self._client.data_converter.with_context(
                 WorkflowSerializationContext(
                     namespace=self._client.namespace,
-                    workflow_id=input.activity_id,  # Using activity_id as workflow_id for standalone activities
+                    workflow_id=input.activity_id,  # Using activity_id as workflow_id for activities not started by a workflow
                 )
             ),
         )

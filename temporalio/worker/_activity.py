@@ -547,8 +547,7 @@ class _ActivityWorker:
             ) from err
 
         # Build info
-        # Determine if this is a standalone activity
-        is_standalone = not start.workflow_execution.workflow_id
+        started_by_workflow = bool(start.workflow_execution.workflow_id)
         info = temporalio.activity.Info(
             activity_id=start.activity_id,
             activity_type=start.activity_type,
@@ -584,7 +583,9 @@ class _ActivityWorker:
             retry_policy=temporalio.common.RetryPolicy.from_proto(start.retry_policy)
             if start.HasField("retry_policy")
             else None,
-            activity_run_id=getattr(start, "run_id", None) if is_standalone else None,
+            activity_run_id=getattr(start, "run_id", None)
+            if not started_by_workflow
+            else None,
         )
 
         if self._encode_headers and data_converter.payload_codec is not None:

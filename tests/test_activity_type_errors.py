@@ -1,6 +1,6 @@
 """
 This file exists to test for type-checker false positives and false negatives
-for the standalone activity client API.
+for the activity client API.
 
 It doesn't contain any test functions - it uses the machinery in test_type_errors.py
 to verify that pyright produces the expected errors.
