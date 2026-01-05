@@ -98,21 +98,7 @@ class ActivityExecutionDescription(ActivityExecution):
 
 ---
 
-## 4. `ActivityExecutionDescription.retry_policy` Should Be Optional
-
-**Spec Section:** 1
-**Location:** `temporalio/client.py`, line ~3628
-
-**Spec says:** `retry_policy: Optional[temporalio.common.RetryPolicy]`
-**Current:** `retry_policy: temporalio.common.RetryPolicy` (not Optional)
-
-### Tasks:
-- [ ] Change type to `temporalio.common.RetryPolicy | None`
-- [ ] Update `_from_raw_info` to handle None case
-
----
-
-## 5. Evaluate `input` Field in `ActivityExecutionDescription`
+## 4. Evaluate `input` Field in `ActivityExecutionDescription`
 
 **Spec Section:** 1
 **Location:** `temporalio/client.py`, line ~3598
@@ -126,62 +112,10 @@ class ActivityExecutionDescription(ActivityExecution):
 
 ---
 
-## 6. Fix Typo in `activity.Info.workflow_id` Docstring
-
-**Spec Section:** 4.A
-**Location:** `temporalio/activity.py`, line 117
-
-**Current:**
-```python
-workflow_id: str | None
-"""ID of the workflow, if the activity was started by an workflow."""
-```
-
-**Should be:**
-```python
-workflow_id: str | None
-"""ID of the workflow, if the activity was started by a workflow."""
-```
-
-### Tasks:
-- [ ] Fix "an workflow" → "a workflow"
-
----
-
-## 7. Map `ActivityExecutionStatus` to Proto Enum Constants
-
-**Spec Section:** 1
-**Location:** `temporalio/common.py`, lines 193-208
-
-**Spec says:** Maps to `temporalio.api.enums.v1.ActivityExecutionStatus`
-
-**Current:** Uses hardcoded integer values:
-```python
-UNSPECIFIED = 0
-RUNNING = 1
-COMPLETED = 2
-# etc.
-```
-
-**Should be (if proto enum available):**
-```python
-UNSPECIFIED = int(
-    temporalio.api.enums.v1.ActivityExecutionStatus.ACTIVITY_EXECUTION_STATUS_UNSPECIFIED
-)
-# etc.
-```
-
-### Tasks:
-- [ ] Check if `temporalio.api.enums.v1.ActivityExecutionStatus` proto enum exists
-- [ ] If yes, update to use proto enum constants like other enums in the file
-- [ ] If not available yet, document as known limitation
-
----
-
 ## Implementation Notes
 
 ### Already Correctly Implemented ✅
-- `ActivityIDReusePolicy`, `ActivityIDConflictPolicy`, `ActivityExecutionStatus` enums
+- `ActivityIDReusePolicy`, `ActivityIDConflictPolicy`, `ActivityExecutionStatus` enums (mapped to proto constants)
 - `ActivityHandle` class with all methods
 - `ActivityExecution`, `ActivityExecutionAsyncIterator`, `ActivityExecutionCount` classes
 - `list_activities`, `count_activities`, `get_activity_handle` in `Client`
@@ -192,6 +126,7 @@ UNSPECIFIED = int(
 - `AsyncActivityIDReference` workflow_id optionality
 - `PendingActivityState` enum
 - `ActivityFailedError` exception
+- `ActivityExecutionDescription.retry_policy` is Optional
 
 ### Test Coverage
 - Tests exist in `tests/test_activity.py` covering:
@@ -207,4 +142,3 @@ UNSPECIFIED = int(
 - `temporalio/common.py` - Enum mapping
 - `temporalio/activity.py` - Docstring fix
 - `tests/test_activity_type_errors.py` - Type checking tests for new methods
-
