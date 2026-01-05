@@ -7,11 +7,20 @@ import pytest
 
 from temporalio import activity, workflow
 from temporalio.client import (
+    ActivityExecutionCount,
     ActivityExecutionCountAggregationGroup,
+    ActivityExecutionDescription,
     ActivityFailedError,
+    CancelActivityInput,
     Client,
+    CountActivitiesInput,
+    DescribeActivityInput,
+    GetActivityResultInput,
     Interceptor,
+    ListActivitiesInput,
     OutboundInterceptor,
+    StartActivityInput,
+    TerminateActivityInput,
 )
 from temporalio.common import ActivityExecutionStatus
 from temporalio.exceptions import ApplicationError, CancelledError
@@ -48,8 +57,6 @@ async def test_describe(client: Client):
 
 def test_get_activity_result_input_exists():
     """GetActivityResultInput dataclass should be importable from temporalio.client."""
-    from temporalio.client import GetActivityResultInput
-
     # Verify it has the expected fields per spec
     assert hasattr(GetActivityResultInput, "__dataclass_fields__")
     fields = GetActivityResultInput.__dataclass_fields__
@@ -71,39 +78,97 @@ def test_outbound_interceptor_has_get_activity_result_method():
     ) or inspect.ismethod(OutboundInterceptor.get_activity_result)
 
 
-class ActivityResultTracingInterceptor(Interceptor):
-    """Test interceptor that tracks get_activity_result calls."""
+class ActivityTracingInterceptor(Interceptor):
+    """Test interceptor that tracks all activity interceptor calls."""
 
     def __init__(self):
-        self.get_activity_result_calls: list = []
+        self.start_activity_calls: list[StartActivityInput] = []
+        self.get_activity_result_calls: list[GetActivityResultInput] = []
+        self.describe_activity_calls: list[DescribeActivityInput] = []
+        self.cancel_activity_calls: list[CancelActivityInput] = []
+        self.terminate_activity_calls: list[TerminateActivityInput] = []
+        self.list_activities_calls: list[ListActivitiesInput] = []
+        self.count_activities_calls: list[CountActivitiesInput] = []
 
     def intercept_client(self, next: OutboundInterceptor) -> OutboundInterceptor:
-        return ActivityResultTracingOutboundInterceptor(self, next)
+        return ActivityTracingOutboundInterceptor(self, next)
 
 
-class ActivityResultTracingOutboundInterceptor(OutboundInterceptor):
+class ActivityTracingOutboundInterceptor(OutboundInterceptor):
     def __init__(
         self,
-        parent: ActivityResultTracingInterceptor,
+        parent: ActivityTracingInterceptor,
         next: OutboundInterceptor,
     ) -> None:
         super().__init__(next)
         self._parent = parent
 
-    async def get_activity_result(self, input):
-        """Track calls to get_activity_result."""
-        from temporalio.client import GetActivityResultInput
+    async def start_activity(self, input: StartActivityInput):
+        assert isinstance(input, StartActivityInput)
+        self._parent.start_activity_calls.append(input)
+        return await super().start_activity(input)
 
+    async def get_activity_result(self, input: GetActivityResultInput):
         assert isinstance(input, GetActivityResultInput)
         self._parent.get_activity_result_calls.append(input)
         return await super().get_activity_result(input)
 
+    async def describe_activity(self, input: DescribeActivityInput):
+        assert isinstance(input, DescribeActivityInput)
+        self._parent.describe_activity_calls.append(input)
+        return await super().describe_activity(input)
 
-async def test_activity_result_calls_interceptor(client: Client):
+    async def cancel_activity(self, input: CancelActivityInput):
+        assert isinstance(input, CancelActivityInput)
+        self._parent.cancel_activity_calls.append(input)
+        return await super().cancel_activity(input)
+
+    async def terminate_activity(self, input: TerminateActivityInput):
+        assert isinstance(input, TerminateActivityInput)
+        self._parent.terminate_activity_calls.append(input)
+        return await super().terminate_activity(input)
+
+    def list_activities(self, input: ListActivitiesInput):
+        assert isinstance(input, ListActivitiesInput)
+        self._parent.list_activities_calls.append(input)
+        return super().list_activities(input)
+
+    async def count_activities(self, input: CountActivitiesInput):
+        assert isinstance(input, CountActivitiesInput)
+        self._parent.count_activities_calls.append(input)
+        return await super().count_activities(input)
+
+
+async def test_start_activity_calls_interceptor(client: Client):
+    """Client.start_activity() should call the start_activity interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    assert len(interceptor.start_activity_calls) == 1
+    call = interceptor.start_activity_calls[0]
+    assert call.id == activity_id
+    assert call.task_queue == task_queue
+    assert call.activity_type == "increment"
+
+
+async def test_get_activity_result_calls_interceptor(client: Client):
     """ActivityHandle.result() should call the get_activity_result interceptor."""
-    interceptor = ActivityResultTracingInterceptor()
-
-    # Create a new client with the interceptor
+    interceptor = ActivityTracingInterceptor()
     intercepted_client = Client(
         service_client=client.service_client,
         namespace=client.namespace,
@@ -129,10 +194,151 @@ async def test_activity_result_calls_interceptor(client: Client):
         result = await activity_handle.result()
         assert result == 2
 
-    # Verify interceptor was called
     assert len(interceptor.get_activity_result_calls) == 1
     call = interceptor.get_activity_result_calls[0]
     assert call.activity_id == activity_id
+
+
+async def test_describe_activity_calls_interceptor(client: Client):
+    """ActivityHandle.describe() should call the describe_activity interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    activity_handle = await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    desc = await activity_handle.describe()
+    assert isinstance(desc, ActivityExecutionDescription)
+
+    assert len(interceptor.describe_activity_calls) == 1
+    call = interceptor.describe_activity_calls[0]
+    assert call.activity_id == activity_id
+
+
+async def test_cancel_activity_calls_interceptor(client: Client):
+    """ActivityHandle.cancel() should call the cancel_activity interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    activity_handle = await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    await activity_handle.cancel(reason="test cancellation")
+
+    assert len(interceptor.cancel_activity_calls) == 1
+    call = interceptor.cancel_activity_calls[0]
+    assert call.activity_id == activity_id
+    assert call.reason == "test cancellation"
+
+
+async def test_terminate_activity_calls_interceptor(client: Client):
+    """ActivityHandle.terminate() should call the terminate_activity interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    activity_handle = await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    await activity_handle.terminate(reason="test termination")
+
+    assert len(interceptor.terminate_activity_calls) == 1
+    call = interceptor.terminate_activity_calls[0]
+    assert call.activity_id == activity_id
+    assert call.reason == "test termination"
+
+
+async def test_list_activities_calls_interceptor(client: Client):
+    """Client.list_activities() should call the list_activities interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    query = f'ActivityId = "{activity_id}"'
+    async for _ in intercepted_client.list_activities(query):
+        pass
+
+    assert len(interceptor.list_activities_calls) >= 1
+    call = interceptor.list_activities_calls[0]
+    assert call.query == query
+
+
+async def test_count_activities_calls_interceptor(client: Client):
+    """Client.count_activities() should call the count_activities interceptor."""
+    interceptor = ActivityTracingInterceptor()
+    intercepted_client = Client(
+        service_client=client.service_client,
+        namespace=client.namespace,
+        interceptors=[interceptor],
+    )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+
+    await intercepted_client.start_activity(
+        increment,
+        args=(1,),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=5),
+    )
+
+    query = f'ActivityId = "{activity_id}"'
+    count = await intercepted_client.count_activities(query)
+    assert isinstance(count, ActivityExecutionCount)
+
+    assert len(interceptor.count_activities_calls) == 1
+    call = interceptor.count_activities_calls[0]
+    assert call.query == query
 
 
 async def test_get_result(client: Client):
