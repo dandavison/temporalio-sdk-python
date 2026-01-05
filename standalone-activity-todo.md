@@ -28,51 +28,7 @@ Comparison of spec (cross-sdk-design.md, Python section) against current PR impl
 
 ---
 
-## 2. Missing Interceptor Method & Input Class
-
-**Spec Section:** 3
-**Location:** `temporalio/client.py`
-
-### 2.1 Add `get_activity_result` to `OutboundInterceptor`
-- [ ] Add method to `OutboundInterceptor` class (around line 7165+)
-
-```python
-async def get_activity_result(
-    self, input: GetActivityResultInput[ReturnType]
-) -> ReturnType:
-    """Called for every :py:meth:`ActivityHandle.result` call.
-
-    .. warning::
-       This API is experimental.
-    """
-    return await self.next.get_activity_result(input)
-```
-
-### 2.2 Add `GetActivityResultInput` dataclass
-- [ ] Add dataclass near other activity input classes (around line 6800+)
-
-```python
-@dataclass
-class GetActivityResultInput(Generic[ReturnType]):
-    """Input for :py:meth:`OutboundInterceptor.get_activity_result`.
-
-    .. warning::
-       This API is experimental.
-    """
-
-    activity_id: str
-    activity_run_id: str | None
-    result_type: Type[ReturnType]
-    rpc_metadata: Mapping[str, str | bytes]
-    rpc_timeout: timedelta | None
-```
-
-- [ ] Update `ActivityHandle.result()` to use the interceptor
-- [ ] Add implementation in `_ClientImpl`
-
----
-
-## 3. Evaluate `input` Field in `ActivityExecutionDescription`
+## 2. Evaluate `input` Field in `ActivityExecutionDescription`
 
 **Spec Section:** 1
 **Location:** `temporalio/client.py`, line ~3598
@@ -95,8 +51,8 @@ class GetActivityResultInput(Generic[ReturnType]):
 - `ActivityExecutionDescription` inherits from `ActivityExecution`
 - `list_activities`, `count_activities`, `get_activity_handle` in `Client`
 - `start_activity`, `execute_activity` in `Client`
-- Interceptor methods: `start_activity`, `cancel_activity`, `terminate_activity`, `describe_activity`, `list_activities`, `count_activities`
-- Input classes: `StartActivityInput`, `CancelActivityInput`, `TerminateActivityInput`, `DescribeActivityInput`, `ListActivitiesInput`, `CountActivitiesInput`
+- Interceptor methods: `start_activity`, `cancel_activity`, `terminate_activity`, `describe_activity`, `get_activity_result`, `list_activities`, `count_activities`
+- Input classes: `StartActivityInput`, `CancelActivityInput`, `TerminateActivityInput`, `DescribeActivityInput`, `GetActivityResultInput`, `ListActivitiesInput`, `CountActivitiesInput`
 - `activity.Info` changes: `namespace`, `activity_run_id`, `in_workflow` property
 - `AsyncActivityIDReference` workflow_id optionality
 - `PendingActivityState` enum
@@ -112,6 +68,7 @@ class GetActivityResultInput(Generic[ReturnType]):
   - search_attributes, retry_policy
   - terminate
   - ActivityExecutionDescription inherits from ActivityExecution
+  - get_activity_result interceptor
 
 ### Related Files to Update
 - `temporalio/client.py` - Main implementation
