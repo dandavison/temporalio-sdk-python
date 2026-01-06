@@ -7,6 +7,23 @@ This document provides links comparing the new client-side activity API with the
 
 ---
 
+## Important Context
+
+**This is not a greenfield design.** The differences documented here fall into several categories:
+
+1. **Fundamentally different** - Genuinely different requirements (e.g., RPC vs workflow commands)
+2. **Incrementally different** - Different today but likely to converge as CHASM unifies activity execution
+3. **Constrained by history** - Different because changing the existing workflow API would break users
+4. **Open questions** - Differences that may need resolution as the system evolves
+
+### Future Considerations
+
+- **Visibility for workflow activities**: List/count operations are currently client-only, but visibility queries for workflow-started activities are a natural future feature.
+- **CHASM unification**: As all activities move to CHASM, the underlying execution model will unify. This may surface API inconsistencies that need addressing.
+- **Activity ID space**: Currently, standalone activities have explicit IDs while workflow activities auto-generate from sequence numbers. Whether these share a namespace, and what happens when visibility spans both, is an open question.
+
+---
+
 ## 1. Start/Execute Activity (Functions)
 
 Start an activity by passing an activity function reference. Returns a handle (`start_activity`) or awaits result (`execute_activity`).
@@ -19,16 +36,16 @@ Start an activity by passing an activity function reference. Returns a handle (`
 
 ### Difference Analysis
 
-| Parameter | Workflow | Client | Intentional? |
-|-----------|----------|--------|--------------|
-| `id` / `activity_id` | Optional (`activity_id: str \| None = None`) | **Required** (`id: str`) | ✅ **Yes**: Workflow activities can auto-generate IDs from workflow history; standalone activities need explicit IDs since there's no workflow context. |
-| `task_queue` | Optional (defaults to workflow's task queue) | **Required** | ✅ **Yes**: Workflows have an inherent task queue; standalone activities have no default. |
-| `id_reuse_policy` | Not present | Present with default `ALLOW_DUPLICATE` | ✅ **Yes**: Standalone activities support reusing IDs from closed activities; workflow activities are scoped to the workflow. |
-| `id_conflict_policy` | Not present | Present with default `FAIL` | ✅ **Yes**: Standalone activities can conflict with running activities; workflow activities have unique IDs per workflow. |
-| `search_attributes` | Not present | Present | ✅ **Yes**: Standalone activities are top-level entities visible in Temporal UI/CLI and need search attributes. |
-| `cancellation_type` | Present | Not present | ✅ **Yes**: Workflow activities need to specify how cancellation is handled in the deterministic workflow context. |
-| `versioning_intent` | Present (deprecated) | Not present | ✅ **Yes**: Only relevant for Worker Versioning in workflow contexts. |
-| `rpc_metadata` / `rpc_timeout` | Not present | Present | ✅ **Yes**: Client calls are direct RPC; workflow scheduling is through commands. |
+| Parameter | Workflow | Client | Category |
+|-----------|----------|--------|----------|
+| `id` / `activity_id` | Optional (`activity_id: str \| None = None`), auto-generates `"1"`, `"2"`, ... from sequence | **Required** (`id: str`) | **Constrained by history**: Workflow API has always auto-generated IDs. Changing to required would break existing code. Standalone has no history to generate from. ⚠️ **Open question**: Do these share an ID namespace? What happens when listing activities returns both? |
+| `task_queue` | Optional (defaults to workflow's task queue) | **Required** | **Fundamentally different**: Workflows have an inherent task queue; standalone activities don't. |
+| `id_reuse_policy` | Not present | Present with default `ALLOW_DUPLICATE` | **Open question**: Will workflow activities eventually support this for consistency? Currently, workflow activities get unique IDs per workflow execution. |
+| `id_conflict_policy` | Not present | Present with default `FAIL` | **Open question**: Same as above - may be needed if/when workflow activity IDs become more explicit. |
+| `search_attributes` | Not present | Present | **Incrementally different**: Workflow activities will likely gain visibility/search attributes as CHASM unifies the model. |
+| `cancellation_type` | Present | Not present | **Fundamentally different**: Workflow cancellation semantics (TRY_CANCEL, WAIT_CANCELLATION_COMPLETED, ABANDON) are about deterministic replay behavior. Standalone activities have different cancellation semantics. |
+| `versioning_intent` | Present (deprecated) | Not present | **Fundamentally different**: Worker Versioning is workflow-specific (deprecated anyway). |
+| `rpc_metadata` / `rpc_timeout` | Not present | Present | **Fundamentally different**: Client calls are direct RPC; workflow scheduling is through commands. |
 
 ---
 
@@ -79,16 +96,15 @@ Handle to an activity execution for awaiting result, cancelling, describing, etc
 
 ### Difference Analysis
 
-| Aspect | Workflow | Client | Intentional? |
-|--------|----------|--------|--------------|
-| Base class | Extends `asyncio.Task` (awaitable directly) | Generic class with explicit `result()` method | ✅ **Yes**: Workflow activities integrate with the deterministic event loop and can be awaited directly. Client activities need explicit polling via RPC. |
-| Result retrieval | `await handle` | `await handle.result()` | ✅ **Yes**: Different execution models require different APIs. |
-| `activity_run_id` property | Not present | Present | ✅ **Yes**: Standalone activities have run IDs; workflow activities don't track this. |
-| `cancel()` method | Simple `cancel()` | Rich `cancel(reason, wait_for_cancel_completed, ...)` | ✅ **Yes**: Client can wait for cancellation since it's non-deterministic; workflow cancellation must be immediate for replay. |
-| `terminate()` method | Not present | Present | ✅ **Yes**: Only standalone activities support explicit termination. |
-| `describe()` method | Not present | Present | ✅ **Yes**: Standalone activities are first-class entities that can be described. |
-| `with_context()` method | Not present | Present | ✅ **Yes**: Allows setting serialization context for data converter customization. |
-| Result caching | N/A (event loop managed) | Explicit `_cached_result` / `_result_fetched` | ✅ **Yes**: Client needs to cache to avoid repeated RPC calls. |
+| Aspect | Workflow | Client | Category |
+|--------|----------|--------|----------|
+| Base class | Extends `asyncio.Task` (awaitable directly) | Generic class with explicit `result()` method | **Fundamentally different**: Workflow activities integrate with the deterministic event loop. Client activities poll via RPC. |
+| Result retrieval | `await handle` | `await handle.result()` | **Constrained by history**: Workflow API is established. Different execution models make unification difficult. |
+| `activity_run_id` property | Not present | Present | **Incrementally different**: Workflow activities may gain run IDs as CHASM unifies. |
+| `cancel()` method | Simple `cancel()` | Rich `cancel(reason, wait_for_cancel_completed, ...)` | **Fundamentally different** (sort of): Workflow cancellation must be immediate for replay. But `reason` could potentially be added to workflow cancel. |
+| `terminate()` method | Not present | Present | **Open question**: Could workflow-started activities be terminated externally via client? This is more about what operations are available where. |
+| `describe()` method | Not present | Present | **Incrementally different**: Describe for workflow activities would make sense once they're in visibility. |
+| Result caching | N/A (event loop managed) | Explicit `_cached_result` / `_result_fetched` | **Fundamentally different**: Different execution models. |
 
 ---
 
@@ -108,9 +124,14 @@ Query activity executions by visibility query.
 
 ### Difference Analysis
 
-✅ **Intentionally client-only**: Listing and counting are visibility/query operations that don't make sense in a workflow context. Workflows know about their own activities through their event history, not via queries.
+**Incrementally different**: Currently client-only because standalone activities are being added to visibility first.
 
-These APIs mirror the existing `Client.list_workflows()` and `Client.count_workflows()` patterns.
+⚠️ **Future consideration**: Visibility queries for workflow-started activities are a natural evolution. When this happens:
+- Will the same `list_activities()` / `count_activities()` APIs return both?
+- Will there be a way to filter by "started by workflow" vs "standalone"?
+- How will activity ID collisions between workflow activities (auto-generated `"1"`, `"2"`) and standalone activities (user-provided) be handled in query results?
+
+These APIs mirror `Client.list_workflows()` / `Client.count_workflows()` patterns.
 
 ---
 
@@ -126,9 +147,9 @@ Get detailed information about an activity execution.
 
 ### Difference Analysis
 
-✅ **Intentionally client-only**: Describe is a visibility operation. Workflows access activity status through event history, not via describe calls.
+**Incrementally different**: Currently client-only, but describing workflow-started activities would make sense once they're in visibility.
 
-This API mirrors `WorkflowHandle.describe()`.
+⚠️ **Future consideration**: Will `ActivityExecutionDescription` need additional fields to indicate whether the activity was started by a workflow vs standalone?
 
 ---
 
@@ -143,12 +164,12 @@ Request cancellation of an activity execution.
 
 ### Difference Analysis
 
-| Aspect | Workflow | Client | Intentional? |
-|--------|----------|--------|--------------|
-| Method signature | `cancel()` (no parameters) | `cancel(reason, wait_for_cancel_completed, rpc_metadata, rpc_timeout)` | ✅ **Yes** |
-| `reason` parameter | Not present | Present | ✅ **Yes**: Standalone cancellation can record a reason for visibility. |
-| `wait_for_cancel_completed` | Not present | Present | ✅ **Yes**: Client can block until cancellation completes; workflows cannot block for determinism. |
-| RPC options | Not present | `rpc_metadata`, `rpc_timeout` | ✅ **Yes**: Client calls are direct RPC. |
+| Aspect | Workflow | Client | Category |
+|--------|----------|--------|----------|
+| Method signature | `cancel()` (no parameters) | `cancel(reason, wait_for_cancel_completed, rpc_metadata, rpc_timeout)` | Mixed |
+| `reason` parameter | Not present | Present | **Could potentially align**: A reason could be useful for workflow cancellation too. |
+| `wait_for_cancel_completed` | Not present | Present | **Fundamentally different**: Workflows cannot block for determinism. |
+| RPC options | Not present | `rpc_metadata`, `rpc_timeout` | **Fundamentally different**: Client calls are direct RPC. |
 
 ---
 
@@ -163,7 +184,9 @@ Forcefully terminate an activity execution (client-only, no workflow equivalent)
 
 ### Difference Analysis
 
-✅ **Intentionally client-only**: Termination is an immediate, forceful stop that doesn't give the activity code a chance to clean up. Workflows schedule activities through commands and use cancellation semantics; termination is an external administrative action.
+**Open question**: Is this truly "client-only" or just "not available from within workflow code"?
+
+Consider: Could a client terminate a workflow-started activity? The current design assumes no, but this could be an administrative operation like `WorkflowHandle.terminate()`.
 
 This mirrors `WorkflowHandle.terminate()`.
 
@@ -183,7 +206,7 @@ Complete/fail/heartbeat an activity asynchronously from outside the activity exe
 
 ### Difference Analysis
 
-✅ **Same API**: The existing `AsyncActivityHandle` for async completion works for both workflow-started and standalone activities. No changes needed because async completion is already a client-side operation that works with task tokens.
+**Same API**: The existing `AsyncActivityHandle` for async completion works for both workflow-started and standalone activities. This is one area where the APIs are already unified because async completion is inherently a client-side operation working with task tokens.
 
 ---
 
@@ -214,21 +237,21 @@ Intercept client-side activity operations.
 
 **`StartActivityInput` differences:**
 
-| Field | Workflow Interceptor | Client Interceptor | Intentional? |
-|-------|---------------------|-------------------|--------------|
-| `activity` vs `activity_type` | `activity: str` | `activity_type: str` | ⚠️ **Naming inconsistency**: Consider aligning field names. |
-| `activity_id` vs `id` | `activity_id: str \| None` | `id: str` (required) | ✅ **Yes**: Different requirements (see Section 1). |
-| `task_queue` | `str \| None` | `str` (required) | ✅ **Yes**: Different defaults. |
-| `cancellation_type` | Present | Not present | ✅ **Yes**: Workflow-specific. |
-| `disable_eager_execution` | Present | Not present | ✅ **Yes**: Workflow-specific optimization. |
-| `versioning_intent` | Present | Not present | ✅ **Yes**: Workflow versioning specific. |
-| `id_reuse_policy` | Not present | Present | ✅ **Yes**: Standalone-specific. |
-| `id_conflict_policy` | Not present | Present | ✅ **Yes**: Standalone-specific. |
-| `search_attributes` | Not present | Present | ✅ **Yes**: Standalone activities are visible entities. |
-| `rpc_metadata` / `rpc_timeout` | Not present | Present | ✅ **Yes**: Client calls are direct RPC. |
+| Field | Workflow Interceptor | Client Interceptor | Category |
+|-------|---------------------|-------------------|----------|
+| `activity` vs `activity_type` | `activity: str` | `activity_type: str` | ⚠️ **Naming inconsistency**: Should align. |
+| `activity_id` vs `id` | `activity_id: str \| None` | `id: str` (required) | **Constrained by history**: Can't change workflow API. |
+| `task_queue` | `str \| None` | `str` (required) | **Fundamentally different**: Different defaults. |
+| `cancellation_type` | Present | Not present | **Fundamentally different**: Workflow-specific. |
+| `disable_eager_execution` | Present | Not present | **Fundamentally different**: Workflow-specific optimization. |
+| `versioning_intent` | Present | Not present | **Fundamentally different**: Workflow versioning specific. |
+| `id_reuse_policy` | Not present | Present | **Open question**: May need to align as CHASM unifies. |
+| `id_conflict_policy` | Not present | Present | **Open question**: Same as above. |
+| `search_attributes` | Not present | Present | **Incrementally different**: Workflow activities may gain this. |
+| `rpc_metadata` / `rpc_timeout` | Not present | Present | **Fundamentally different**: Client calls are direct RPC. |
 | `arg_types` / `ret_type` | Present | Not present | ⚠️ **Review**: Consider adding for type consistency. |
 
-**Additional client-side interceptors** (all intentionally new):
+**Additional client-side interceptors**: These are new operations that may eventually apply to workflow-started activities too:
 - `GetActivityResultInput` / `get_activity_result` - For polling results
 - `CancelActivityInput` / `cancel_activity` - For cancellation
 - `TerminateActivityInput` / `terminate_activity` - For termination
@@ -253,13 +276,13 @@ Information available within a running activity. Updated to support activities n
 
 ### Difference Analysis
 
-| Field | Before | After | Intentional? |
-|-------|--------|-------|--------------|
-| `workflow_id` | `str` (always set) | `str \| None` | ✅ **Yes**: Standalone activities don't have a parent workflow. |
-| `workflow_run_id` | `str` (always set) | `str \| None` | ✅ **Yes**: Same reason. |
-| `workflow_type` | `str` (always set) | `str \| None` | ✅ **Yes**: Same reason. |
-| `activity_run_id` | Not present | `str \| None = None` | ✅ **Yes**: Standalone activities have their own run ID. None for workflow activities. |
-| `in_workflow` property | Not present | Added | ✅ **Yes**: Convenience property to check `workflow_id is not None`. |
+| Field | Before | After | Category |
+|-------|--------|-------|----------|
+| `workflow_id` | `str` (always set) | `str \| None` | **Necessary change**: Standalone activities don't have a parent workflow. |
+| `workflow_run_id` | `str` (always set) | `str \| None` | **Necessary change**: Same reason. |
+| `workflow_type` | `str` (always set) | `str \| None` | **Necessary change**: Same reason. |
+| `activity_run_id` | Not present | `str \| None = None` | **Open question**: Why is this None for workflow activities? As CHASM unifies, will workflow activities gain run IDs? |
+| `in_workflow` property | Not present | Added | **Pragmatic addition**: Convenience for the breaking type change. |
 
 ⚠️ **Breaking change note**: Existing code that assumes `workflow_id` is always set will need to handle `None`. The `in_workflow` property provides a clean way to check.
 
@@ -279,13 +302,12 @@ Enums for activity ID policies and execution status.
 
 ### Difference Analysis
 
-✅ **Intentionally new enums for standalone activities**:
+**Currently standalone-only**, mirroring workflow equivalents:
+- `ActivityIDReusePolicy` - Mirrors `WorkflowIDReusePolicy`
+- `ActivityIDConflictPolicy` - Mirrors `WorkflowIDConflictPolicy`
+- `ActivityExecutionStatus` - Mirrors `WorkflowExecutionStatus`
 
-- `ActivityIDReusePolicy` - Mirrors `WorkflowIDReusePolicy` for workflow IDs
-- `ActivityIDConflictPolicy` - Mirrors `WorkflowIDConflictPolicy` for workflow IDs
-- `ActivityExecutionStatus` - Mirrors `WorkflowExecutionStatus` for workflow status
-
-These follow the same patterns as the existing workflow equivalents.
+⚠️ **Open question**: As CHASM unifies and workflow activities potentially get explicit IDs (or share visibility), will these policies apply to both?
 
 ---
 
@@ -299,25 +321,41 @@ Static type checking tests for overload type inference.
 
 ### Difference Analysis
 
-✅ **New test file**: Tests pyright type inference for the new client-side activity API overloads. Ensures type safety for function, class, and method activity patterns.
+**New test file**: Tests pyright type inference for the new client-side activity API overloads.
 
 ---
 
-## Summary of All Differences
+## Summary
 
-### Intentional Differences (by design)
+### Fundamentally Different (unlikely to converge)
 
-1. **Required vs optional parameters**: Client requires explicit `id` and `task_queue` since there's no workflow context to provide defaults.
-2. **ID policies**: Client adds `id_reuse_policy` and `id_conflict_policy` since standalone activities are independent entities.
-3. **Search attributes**: Client supports search attributes since standalone activities appear in visibility.
-4. **RPC options**: Client exposes `rpc_metadata` and `rpc_timeout` since calls are direct RPC.
-5. **No cancellation_type/versioning_intent**: These are workflow-specific concepts.
-6. **Rich handle operations**: Client handle has `result()`, `cancel()`, `terminate()`, `describe()` since it's not integrated with an event loop.
-7. **List/count/describe operations**: Client-only visibility operations.
-8. **Activity Info changes**: Workflow fields are now optional; `activity_run_id` and `in_workflow` added.
+1. **RPC vs commands**: Client calls are direct RPC with `rpc_metadata`/`rpc_timeout`; workflow scheduling is through deterministic commands.
+2. **Cancellation semantics**: `cancellation_type` (TRY_CANCEL, WAIT_CANCELLATION_COMPLETED, ABANDON) is about workflow replay behavior; standalone cancellation is different.
+3. **Handle as asyncio.Task**: Workflow handles extend `asyncio.Task` for deterministic event loop integration; client handles cannot.
+4. **`wait_for_cancel_completed`**: Workflows cannot block waiting for cancellation; clients can.
 
-### Items to Review
+### Constrained by History (can't easily change)
 
-1. ⚠️ **Naming**: `activity` vs `activity_type` in interceptor inputs - consider alignment.
+1. **`activity_id` optional vs `id` required**: Workflow API has always auto-generated IDs (`"1"`, `"2"`, ...). Can't make required without breaking users.
+2. **`task_queue` optional vs required**: Workflow API defaults to workflow's task queue. Can't remove default.
+3. **Field naming**: `activity` vs `activity_type`, `activity_id` vs `id` in interceptors.
+
+### Incrementally Different (may converge as CHASM unifies)
+
+1. **Visibility operations**: `list_activities()`, `count_activities()`, `describe()` are currently client-only but will likely work for workflow activities in the future.
+2. **Search attributes**: Currently standalone-only; workflow activities may gain visibility.
+3. **`activity_run_id`**: Currently None for workflow activities; may be added.
+4. **ID policies**: `id_reuse_policy` and `id_conflict_policy` may become relevant for workflow activities.
+
+### Open Questions for Future
+
+1. **Activity ID namespace**: Do standalone and workflow activities share an ID space? What happens when visibility queries return both?
+2. **Cross-boundary operations**: Can a client terminate a workflow-started activity? Describe it?
+3. **Policy convergence**: Will `id_reuse_policy` / `id_conflict_policy` apply to workflow activities?
+4. **Visibility scope**: Will `list_activities()` return both workflow and standalone activities? How to filter?
+
+### Items to Address in This PR
+
+1. ⚠️ **Naming**: `activity` vs `activity_type` in interceptor inputs - should align where possible.
 2. ⚠️ **Type info**: Workflow interceptor has `arg_types`/`ret_type` but client doesn't - consider adding for consistency.
-3. ⚠️ **Breaking change**: `activity.Info.workflow_id` can now be `None` - document migration path.
+3. ⚠️ **Breaking change**: `activity.Info.workflow_id` can now be `None` - ensure migration docs are clear.
