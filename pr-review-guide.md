@@ -16,11 +16,22 @@ This document provides links comparing the new client-side activity API with the
 3. **Constrained by history** - Different because changing the existing workflow API would break users
 4. **Open questions** - Differences that may need resolution as the system evolves
 
-### Future Considerations
+### Confirmed from Design Documents (July 2025)
 
-- **Visibility for workflow activities**: List/count operations are currently client-only, but visibility queries for workflow-started activities are a natural future feature.
-- **CHASM unification**: As all activities move to CHASM, the underlying execution model will unify. This may surface API inconsistencies that need addressing.
-- **Activity ID space**: Currently, standalone activities have explicit IDs while workflow activities auto-generate from sequence numbers. Whether these share a namespace, and what happens when visibility spans both, is an open question.
+- **Separate ID spaces**: Standalone activities have their **own ID space**, separate from workflows. A workflow and a standalone activity CAN have the same ID simultaneously. This is intentional to avoid cross-contamination in list views and confusing error messages.
+- **Visibility for workflow activities**: Explicitly on roadmap as "Post MLP" item. Will come after standalone activities ship.
+- **CHASM unification**: The current workflow activity implementation will be **deprecated** and not receive new features. All activities will eventually run on CHASM.
+- **Memos NOT supported**: Unlike workflows, standalone activities do not support memos (at least not in MLP).
+- **Pause/Reset/UpdateOptions**: Planned for MLP GA (not pre-release). Standalone activities will support pausing, resetting, and updating options at runtime.
+- **Run ID**: Standalone activities have a system-generated `run_id` (like workflow run IDs), enabling activity ID reuse after completion.
+- **CLI unification**: `temporal activity` commands will work for both standalone AND workflow activities, differentiated by `--activity-id` vs `--workflow-id` flags.
+
+### Future Roadmap (Post-MLP)
+
+- **Starting standalone activities from workflows**: `workflow.startStandaloneActivity()` and `workflow.getStandaloneActivityHandle()` are planned
+- **Eager execution**: Return first task inline in start response for latency optimization
+- **Completion callbacks**: Server-side webhooks when activity reaches terminal status
+- **Activity as scheduled action**: Schedule activities directly without wrapper workflow
 
 ---
 
@@ -38,7 +49,7 @@ Start an activity by passing an activity function reference. Returns a handle (`
 
 | Parameter | Workflow | Client | Category |
 |-----------|----------|--------|----------|
-| `id` / `activity_id` | Optional (`activity_id: str \| None = None`), auto-generates `"1"`, `"2"`, ... from sequence | **Required** (`id: str`) | **Constrained by history**: Workflow API has always auto-generated IDs. Changing to required would break existing code. Standalone has no history to generate from. ⚠️ **Open question**: Do these share an ID namespace? What happens when listing activities returns both? |
+| `id` / `activity_id` | Optional (`activity_id: str \| None = None`), auto-generates `"1"`, `"2"`, ... from sequence | **Required** (`id: str`) | **Constrained by history**: Workflow API has always auto-generated IDs. Changing to required would break existing code. Standalone has no history to generate from. **Design confirmed**: Standalone activities have a **separate ID space** from workflows (a workflow and standalone activity CAN share the same ID). |
 | `task_queue` | Optional (defaults to workflow's task queue) | **Required** | **Fundamentally different**: Workflows have an inherent task queue; standalone activities don't. |
 | `id_reuse_policy` | Not present | Present with default `ALLOW_DUPLICATE` | **Open question**: Will workflow activities eventually support this for consistency? Currently, workflow activities get unique IDs per workflow execution. |
 | `id_conflict_policy` | Not present | Present with default `FAIL` | **Open question**: Same as above - may be needed if/when workflow activity IDs become more explicit. |
@@ -281,7 +292,7 @@ Information available within a running activity. Updated to support activities n
 | `workflow_id` | `str` (always set) | `str \| None` | **Necessary change**: Standalone activities don't have a parent workflow. |
 | `workflow_run_id` | `str` (always set) | `str \| None` | **Necessary change**: Same reason. |
 | `workflow_type` | `str` (always set) | `str \| None` | **Necessary change**: Same reason. |
-| `activity_run_id` | Not present | `str \| None = None` | **Open question**: Why is this None for workflow activities? As CHASM unifies, will workflow activities gain run IDs? |
+| `activity_run_id` | Not present | `str \| None = None` | **Design confirmed**: Standalone activities have system-generated run IDs (like workflow run IDs), enabling activity ID reuse. None for workflow activities; may be added post-CHASM. |
 | `in_workflow` property | Not present | Added | **Pragmatic addition**: Convenience for the breaking type change. |
 
 ⚠️ **Breaking change note**: Existing code that assumes `workflow_id` is always set will need to handle `None`. The `in_workflow` property provides a clean way to check.
@@ -340,19 +351,26 @@ Static type checking tests for overload type inference.
 2. **`task_queue` optional vs required**: Workflow API defaults to workflow's task queue. Can't remove default.
 3. **Field naming**: `activity` vs `activity_type`, `activity_id` vs `id` in interceptors.
 
-### Incrementally Different (may converge as CHASM unifies)
+### Incrementally Different (confirmed to converge as CHASM unifies)
 
-1. **Visibility operations**: `list_activities()`, `count_activities()`, `describe()` are currently client-only but will likely work for workflow activities in the future.
-2. **Search attributes**: Currently standalone-only; workflow activities may gain visibility.
-3. **`activity_run_id`**: Currently None for workflow activities; may be added.
-4. **ID policies**: `id_reuse_policy` and `id_conflict_policy` may become relevant for workflow activities.
+1. **Visibility operations**: `list_activities()`, `count_activities()`, `describe()` are currently client-only. **Confirmed for Post-MLP**: Will work for workflow activities in the future.
+2. **Search attributes**: Currently standalone-only; **confirmed**: workflow activities will gain visibility post-CHASM.
+3. **`activity_run_id`**: Standalone activities have run IDs; workflow activities currently don't. May be added post-CHASM.
+4. **ID policies**: `id_reuse_policy` and `id_conflict_policy` may become relevant for workflow activities post-CHASM.
 
-### Open Questions for Future
+### Resolved Questions (from Design Docs)
 
-1. **Activity ID namespace**: Do standalone and workflow activities share an ID space? What happens when visibility queries return both?
-2. **Cross-boundary operations**: Can a client terminate a workflow-started activity? Describe it?
-3. **Policy convergence**: Will `id_reuse_policy` / `id_conflict_policy` apply to workflow activities?
-4. **Visibility scope**: Will `list_activities()` return both workflow and standalone activities? How to filter?
+1. ✅ **Activity ID namespace**: Standalone activities have a **separate ID space** from workflows. A workflow and standalone activity can have the same ID.
+2. ✅ **Visibility for workflow activities**: Confirmed for Post-MLP roadmap.
+3. ✅ **CHASM unification**: Confirmed. Current workflow activity impl will be deprecated.
+4. ✅ **Cancellation types**: Confirmed NOT applicable to standalone. Different model with cancel/terminate operations.
+
+### Remaining Open Questions
+
+1. **Workflow activity vs standalone activity ID collision**: If a workflow starts an activity with ID "foo" and someone starts a standalone activity with ID "foo", do these collide? Design docs clarify workflows vs activities are separate, but what about workflow-*activities* vs standalone activities?
+2. **Cross-boundary operations**: Can a client terminate/describe a workflow-started activity once visibility exists?
+3. **Policy convergence**: Will `id_reuse_policy` / `id_conflict_policy` apply to workflow activities post-CHASM?
+4. **Visibility scope**: When workflow activities gain visibility, will `list_activities()` return both? How to filter?
 
 ### Items to Address in This PR
 
