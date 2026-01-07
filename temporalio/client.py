@@ -1835,7 +1835,7 @@ class Client:
     @overload
     async def start_activity_class(
         self,
-        activity: type[Callable[..., Awaitable[ReturnType]]],
+        activity: type[Callable[..., Awaitable[ReturnType]]],  # type: ignore[reportInvalidTypeForm]
         *,
         args: Sequence[Any],
         id: str,
@@ -1859,7 +1859,7 @@ class Client:
     @overload
     async def start_activity_class(
         self,
-        activity: type[Callable[..., ReturnType]],
+        activity: type[Callable[..., ReturnType]],  # type: ignore[reportInvalidTypeForm]
         *,
         args: Sequence[Any],
         id: str,
@@ -1881,7 +1881,7 @@ class Client:
 
     async def start_activity_class(
         self,
-        activity: type[Callable],
+        activity: type[Callable],  # type: ignore[reportInvalidTypeForm]
         arg: Any = temporalio.common._arg_unset,
         *,
         args: Sequence[Any] = [],
@@ -2027,7 +2027,7 @@ class Client:
     @overload
     async def execute_activity_class(
         self,
-        activity: type[Callable[..., Awaitable[ReturnType]]],
+        activity: type[Callable[..., Awaitable[ReturnType]]],  # type: ignore[reportInvalidTypeForm]
         *,
         args: Sequence[Any],
         id: str,
@@ -2051,7 +2051,7 @@ class Client:
     @overload
     async def execute_activity_class(
         self,
-        activity: type[Callable[..., ReturnType]],
+        activity: type[Callable[..., ReturnType]],  # type: ignore[reportInvalidTypeForm]
         *,
         args: Sequence[Any],
         id: str,
@@ -2073,7 +2073,7 @@ class Client:
 
     async def execute_activity_class(
         self,
-        activity: type[Callable],
+        activity: type[Callable],  # type: ignore[reportInvalidTypeForm]
         arg: Any = temporalio.common._arg_unset,
         *,
         args: Sequence[Any] = [],
