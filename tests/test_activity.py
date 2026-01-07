@@ -97,6 +97,72 @@ async def test_describe(client: Client):
     assert isinstance(desc.paused, bool)
 
 
+class TestDescribeOptions:
+    """Tests for describe() options."""
+
+    @staticmethod
+    @activity.defn
+    async def blocking_activity(x: int) -> int:
+        await asyncio.Future()
+        return x + 1
+
+    @pytest.fixture
+    async def activity_handle(self, client: Client):
+        activity_id = str(uuid.uuid4())
+        task_queue = str(uuid.uuid4())
+
+        handle = await client.start_activity(
+            self.blocking_activity,
+            args=(42,),
+            id=activity_id,
+            task_queue=task_queue,
+            schedule_to_close_timeout=timedelta(hours=1),
+        )
+        yield handle
+
+    async def test_describe_include_input_false(self, client: Client, activity_handle):
+        """Skipping input fetch for bandwidth optimization."""
+        desc = await activity_handle.describe(include_input=False)
+        assert desc.input == [] or desc.input is None
+
+    async def test_describe_include_input_true(self, client: Client, activity_handle):
+        """Fetching input explicitly."""
+        desc = await activity_handle.describe(include_input=True)
+        assert desc.input == [42]
+
+    async def test_describe_include_outcome(self, client: Client):
+        """Fetching outcome for a completed activity."""
+        activity_id = str(uuid.uuid4())
+        task_queue = str(uuid.uuid4())
+
+        async with Worker(
+            client,
+            task_queue=task_queue,
+            activities=[increment],
+        ):
+            handle = await client.start_activity(
+                increment,
+                args=(42,),
+                id=activity_id,
+                task_queue=task_queue,
+                start_to_close_timeout=timedelta(seconds=30),
+            )
+            result = await handle.result()
+            assert result == 43
+
+            desc = await handle.describe(include_outcome=True)
+            assert desc.outcome is not None
+            assert desc.outcome.result == 43
+
+    async def test_describe_long_poll(self, client: Client, activity_handle):
+        """Long-polling for state changes."""
+        desc1 = await activity_handle.describe()
+        assert desc1.long_poll_token is not None
+
+        desc2 = await activity_handle.describe(long_poll_token=desc1.long_poll_token)
+        assert desc2 is not None
+
+
 class ActivityTracingInterceptor(Interceptor):
     """Test interceptor that tracks all activity interceptor calls."""
 
