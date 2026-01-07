@@ -99,11 +99,11 @@ The design docs show cancel/terminate as separate RPC operations without `cancel
 
 No mention of `cancellation_type` for standalone activities. The concepts map to:
 - TRY_CANCEL → `cancel()` (returns immediately)
-- WAIT_CANCELLATION_COMPLETED → `cancel(wait_for_cancel_completed=True)`
+- WAIT_CANCELLATION_COMPLETED → Not directly available; caller must poll for completion after cancel
 - ABANDON → Just don't await, or use `terminate()`
 
 ### Confirmation
-My analysis was correct. Cancellation type is not part of the standalone activity API.
+Cancellation type is not part of the standalone activity API. The `cancel()` method returns immediately after requesting cancellation.
 
 ---
 

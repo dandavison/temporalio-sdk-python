@@ -112,7 +112,7 @@ Handle to an activity execution for awaiting result, cancelling, describing, etc
 | Base class | Extends `asyncio.Task` (awaitable directly) | Generic class with explicit `result()` method | **Fundamentally different**: Workflow activities integrate with the deterministic event loop. Client activities poll via RPC. |
 | Result retrieval | `await handle` | `await handle.result()` | **Constrained by history**: Workflow API is established. Different execution models make unification difficult. |
 | `activity_run_id` property | Not present | Present | **Incrementally different**: Workflow activities may gain run IDs as CHASM unifies. |
-| `cancel()` method | Simple `cancel()` | Rich `cancel(reason, wait_for_cancel_completed, ...)` | **Fundamentally different** (sort of): Workflow cancellation must be immediate for replay. But `reason` could potentially be added to workflow cancel. |
+| `cancel()` method | Simple `cancel()` | Rich `cancel(reason, ...)` | **Fundamentally different** (sort of): Workflow cancellation must be immediate for replay. But `reason` could potentially be added to workflow cancel. |
 | `terminate()` method | Not present | Present | **Open question**: Could workflow-started activities be terminated externally via client? This is more about what operations are available where. |
 | `describe()` method | Not present | Present | **Incrementally different**: Describe for workflow activities would make sense once they're in visibility. |
 | Result caching | N/A (event loop managed) | Explicit `_cached_result` / `_result_fetched` | **Fundamentally different**: Different execution models. |
@@ -177,9 +177,8 @@ Request cancellation of an activity execution.
 
 | Aspect | Workflow | Client | Category |
 |--------|----------|--------|----------|
-| Method signature | `cancel()` (no parameters) | `cancel(reason, wait_for_cancel_completed, rpc_metadata, rpc_timeout)` | Mixed |
+| Method signature | `cancel()` (no parameters) | `cancel(reason, rpc_metadata, rpc_timeout)` | Mixed |
 | `reason` parameter | Not present | Present | **Could potentially align**: A reason could be useful for workflow cancellation too. |
-| `wait_for_cancel_completed` | Not present | Present | **Fundamentally different**: Workflows cannot block for determinism. |
 | RPC options | Not present | `rpc_metadata`, `rpc_timeout` | **Fundamentally different**: Client calls are direct RPC. |
 
 ---
@@ -343,7 +342,6 @@ Static type checking tests for overload type inference.
 1. **RPC vs commands**: Client calls are direct RPC with `rpc_metadata`/`rpc_timeout`; workflow scheduling is through deterministic commands.
 2. **Cancellation semantics**: `cancellation_type` (TRY_CANCEL, WAIT_CANCELLATION_COMPLETED, ABANDON) is about workflow replay behavior; standalone cancellation is different.
 3. **Handle as asyncio.Task**: Workflow handles extend `asyncio.Task` for deterministic event loop integration; client handles cannot.
-4. **`wait_for_cancel_completed`**: Workflows cannot block waiting for cancellation; clients can.
 
 ### Constrained by History (can't easily change)
 

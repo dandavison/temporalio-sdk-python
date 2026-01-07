@@ -4,41 +4,7 @@ Comparison of gRPC API (commit `1a1e74e` in `temporalio/api`) with the Python SD
 
 ---
 
-## 1. Parameters in Python SDK NOT in gRPC API
-
-### `CancelActivityInput.wait_for_cancel_completed` ⚠️ NOT IMPLEMENTED
-
-**Python SDK:**
-```python
-async def cancel(
-    self,
-    *,
-    reason: str | None = None,
-    wait_for_cancel_completed: bool = False,  # ← THIS
-    ...
-) -> None:
-```
-
-**gRPC API `RequestCancelActivityExecutionRequest`:**
-```protobuf
-message RequestCancelActivityExecutionRequest {
-    string namespace = 1;
-    string activity_id = 2;
-    string run_id = 3;
-    string identity = 4;
-    string request_id = 5;
-    string reason = 6;
-    // NO wait_for_cancel_completed field!
-}
-```
-
-**Status:** The parameter exists in the SDK but is **completely ignored** in the implementation. The `cancel_activity` method in `_ClientImpl` never uses this value.
-
-**Should be:** Either removed, or implemented as SDK-level polling logic (call cancel, then poll until terminal).
-
----
-
-## 2. API Features NOT Exposed in Python SDK
+## 1. API Features NOT Exposed in Python SDK
 
 ### `DescribeActivityExecution` options not exposed
 
@@ -84,12 +50,13 @@ temporalio.api.workflowservice.v1.DescribeActivityExecutionRequest(
 
 ---
 
-## 3. Entire APIs NOT Implemented in Python SDK
+## 2. Entire APIs NOT Implemented in Python SDK
 
+These are expected per design docs - pause/reset/update-options are "MLP GA" scope, not pre-release.
 
 ---
 
-## 4. Summary Table
+## 3. Summary Table
 
 | Feature | In API | In Python SDK | Notes |
 |---------|--------|---------------|-------|
@@ -105,23 +72,14 @@ temporalio.api.workflowservice.v1.DescribeActivityExecutionRequest(
 | **UnpauseActivity** | ✅ | ❌ | Planned for MLP GA |
 | **ResetActivity** | ✅ | ❌ | Planned for MLP GA |
 | **DeleteActivityExecution** | ✅ | ❌ | Not implemented |
-| **cancel(wait_for_cancel_completed)** | ❌ Not in API | ⚠️ In SDK but no-op | SDK param that does nothing |
 
 ---
 
-## 5. Recommendations
-
-### Immediate (for this PR)
-
-1. **Remove or implement `wait_for_cancel_completed`**
-   - Option A: Remove the parameter entirely (breaking but honest)
-   - Option B: Implement SDK-level polling (call cancel, then poll until terminal)
-   - Option C: Add `# Not yet implemented` comment and raise `NotImplementedError` if True
+## 4. Recommendations
 
 ### Future (MLP GA)
 
-2. **Add describe options**: `include_input`, `include_outcome` parameters
-3. **Add long-poll support** for describe (useful for UI)
-4. **Implement pause/unpause/reset/update-options** when ready
-5. **Implement delete** for cleanup operations
-
+1. **Add describe options**: `include_input`, `include_outcome` parameters
+2. **Add long-poll support** for describe (useful for UI)
+3. **Implement pause/unpause/reset/update-options** when ready
+4. **Implement delete** for cleanup operations
