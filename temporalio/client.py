@@ -4704,7 +4704,6 @@ class ActivityHandle(Generic[ReturnType]):
         self,
         *,
         reason: str | None = None,
-        wait_for_cancel_completed: bool = False,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> None:
@@ -4721,7 +4720,6 @@ class ActivityHandle(Generic[ReturnType]):
 
         Args:
             reason: Reason for the cancellation. Recorded and available via describe.
-            wait_for_cancel_completed: If True, wait for the activity to be canceled before returning.
             rpc_metadata: Headers used on the RPC call.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
         """
@@ -4730,7 +4728,6 @@ class ActivityHandle(Generic[ReturnType]):
                 activity_id=self._activity_id,
                 activity_run_id=self._activity_run_id,
                 reason=reason,
-                wait_for_cancel_completed=wait_for_cancel_completed,
                 rpc_metadata=rpc_metadata,
                 rpc_timeout=rpc_timeout,
             )
@@ -7431,7 +7428,6 @@ class CancelActivityInput:
     activity_id: str
     activity_run_id: str | None
     reason: str | None
-    wait_for_cancel_completed: bool
     rpc_metadata: Mapping[str, str | bytes]
     rpc_timeout: timedelta | None
 
