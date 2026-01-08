@@ -3,52 +3,54 @@
 ## Sources
 - API: `~/src/temporal-all/repos/api` @ 1a1e74e
 - Spec: `docs/standalone-activity-cross-sdk-design.md`
-- Go SDK WIP: https://github.com/maciejdudko/temporal-sdk-go/tree/non-workflow-activities
+- Go SDK WIP: maciejdudko/non-workflow-activities (fetched locally)
 
 ## Tasks
 
 ### 1. API Inventory
-- [ ] List all gRPC operations in API for standalone activities
-- [ ] Map each to Python SDK implementation status
+- [x] List all gRPC operations in API for standalone activities
+- [x] Map each to Python SDK implementation status
 
 ### 2. Spec Compliance (Python section)
-- [ ] `Client.start_activity` / `execute_activity` params
-- [ ] `ActivityHandle` methods: `result`, `describe`, `cancel`, `terminate`
-- [ ] `ActivityExecution` / `ActivityExecutionDescription` fields
-- [ ] `ActivityExecutionAsyncIterator` for list
-- [ ] `ActivityExecutionCount` for count
-- [ ] `OutboundInterceptor` methods
-- [ ] `StartActivityInput` fields
-- [ ] `DescribeActivityInput` fields
-- [ ] `GetActivityResultInput` fields
-- [ ] `CancelActivityInput` fields
-- [ ] `TerminateActivityInput` fields
-- [ ] `ListActivitiesInput` fields
-- [ ] `CountActivitiesInput` fields
-- [ ] `activity.Info` changes (nullable workflow fields, new `activity_run_id`, `namespace`)
-- [ ] `AsyncActivityIDReference` changes
+- [x] `Client.start_activity` / `execute_activity` params
+- [x] `ActivityHandle` methods: `result`, `describe`, `cancel`, `terminate`
+- [x] `ActivityExecution` / `ActivityExecutionDescription` fields
+- [x] `ActivityExecutionAsyncIterator` for list
+- [x] `ActivityExecutionCount` for count
+- [x] `OutboundInterceptor` methods
+- [x] `StartActivityInput` fields
+- [x] `DescribeActivityInput` fields
+- [x] `GetActivityResultInput` fields
+- [x] `CancelActivityInput` fields
+- [x] `TerminateActivityInput` fields
+- [x] `ListActivitiesInput` fields
+- [x] `CountActivitiesInput` fields
+- [x] `activity.Info` changes (nullable workflow fields, new `activity_run_id`, `namespace`)
+- [x] `AsyncActivityIDReference` changes (workflow_id is Optional[str])
 
 ### 3. Go SDK Comparison
-- [ ] Compare `StartActivityOptions` fields
-- [ ] Compare `ActivityHandle` interface
-- [ ] Compare `ActivityExecutionDescription` fields
-- [ ] Compare interceptor inputs
-- [ ] Note any discrepancies
+- [x] Compare `StartActivityOptions` fields
+- [x] Compare `ActivityHandle` interface
+- [x] Compare `ActivityExecutionDescription` fields
+- [x] Compare interceptor inputs
+- [x] Note any discrepancies
 
 ### 4. Workflow Activity API Comparison
-- [ ] Compare `workflow.start_activity` vs `client.start_activity` params
-- [ ] Document intentional vs unintentional differences
+- [x] Compare `workflow.start_activity` vs `client.start_activity` params
+- [x] Document intentional vs unintentional differences
 
 ### 5. Test Coverage
-- [ ] Type-level tests for new types
-- [ ] Integration tests for each operation
-- [ ] Error case tests
+- [x] Integration tests for each operation (existing)
+- [ ] ActivityInfo standalone fields test
+- [ ] Error case tests review
 
 ### 6. Findings Document
-- [ ] Create `docs/standalone-activity-findings.md`
-- [ ] Document omissions
-- [ ] Document errors
-- [ ] Document discrepancies with Go SDK
+- [x] Create `docs/standalone-activity-findings.md`
+- [x] Document omissions
+- [x] Document errors
+- [x] Document discrepancies with Go SDK
 
 ## Progress Log
-- Started: (date)
+- Initial pass complete: API inventory, spec compliance, Go comparison
+- Findings documented in docs/standalone-activity-findings.md
+- Remaining: AsyncActivityIDReference, workflow vs client API comparison, ActivityInfo test
