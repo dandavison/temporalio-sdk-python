@@ -1,17 +1,54 @@
-# Standalone Activity Implementation TODO
+# Standalone Activity SDK Verification TODO
 
-Comparison of spec (cross-sdk-design.md, Python section) against current PR implementation.
+## Sources
+- API: `~/src/temporal-all/repos/api` @ 1a1e74e
+- Spec: `docs/standalone-activity-cross-sdk-design.md`
+- Go SDK WIP: https://github.com/maciejdudko/temporal-sdk-go/tree/non-workflow-activities
 
----
+## Tasks
 
-## 1. Evaluate `input` Field in `ActivityExecutionDescription`
+### 1. API Inventory
+- [ ] List all gRPC operations in API for standalone activities
+- [ ] Map each to Python SDK implementation status
 
-**Spec Section:** 1
-**Location:** `temporalio/client.py`, line ~3598
+### 2. Spec Compliance (Python section)
+- [ ] `Client.start_activity` / `execute_activity` params
+- [ ] `ActivityHandle` methods: `result`, `describe`, `cancel`, `terminate`
+- [ ] `ActivityExecution` / `ActivityExecutionDescription` fields
+- [ ] `ActivityExecutionAsyncIterator` for list
+- [ ] `ActivityExecutionCount` for count
+- [ ] `OutboundInterceptor` methods
+- [ ] `StartActivityInput` fields
+- [ ] `DescribeActivityInput` fields
+- [ ] `GetActivityResultInput` fields
+- [ ] `CancelActivityInput` fields
+- [ ] `TerminateActivityInput` fields
+- [ ] `ListActivitiesInput` fields
+- [ ] `CountActivitiesInput` fields
+- [ ] `activity.Info` changes (nullable workflow fields, new `activity_run_id`, `namespace`)
+- [ ] `AsyncActivityIDReference` changes
 
-**Current:** Has `input: Sequence[Any]` field
-**Spec:** Does not include this field
+### 3. Go SDK Comparison
+- [ ] Compare `StartActivityOptions` fields
+- [ ] Compare `ActivityHandle` interface
+- [ ] Compare `ActivityExecutionDescription` fields
+- [ ] Compare interceptor inputs
+- [ ] Note any discrepancies
 
-### Tasks:
-- [ ] Confirm with spec owner whether `input` should be included
-- [ ] If not needed, remove the field and update `_from_execution_info`
+### 4. Workflow Activity API Comparison
+- [ ] Compare `workflow.start_activity` vs `client.start_activity` params
+- [ ] Document intentional vs unintentional differences
+
+### 5. Test Coverage
+- [ ] Type-level tests for new types
+- [ ] Integration tests for each operation
+- [ ] Error case tests
+
+### 6. Findings Document
+- [ ] Create `docs/standalone-activity-findings.md`
+- [ ] Document omissions
+- [ ] Document errors
+- [ ] Document discrepancies with Go SDK
+
+## Progress Log
+- Started: (date)
