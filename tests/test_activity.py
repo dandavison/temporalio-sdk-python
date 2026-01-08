@@ -152,7 +152,7 @@ class TestDescribeOptions:
 
             desc = await handle.describe(include_outcome=True)
             assert desc.outcome is not None
-            assert desc.outcome.result == 43
+            assert desc.outcome.result == [43]
 
     async def test_describe_long_poll(self, client: Client, activity_handle):
         """Long-polling for state changes."""

@@ -4239,6 +4239,21 @@ class ActivityExecutionCount:
 
 
 @dataclass(frozen=True)
+class ActivityExecutionOutcome:
+    """Outcome of a completed activity execution.
+
+    .. warning::
+       This API is experimental.
+    """
+
+    result: Sequence[Any] | None
+    """The decoded result if the activity completed successfully."""
+
+    failure: BaseException | None
+    """The failure if the activity completed unsuccessfully."""
+
+
+@dataclass(frozen=True)
 class ActivityExecutionDescription(ActivityExecution):
     """Detailed information about an activity execution not started by a workflow.
 
@@ -4264,8 +4279,8 @@ class ActivityExecutionDescription(ActivityExecution):
     heartbeat_details: Sequence[Any]
     """Details from the last heartbeat."""
 
-    input: Sequence[Any]
-    """Serialized activity input."""
+    input: Sequence[Any] | None
+    """Serialized activity input. None if include_input was False."""
 
     last_attempt_complete_time: datetime | None
     """Time when the last attempt completed."""
@@ -4294,15 +4309,37 @@ class ActivityExecutionDescription(ActivityExecution):
     run_state: temporalio.common.PendingActivityState | None
     """More detailed breakdown if status is RUNNING."""
 
+    outcome: ActivityExecutionOutcome | None
+    """Outcome of the activity if completed and include_outcome was True."""
+
+    long_poll_token: bytes | None
+    """Token for follow-on long-poll requests. None if the activity is complete."""
+
     @classmethod
     async def _from_execution_info(
         cls,
         info: temporalio.api.activity.v1.ActivityExecutionInfo,
-        input: temporalio.api.common.v1.Payloads,
+        input: temporalio.api.common.v1.Payloads | None,
+        outcome: temporalio.api.activity.v1.ActivityExecutionOutcome | None,
+        long_poll_token: bytes | None,
         namespace: str,
         data_converter: temporalio.converter.DataConverter,
     ) -> Self:
         """Create from raw proto activity execution info."""
+        # Decode outcome if present
+        decoded_outcome: ActivityExecutionOutcome | None = None
+        if outcome is not None:
+            if outcome.HasField("result"):
+                decoded_outcome = ActivityExecutionOutcome(
+                    result=await data_converter.decode(outcome.result.payloads),
+                    failure=None,
+                )
+            elif outcome.HasField("failure"):
+                decoded_outcome = ActivityExecutionOutcome(
+                    result=None,
+                    failure=await data_converter.decode_failure(outcome.failure),
+                )
+
         return cls(
             activity_id=info.activity_id,
             activity_run_id=info.run_id or None,
@@ -4337,7 +4374,11 @@ class ActivityExecutionDescription(ActivityExecution):
                 if info.HasField("heartbeat_details")
                 else []
             ),
-            input=await data_converter.decode(input.payloads),
+            input=(
+                await data_converter.decode(input.payloads)
+                if input is not None
+                else None
+            ),
             last_attempt_complete_time=(
                 info.last_attempt_complete_time.ToDatetime(tzinfo=timezone.utc)
                 if info.HasField("last_attempt_complete_time")
@@ -4362,12 +4403,14 @@ class ActivityExecutionDescription(ActivityExecution):
                 else None
             ),
             last_worker_identity=info.last_worker_identity,
+            long_poll_token=long_poll_token or None,
             namespace=namespace,
             next_attempt_schedule_time=(
                 info.next_attempt_schedule_time.ToDatetime(tzinfo=timezone.utc)
                 if info.HasField("next_attempt_schedule_time")
                 else None
             ),
+            outcome=decoded_outcome,
             paused=getattr(info, "paused", False),
             raw_info=info,
             retry_policy=temporalio.common.RetryPolicy.from_proto(info.retry_policy)
@@ -4767,6 +4810,9 @@ class ActivityHandle(Generic[ReturnType]):
     async def describe(
         self,
         *,
+        include_input: bool = True,
+        include_outcome: bool = False,
+        long_poll_token: bytes | None = None,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ActivityExecutionDescription:
@@ -4776,6 +4822,11 @@ class ActivityHandle(Generic[ReturnType]):
            This API is experimental.
 
         Args:
+            include_input: If True, include the activity input in the response.
+            include_outcome: If True, include the outcome (result/failure) for
+                completed activities.
+            long_poll_token: Token from a previous describe response. If provided,
+                the request will long-poll until the activity state changes.
             rpc_metadata: Headers used on the RPC call.
             rpc_timeout: Optional RPC deadline to set for the RPC call.
 
@@ -4786,6 +4837,9 @@ class ActivityHandle(Generic[ReturnType]):
             DescribeActivityInput(
                 activity_id=self._activity_id,
                 activity_run_id=self._activity_run_id,
+                include_input=include_input,
+                include_outcome=include_outcome,
+                long_poll_token=long_poll_token,
                 rpc_metadata=rpc_metadata,
                 rpc_timeout=rpc_timeout,
             )
@@ -7457,6 +7511,9 @@ class DescribeActivityInput:
 
     activity_id: str
     activity_run_id: str | None
+    include_input: bool
+    include_outcome: bool
+    long_poll_token: bytes | None
     rpc_metadata: Mapping[str, str | bytes]
     rpc_timeout: timedelta | None
 
@@ -8489,7 +8546,9 @@ class _ClientImpl(OutboundInterceptor):
                 namespace=self._client.namespace,
                 activity_id=input.activity_id,
                 run_id=input.activity_run_id or "",
-                include_input=True,
+                include_input=input.include_input,
+                include_outcome=input.include_outcome,
+                long_poll_token=input.long_poll_token or b"",
             ),
             retry=True,
             metadata=input.rpc_metadata,
@@ -8497,7 +8556,9 @@ class _ClientImpl(OutboundInterceptor):
         )
         return await ActivityExecutionDescription._from_execution_info(
             info=resp.info,
-            input=resp.input,
+            input=resp.input if resp.HasField("input") else None,
+            outcome=resp.outcome if resp.HasField("outcome") else None,
+            long_poll_token=resp.long_poll_token or None,
             namespace=self._client.namespace,
             data_converter=self._client.data_converter.with_context(
                 WorkflowSerializationContext(
