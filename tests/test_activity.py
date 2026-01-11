@@ -54,7 +54,7 @@ async def _wait_for_notification_from_caller():
     )
 
 
-async def _wait_for_notification_from_activity(
+async def _wait_for_activity_to_start_executing(
     activity_handle: ActivityHandle, task_queue: str
 ):
     """
@@ -79,7 +79,8 @@ async def _notify_caller() -> None:
     await wf.signal(EventWorkflow.set)
 
 
-async def _notify_activity(activity_handle: ActivityHandle) -> None:
+async def _notify_activity(activity_handle: ActivityHandle, task_queue: str) -> None:
+    await _wait_for_activity_to_start_executing(activity_handle, task_queue)
     wf = activity_handle._client.get_workflow_handle_for(
         EventWorkflow.wait,
         workflow_id=f"to-activity-{activity_handle.activity_id}",
@@ -206,10 +207,7 @@ class TestDescribe:
             activities=[blocking_increment],
             workflows=[EventWorkflow],
         ):
-            await _wait_for_notification_from_activity(
-                activity_handle, desc1.task_queue
-            )
-            await _notify_activity(activity_handle)
+            await _notify_activity(activity_handle, desc1.task_queue)
             desc2 = await activity_handle.describe(
                 long_poll_token=desc1.long_poll_token
             )
