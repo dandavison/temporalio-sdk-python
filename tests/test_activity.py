@@ -71,12 +71,14 @@ async def _notify_caller() -> None:
     """
     Send a notification to the workflow that the caller is waiting on.
     """
-    act = activity.info()
-    wf = activity.client().get_workflow_handle_for(
-        EventWorkflow.wait,
-        workflow_id=f"from-activity-{act.activity_id}",
+    await (
+        activity.client()
+        .get_workflow_handle_for(
+            EventWorkflow.wait,
+            workflow_id=f"from-activity-{activity.info().activity_id}",
+        )
+        .signal(EventWorkflow.set)
     )
-    await wf.signal(EventWorkflow.set)
 
 
 async def _notify_activity(activity_handle: ActivityHandle, task_queue: str) -> None:
@@ -208,10 +210,12 @@ class TestDescribe:
             workflows=[EventWorkflow],
         ):
             await _notify_activity(activity_handle, desc1.task_queue)
+            await activity_handle.result()
             desc2 = await activity_handle.describe(
                 long_poll_token=desc1.long_poll_token
             )
-            assert desc2 is not None
+            assert desc2.state_transition_count and desc1.state_transition_count
+            assert desc2.state_transition_count > desc1.state_transition_count
 
 
 class ActivityTracingInterceptor(Interceptor):
