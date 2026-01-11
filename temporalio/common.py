@@ -222,7 +222,7 @@ class ActivityExecutionStatus(IntEnum):
 
 
 class PendingActivityState(IntEnum):
-    """State of a pending activity.
+    """Detailed state of an activity execution that is in ACTIVITY_EXECUTION_STATUS_RUNNING.
 
     .. warning::
        This API is experimental.

@@ -23,7 +23,7 @@ from temporalio.client import (
     StartActivityInput,
     TerminateActivityInput,
 )
-from temporalio.common import ActivityExecutionStatus
+from temporalio.common import ActivityExecutionStatus, PendingActivityState
 from temporalio.exceptions import ApplicationError, CancelledError
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.worker import Worker
@@ -138,82 +138,78 @@ class TestDescribe:
         id = str(uuid.uuid4())
         task_queue = str(uuid.uuid4())
         yield await client.start_activity(
-            blocking_increment,
+            increment,
             args=(42,),
             id=id,
             task_queue=task_queue,
             schedule_to_close_timeout=timedelta(hours=1),
         )
 
-    async def test_describe(self, client: Client):
-        activity_id = str(uuid.uuid4())
-        task_queue = str(uuid.uuid4())
-
-        activity_handle = await client.start_activity(
-            increment,
-            args=(1,),
-            id=activity_id,
-            task_queue=task_queue,
-            start_to_close_timeout=timedelta(seconds=5),
-        )
+    async def test_describe(self, client: Client, activity_handle: ActivityHandle):
         desc = await activity_handle.describe()
-        assert desc.activity_id == activity_id
+        # From ActivityExecution (base class)
+        assert desc.activity_id == activity_handle.activity_id
         assert desc.activity_run_id == activity_handle.activity_run_id
         assert desc.activity_type == "increment"
-        assert desc.task_queue == task_queue
+        assert desc.close_time is None  # not closed yet
+        assert desc.execution_duration is None  # not closed yet
+        assert desc.namespace == client.namespace
+        assert desc.raw_info is not None
+        assert desc.scheduled_time is not None
+        assert desc.search_attributes == {}
+        assert desc.state_transition_count is not None
         assert desc.status == ActivityExecutionStatus.RUNNING
-        assert isinstance(desc.eager_execution_requested, bool)
-        assert isinstance(desc.paused, bool)
-
-    async def test_describe_include_input_false(self, activity_handle: ActivityHandle):
-        """Skipping input fetch for bandwidth optimization."""
-        desc = await activity_handle.describe(include_input=False)
-        assert desc.input is None
-
-    async def test_describe_include_input_true(self, activity_handle: ActivityHandle):
-        """Fetching input explicitly."""
-        desc = await activity_handle.describe(include_input=True)
+        assert desc.task_queue
+        # From ActivityExecutionDescription
+        assert desc.attempt == 1
+        assert desc.canceled_reason is None
+        assert desc.current_retry_interval is None
+        assert desc.eager_execution_requested is False
+        assert desc.expiration_time is not None
+        assert desc.heartbeat_details == []
         assert desc.input == [42]
+        assert desc.outcome is None
+        assert desc.run_state == PendingActivityState.SCHEDULED
+        assert desc.last_attempt_complete_time is None
+        assert desc.last_failure is None
+        assert desc.last_heartbeat_time is None
+        assert desc.last_started_time is None
+        assert desc.last_worker_identity == ""
+        assert desc.long_poll_token is not None
+        assert desc.next_attempt_schedule_time is None
+        assert desc.paused is False
+        assert desc.retry_policy is not None
 
-    async def test_describe_include_outcome(self, client: Client):
-        """Fetching outcome for a completed activity."""
-        activity_id = str(uuid.uuid4())
-        task_queue = str(uuid.uuid4())
+        assert (await activity_handle.describe(include_input=False)).input is None
 
+    async def test_describe_include_outcome(self, activity_handle: ActivityHandle):
+        desc = await activity_handle.describe()
+        assert desc.outcome is None
+        assert (await activity_handle.describe(include_outcome=True)).outcome is None
         async with Worker(
-            client,
-            task_queue=task_queue,
+            activity_handle._client,
+            task_queue=desc.task_queue,
             activities=[increment],
         ):
-            handle = await client.start_activity(
-                increment,
-                args=(42,),
-                id=activity_id,
-                task_queue=task_queue,
-                start_to_close_timeout=timedelta(seconds=30),
-            )
-            result = await handle.result()
-            assert result == 43
-
-            desc = await handle.describe(include_outcome=True)
-            assert desc.outcome is not None
-            assert desc.outcome.result == [43]
+            await activity_handle.result()
+            desc = await activity_handle.describe(include_outcome=True)
+            assert desc.status == ActivityExecutionStatus.COMPLETED
+            assert desc.run_state is None
+            assert desc.outcome and desc.outcome.result == [43]
 
     async def test_describe_long_poll(self, activity_handle: ActivityHandle):
-        """Long-polling for state changes."""
         desc1 = await activity_handle.describe()
-        assert desc1.long_poll_token is not None
+        assert desc1.long_poll_token
+        desc2_task = asyncio.create_task(
+            activity_handle.describe(long_poll_token=desc1.long_poll_token)
+        )
+        # Worker poll causes a transition to Started which notifies the waiting long-poll.
         async with Worker(
             activity_handle._client,
             task_queue=desc1.task_queue,
-            activities=[blocking_increment],
-            workflows=[EventWorkflow],
+            activities=[increment],
         ):
-            await _notify_activity(activity_handle, desc1.task_queue)
-            await activity_handle.result()
-            desc2 = await activity_handle.describe(
-                long_poll_token=desc1.long_poll_token
-            )
+            desc2 = await desc2_task
             assert desc2.state_transition_count and desc1.state_transition_count
             assert desc2.state_transition_count > desc1.state_transition_count
 
