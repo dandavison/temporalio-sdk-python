@@ -1273,6 +1273,7 @@ class Client:
             )
         )
 
+    # async no-param
     @overload
     async def start_activity(
         self,
@@ -1280,10 +1281,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1295,6 +1295,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # sync no-param
     @overload
     async def start_activity(
         self,
@@ -1302,10 +1303,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1317,6 +1317,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # async single-param
     @overload
     async def start_activity(
         self,
@@ -1325,10 +1326,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1340,6 +1340,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # sync single-param
     @overload
     async def start_activity(
         self,
@@ -1348,10 +1349,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1363,6 +1363,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # async multi-param
     @overload
     async def start_activity(
         self,
@@ -1371,10 +1372,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1386,6 +1386,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # sync multi-param
     @overload
     async def start_activity(
         self,
@@ -1394,10 +1395,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1409,6 +1409,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
+    # string name
     @overload
     async def start_activity(
         self,
@@ -1420,8 +1421,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1446,8 +1447,8 @@ class Client:
         result_type: type | None = None,
         # Either schedule_to_close_timeout or start_to_close_timeout must be present
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1471,8 +1472,8 @@ class Client:
             task_queue: Task queue to send the activity to.
             result_type: For string name activities, optional type to deserialize result into.
             schedule_to_close_timeout: Total time allowed for the activity from schedule to completion.
-            start_to_close_timeout: Time allowed for a single execution attempt.
             schedule_to_start_timeout: Time allowed for the activity to sit in the task queue.
+            start_to_close_timeout: Time allowed for a single execution attempt.
             heartbeat_timeout: Time between heartbeats before the activity is considered failed.
             id_reuse_policy: How to handle reusing activity IDs from closed activities.
                 Default is ALLOW_DUPLICATE.
@@ -1500,8 +1501,8 @@ class Client:
                 task_queue=task_queue,
                 result_type=result_type or result_type_from_type_annotation,
                 schedule_to_close_timeout=schedule_to_close_timeout,
-                start_to_close_timeout=start_to_close_timeout,
                 schedule_to_start_timeout=schedule_to_start_timeout,
+                start_to_close_timeout=start_to_close_timeout,
                 heartbeat_timeout=heartbeat_timeout,
                 id_reuse_policy=id_reuse_policy,
                 id_conflict_policy=id_conflict_policy,
@@ -1515,6 +1516,7 @@ class Client:
             )
         )
 
+    # async no-param
     @overload
     async def execute_activity(
         self,
@@ -1522,10 +1524,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1537,6 +1538,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # sync no-param
     @overload
     async def execute_activity(
         self,
@@ -1544,10 +1546,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1559,6 +1560,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # async single-param
     @overload
     async def execute_activity(
         self,
@@ -1567,10 +1569,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1582,6 +1583,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # sync single-param
     @overload
     async def execute_activity(
         self,
@@ -1590,10 +1592,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1605,6 +1606,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # async multi-param
     @overload
     async def execute_activity(
         self,
@@ -1613,10 +1615,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1628,6 +1629,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # sync multi-param
     @overload
     async def execute_activity(
         self,
@@ -1636,10 +1638,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1651,6 +1652,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
+    # string name
     @overload
     async def execute_activity(
         self,
@@ -1662,8 +1664,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1688,8 +1690,8 @@ class Client:
         result_type: type | None = None,
         # Either schedule_to_close_timeout or start_to_close_timeout must be present
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1722,8 +1724,8 @@ class Client:
             task_queue=task_queue,
             result_type=result_type,
             schedule_to_close_timeout=schedule_to_close_timeout,
-            start_to_close_timeout=start_to_close_timeout,
             schedule_to_start_timeout=schedule_to_start_timeout,
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             id_reuse_policy=id_reuse_policy,
             id_conflict_policy=id_conflict_policy,
@@ -1736,7 +1738,7 @@ class Client:
         )
         return await handle.result()
 
-    # Overload for async no-param activity class
+    # async no-param
     @overload
     async def start_activity_class(
         self,
@@ -1744,10 +1746,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1759,7 +1760,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for sync no-param activity class
+    # sync no-param
     @overload
     async def start_activity_class(
         self,
@@ -1767,10 +1768,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1782,7 +1782,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for async single-param activity class
+    # async single-param
     @overload
     async def start_activity_class(
         self,
@@ -1791,10 +1791,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1806,7 +1805,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for sync single-param activity class
+    # sync single-param
     @overload
     async def start_activity_class(
         self,
@@ -1815,10 +1814,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1830,7 +1828,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for async multi-param activity class
+    # async multi-param
     @overload
     async def start_activity_class(
         self,
@@ -1839,10 +1837,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1854,7 +1851,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for sync multi-param activity class
+    # sync multi-param
     @overload
     async def start_activity_class(
         self,
@@ -1863,10 +1860,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1888,8 +1884,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1915,8 +1911,8 @@ class Client:
             task_queue=task_queue,
             result_type=result_type,
             schedule_to_close_timeout=schedule_to_close_timeout,
-            start_to_close_timeout=start_to_close_timeout,
             schedule_to_start_timeout=schedule_to_start_timeout,
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             id_reuse_policy=id_reuse_policy,
             id_conflict_policy=id_conflict_policy,
@@ -1928,7 +1924,7 @@ class Client:
             rpc_timeout=rpc_timeout,
         )
 
-    # Overload for async no-param activity class
+    # async no-param
     @overload
     async def execute_activity_class(
         self,
@@ -1936,10 +1932,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1951,7 +1946,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for sync no-param activity class
+    # sync no-param
     @overload
     async def execute_activity_class(
         self,
@@ -1959,10 +1954,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1974,7 +1968,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for async single-param activity class
+    # async single-param
     @overload
     async def execute_activity_class(
         self,
@@ -1983,10 +1977,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -1998,7 +1991,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for sync single-param activity class
+    # sync single-param
     @overload
     async def execute_activity_class(
         self,
@@ -2007,10 +2000,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2022,7 +2014,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for async multi-param activity class
+    # async multi-param
     @overload
     async def execute_activity_class(
         self,
@@ -2031,10 +2023,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2046,7 +2037,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for sync multi-param activity class
+    # sync multi-param
     @overload
     async def execute_activity_class(
         self,
@@ -2055,10 +2046,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2080,8 +2070,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2107,8 +2097,8 @@ class Client:
             task_queue=task_queue,
             result_type=result_type,
             schedule_to_close_timeout=schedule_to_close_timeout,
-            start_to_close_timeout=start_to_close_timeout,
             schedule_to_start_timeout=schedule_to_start_timeout,
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             id_reuse_policy=id_reuse_policy,
             id_conflict_policy=id_conflict_policy,
@@ -2120,7 +2110,7 @@ class Client:
             rpc_timeout=rpc_timeout,
         )
 
-    # Overload for async no-param activity method
+    # async no-param
     @overload
     async def start_activity_method(
         self,
@@ -2128,10 +2118,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2143,7 +2132,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for async single-param activity method
+    # async single-param
     @overload
     async def start_activity_method(
         self,
@@ -2152,10 +2141,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2167,7 +2155,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for async multi-param activity method
+    # async multi-param
     @overload
     async def start_activity_method(
         self,
@@ -2178,10 +2166,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2193,7 +2180,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ActivityHandle[ReturnType]: ...
 
-    # Overload for sync multi-param activity method
+    # sync multi-param
     @overload
     async def start_activity_method(
         self,
@@ -2202,10 +2189,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2227,8 +2213,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2254,8 +2240,8 @@ class Client:
             task_queue=task_queue,
             result_type=result_type,
             schedule_to_close_timeout=schedule_to_close_timeout,
-            start_to_close_timeout=start_to_close_timeout,
             schedule_to_start_timeout=schedule_to_start_timeout,
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             id_reuse_policy=id_reuse_policy,
             id_conflict_policy=id_conflict_policy,
@@ -2267,7 +2253,7 @@ class Client:
             rpc_timeout=rpc_timeout,
         )
 
-    # Overload for async no-param activity method
+    # async no-param
     @overload
     async def execute_activity_method(
         self,
@@ -2275,10 +2261,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2290,7 +2275,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for async single-param activity method
+    # async single-param
     @overload
     async def execute_activity_method(
         self,
@@ -2299,10 +2284,9 @@ class Client:
         *,
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2314,7 +2298,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for async multi-param activity method
+    # async multi-param
     @overload
     async def execute_activity_method(
         self,
@@ -2325,10 +2309,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2340,7 +2323,7 @@ class Client:
         rpc_timeout: timedelta | None = None,
     ) -> ReturnType: ...
 
-    # Overload for sync multi-param activity method
+    # sync multi-param
     @overload
     async def execute_activity_method(
         self,
@@ -2349,10 +2332,9 @@ class Client:
         args: Sequence[Any],
         id: str,
         task_queue: str,
-        result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2374,8 +2356,8 @@ class Client:
         task_queue: str,
         result_type: type | None = None,
         schedule_to_close_timeout: timedelta | None = None,
-        start_to_close_timeout: timedelta | None = None,
         schedule_to_start_timeout: timedelta | None = None,
+        start_to_close_timeout: timedelta | None = None,
         heartbeat_timeout: timedelta | None = None,
         id_reuse_policy: temporalio.common.ActivityIDReusePolicy = temporalio.common.ActivityIDReusePolicy.ALLOW_DUPLICATE,
         id_conflict_policy: temporalio.common.ActivityIDConflictPolicy = temporalio.common.ActivityIDConflictPolicy.FAIL,
@@ -2401,8 +2383,8 @@ class Client:
             task_queue=task_queue,
             result_type=result_type,
             schedule_to_close_timeout=schedule_to_close_timeout,
-            start_to_close_timeout=start_to_close_timeout,
             schedule_to_start_timeout=schedule_to_start_timeout,
+            start_to_close_timeout=start_to_close_timeout,
             heartbeat_timeout=heartbeat_timeout,
             id_reuse_policy=id_reuse_policy,
             id_conflict_policy=id_conflict_policy,
