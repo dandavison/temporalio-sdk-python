@@ -35,6 +35,58 @@ async def increment(input: int) -> int:
     return input + 1
 
 
+@activity.defn
+async def blocking_increment(n: int) -> int:
+    await _notify_caller()
+    await _wait_for_notification_from_caller()
+    return n + 1
+
+
+async def _wait_for_notification_from_caller():
+    """
+    Execute a workflow that waits for the caller to notify it.
+    """
+    act = activity.info()
+    await activity.client().execute_workflow(
+        EventWorkflow.wait,
+        id=f"to-activity-{act.activity_id}",
+        task_queue=act.task_queue,
+    )
+
+
+async def _wait_for_notification_from_activity(
+    activity_handle: ActivityHandle, task_queue: str
+):
+    """
+    Execute a workflow that waits for the activity to notify it.
+    """
+    await activity_handle._client.execute_workflow(
+        EventWorkflow.wait,
+        id=f"from-activity-{activity_handle.activity_id}",
+        task_queue=task_queue,
+    )
+
+
+async def _notify_caller() -> None:
+    """
+    Send a notification to the workflow that the caller is waiting on.
+    """
+    act = activity.info()
+    wf = activity.client().get_workflow_handle_for(
+        EventWorkflow.wait,
+        workflow_id=f"from-activity-{act.activity_id}",
+    )
+    await wf.signal(EventWorkflow.set)
+
+
+async def _notify_activity(activity_handle: ActivityHandle) -> None:
+    wf = activity_handle._client.get_workflow_handle_for(
+        EventWorkflow.wait,
+        workflow_id=f"to-activity-{activity_handle.activity_id}",
+    )
+    await wf.signal(EventWorkflow.set)
+
+
 # Activity classes for testing start_activity_class / execute_activity_class
 @activity.defn
 class IncrementClass:
@@ -78,25 +130,17 @@ class ActivityHolder:
 
 
 class TestDescribe:
-    @staticmethod
-    @activity.defn
-    async def blocking_activity(x: int) -> int:
-        await asyncio.Future()
-        return x + 1
-
     @pytest.fixture
     async def activity_handle(self, client: Client):
-        activity_id = str(uuid.uuid4())
+        id = str(uuid.uuid4())
         task_queue = str(uuid.uuid4())
-
-        handle = await client.start_activity(
-            self.blocking_activity,
+        yield await client.start_activity(
+            blocking_increment,
             args=(42,),
-            id=activity_id,
+            id=id,
             task_queue=task_queue,
             schedule_to_close_timeout=timedelta(hours=1),
         )
-        yield handle
 
     async def test_describe(self, client: Client):
         activity_id = str(uuid.uuid4())
@@ -156,9 +200,20 @@ class TestDescribe:
         """Long-polling for state changes."""
         desc1 = await activity_handle.describe()
         assert desc1.long_poll_token is not None
-
-        desc2 = await activity_handle.describe(long_poll_token=desc1.long_poll_token)
-        assert desc2 is not None
+        async with Worker(
+            activity_handle._client,
+            task_queue=desc1.task_queue,
+            activities=[blocking_increment],
+            workflows=[EventWorkflow],
+        ):
+            await _wait_for_notification_from_activity(
+                activity_handle, desc1.task_queue
+            )
+            await _notify_activity(activity_handle)
+            desc2 = await activity_handle.describe(
+                long_poll_token=desc1.long_poll_token
+            )
+            assert desc2 is not None
 
 
 class ActivityTracingInterceptor(Interceptor):
