@@ -35,13 +35,6 @@ async def increment(input: int) -> int:
     return input + 1
 
 
-@activity.defn
-async def blocking_increment(n: int) -> int:
-    await _notify_caller()
-    await _wait_for_notification_from_caller()
-    return n + 1
-
-
 # Activity classes for testing start_activity_class / execute_activity_class
 @activity.defn
 class IncrementClass:
@@ -1179,51 +1172,3 @@ class EventWorkflow:
     @workflow.signal
     def set(self) -> None:
         self.signal_received.set()
-
-
-async def _wait_for_notification_from_caller():
-    """
-    Execute a workflow that waits for the caller to notify it.
-    """
-    act = activity.info()
-    await activity.client().execute_workflow(
-        EventWorkflow.wait,
-        id=f"to-activity-{act.activity_id}",
-        task_queue=act.task_queue,
-    )
-
-
-async def _wait_for_activity_to_start_executing(
-    activity_handle: ActivityHandle, task_queue: str
-):
-    """
-    Execute a workflow that waits for the activity to notify it.
-    """
-    await activity_handle._client.execute_workflow(
-        EventWorkflow.wait,
-        id=f"from-activity-{activity_handle.activity_id}",
-        task_queue=task_queue,
-    )
-
-
-async def _notify_caller() -> None:
-    """
-    Send a notification to the workflow that the caller is waiting on.
-    """
-    await (
-        activity.client()
-        .get_workflow_handle_for(
-            EventWorkflow.wait,
-            workflow_id=f"from-activity-{activity.info().activity_id}",
-        )
-        .signal(EventWorkflow.set)
-    )
-
-
-async def _notify_activity(activity_handle: ActivityHandle, task_queue: str) -> None:
-    await _wait_for_activity_to_start_executing(activity_handle, task_queue)
-    wf = activity_handle._client.get_workflow_handle_for(
-        EventWorkflow.wait,
-        workflow_id=f"to-activity-{activity_handle.activity_id}",
-    )
-    await wf.signal(EventWorkflow.set)
