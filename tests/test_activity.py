@@ -527,9 +527,13 @@ async def test_count_activities(client: Client):
         start_to_close_timeout=timedelta(seconds=5),
     )
 
-    count = await client.count_activities(f'ActivityId = "{activity_id}"')
-    assert count.count == 1
-    assert count.groups == []
+    async def fetch_count():
+        return await client.count_activities(f'ActivityId = "{activity_id}"')
+
+    count = await assert_eq_eventually(
+        ActivityExecutionCount(count=1, groups=[]),
+        fetch_count,
+    )
 
 
 async def test_count_activities_group_by(client: Client):
