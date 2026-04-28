@@ -889,6 +889,61 @@ async def test_heartbeating_activity_cancel(
         )
 
 
+@activity.defn
+async def plain_heartbeating_activity() -> str:
+    while True:
+        await asyncio.sleep(0.3)
+        activity.heartbeat()
+
+
+@pytest.mark.xfail(
+    reason=(
+        "Cancel is delivered to a heartbeating SAA via the heartbeat response. "
+        "When the user does not configure heartbeat_timeout, sdk-core falls "
+        "back to default_heartbeat_throttle_interval (30s), so cancel arrives "
+        "up to ~30s after request. Reproduces against `temporal server "
+        "start-dev` >= 1.31.0-154; passes against the older 1.31.0-151 that "
+        "this test suite's fixture downloads (which appears to deliver cancel "
+        "via a different path)."
+    ),
+    strict=False,
+)
+async def test_standalone_activity_cancel_latency_after_first_heartbeat(
+    client: Client, env: WorkflowEnvironment
+):
+    """Cancellation must reach a heartbeating standalone activity within a few
+    seconds even when no heartbeat_timeout is configured."""
+    import time
+
+    if env.supports_time_skipping:
+        pytest.skip(
+            "Java test server: https://github.com/temporalio/sdk-java/issues/2741"
+        )
+
+    task_queue = str(uuid.uuid4())
+    async with Worker(
+        client, task_queue=task_queue, activities=[plain_heartbeating_activity]
+    ):
+        activity_handle = await client.start_activity(
+            plain_heartbeating_activity,
+            id=str(uuid.uuid4()),
+            task_queue=task_queue,
+            start_to_close_timeout=timedelta(seconds=180),
+        )
+        # Settle past the first heartbeat so subsequent heartbeats are throttled.
+        await asyncio.sleep(2)
+        t0 = time.monotonic()
+        await activity_handle.cancel()
+        with pytest.raises(ActivityFailureError) as exc_info:
+            await asyncio.wait_for(activity_handle.result(), timeout=60)
+        elapsed = time.monotonic() - t0
+        assert isinstance(exc_info.value.cause, CancelledError)
+        assert elapsed < 5, (
+            f"cancel-to-delivery {elapsed:.2f}s exceeds 5s budget "
+            f"(default_heartbeat_throttle_interval is 30s)"
+        )
+
+
 async def test_id_conflict_policy_fail(client: Client, env: WorkflowEnvironment):
     if env.supports_time_skipping:
         pytest.skip(
