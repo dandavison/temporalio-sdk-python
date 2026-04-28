@@ -822,6 +822,62 @@ async def test_manual_heartbeat(client: Client, env: WorkflowEnvironment):
         assert await activity_handle.result() == "Test heartbeat details"
 
 
+@activity.defn
+async def heartbeating_activity_for_cancel(input: ActivityInput) -> str:
+    # Notify test that the activity has started
+    await (
+        activity.client()
+        .get_workflow_handle(input.event_workflow_id)
+        .signal(EventWorkflow.set)
+    )
+    try:
+        while True:
+            await asyncio.sleep(0.3)
+            activity.heartbeat()
+    except asyncio.CancelledError:
+        return "Got cancelled error, cancelled? " + str(activity.is_cancelled())
+
+
+async def test_heartbeating_activity_cancel(
+    client: Client, env: WorkflowEnvironment
+):
+    if env.supports_time_skipping:
+        pytest.skip(
+            "Java test server: https://github.com/temporalio/sdk-java/issues/2741"
+        )
+
+    activity_id = str(uuid.uuid4())
+    task_queue = str(uuid.uuid4())
+    event_workflow_id = str(uuid.uuid4())
+
+    activity_handle = await client.start_activity(
+        heartbeating_activity_for_cancel,
+        ActivityInput(event_workflow_id=event_workflow_id),
+        id=activity_id,
+        task_queue=task_queue,
+        start_to_close_timeout=timedelta(seconds=10),
+        heartbeat_timeout=timedelta(seconds=2),
+    )
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        activities=[heartbeating_activity_for_cancel],
+        workflows=[EventWorkflow],
+    ):
+        # Wait for activity to start
+        await client.execute_workflow(
+            EventWorkflow.wait,
+            id=event_workflow_id,
+            task_queue=task_queue,
+        )
+        await activity_handle.cancel()
+        assert (
+            await activity_handle.result()
+            == "Got cancelled error, cancelled? True"
+        )
+
+
 async def test_id_conflict_policy_fail(client: Client, env: WorkflowEnvironment):
     if env.supports_time_skipping:
         pytest.skip(
