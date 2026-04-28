@@ -838,8 +838,15 @@ async def heartbeating_activity_for_cancel(input: ActivityInput) -> str:
         return "Got cancelled error, cancelled? " + str(activity.is_cancelled())
 
 
+@pytest.mark.parametrize(
+    "heartbeat_timeout_seconds",
+    [None, 2.0],
+    ids=["no_heartbeat_timeout", "with_heartbeat_timeout"],
+)
 async def test_heartbeating_activity_cancel(
-    client: Client, env: WorkflowEnvironment
+    client: Client,
+    env: WorkflowEnvironment,
+    heartbeat_timeout_seconds: float | None,
 ):
     if env.supports_time_skipping:
         pytest.skip(
@@ -855,8 +862,12 @@ async def test_heartbeating_activity_cancel(
         ActivityInput(event_workflow_id=event_workflow_id),
         id=activity_id,
         task_queue=task_queue,
-        start_to_close_timeout=timedelta(seconds=10),
-        heartbeat_timeout=timedelta(seconds=2),
+        start_to_close_timeout=timedelta(seconds=60),
+        heartbeat_timeout=(
+            timedelta(seconds=heartbeat_timeout_seconds)
+            if heartbeat_timeout_seconds is not None
+            else None
+        ),
     )
 
     async with Worker(
@@ -873,7 +884,7 @@ async def test_heartbeating_activity_cancel(
         )
         await activity_handle.cancel()
         assert (
-            await activity_handle.result()
+            await asyncio.wait_for(activity_handle.result(), timeout=10)
             == "Got cancelled error, cancelled? True"
         )
 

@@ -371,10 +371,16 @@ async def test_activity_kwonly_params():
     assert str(err.value).endswith("cannot have keyword-only arguments")
 
 
+@pytest.mark.parametrize(
+    "heartbeat_timeout_ms",
+    [None, 2000],
+    ids=["no_heartbeat_timeout", "with_heartbeat_timeout"],
+)
 async def test_activity_cancel_catch(
     client: Client,
     worker: ExternalWorker,
     shared_state_manager: SharedStateManager,
+    heartbeat_timeout_ms: int | None,
 ):
     @activity.defn
     async def wait_cancel() -> str:
@@ -391,7 +397,7 @@ async def test_activity_cancel_catch(
         wait_cancel,
         cancel_after_ms=100,
         wait_for_cancellation=True,
-        heartbeat_timeout_ms=2000,
+        heartbeat_timeout_ms=heartbeat_timeout_ms,
         shared_state_manager=shared_state_manager,
     )
     assert result.result == "Got cancelled error, cancelled? True"
