@@ -85,6 +85,7 @@ class ClientConfig:
     grpc_compression: str
     payloads_warn_size: int
     memo_warn_size: int
+    local_server_module: str | None
 
 
 @dataclass

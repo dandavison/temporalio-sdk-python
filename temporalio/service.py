@@ -239,6 +239,7 @@ class ConnectConfig:
     dns_load_balancing_config: DnsLoadBalancingConfig | None = None
     grpc_compression: GrpcCompression = GrpcCompression.GZIP
     payload_limits: PayloadLimitsConfig = field(default_factory=PayloadLimitsConfig)
+    local_server_module: str | None = None
 
     def __post_init__(self) -> None:
         """Set extra defaults on unset properties."""
@@ -304,6 +305,7 @@ class ConnectConfig:
             grpc_compression=self.grpc_compression._to_bridge_config(),
             payloads_warn_size=self.payload_limits.payloads_warn_size,
             memo_warn_size=self.payload_limits.memo_warn_size,
+            local_server_module=self.local_server_module,
         )
 
 

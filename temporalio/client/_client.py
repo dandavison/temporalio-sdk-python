@@ -155,6 +155,7 @@ class Client:
         grpc_compression: GrpcCompression = GrpcCompression.GZIP,
         payload_limits: PayloadLimitsConfig = PayloadLimitsConfig(),
         header_codec_behavior: HeaderCodecBehavior = HeaderCodecBehavior.NO_CODEC,
+        local_server_module: str | None = None,
     ) -> Self:
         """Connect to a Temporal server.
 
@@ -220,6 +221,9 @@ class Client:
             payload_limits: Warning thresholds for outbound payload/memo sizes. Over-threshold
                 fields are logged but still sent. Set a threshold to 0 to disable it.
             header_codec_behavior: Encoding behavior for headers sent by the client.
+            local_server_module: Path of a precompiled local-server module
+                (``.cwasm``). If set, the client serves every call in-process
+                from that module and ``target_host`` is not used.
         """
         connect_config = temporalio.service.ConnectConfig(
             target_host=target_host,
@@ -235,6 +239,7 @@ class Client:
             dns_load_balancing_config=dns_load_balancing_config,
             grpc_compression=grpc_compression,
             payload_limits=payload_limits,
+            local_server_module=local_server_module,
         )
 
         def make_lambda(

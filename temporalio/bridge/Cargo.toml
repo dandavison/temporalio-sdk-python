@@ -72,6 +72,8 @@ temporalio-sdk-core = { version = "0.9", path = "./sdk-core/crates/sdk-core", de
     "envconfig",
     "prometheus",
 ] }
+# Serves client calls in-process from the local-server wasm module.
+local-server-host = { path = "./sdk-core/local-server-host", default-features = false }
 tokio = "1.26"
 # Matches the sdk-core client crate's rustls stack; used to build the custom
 # server certificate verifier for ClientTlsConfig.verification_server_name.

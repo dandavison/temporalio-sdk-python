@@ -1,6 +1,7 @@
 use pyo3::exceptions::{PyException, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashMap;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,6 +50,7 @@ pub struct ClientConfig {
     grpc_compression: String,
     payloads_warn_size: u64,
     memo_warn_size: u64,
+    local_server_module: Option<String>,
 }
 
 #[derive(FromPyObject)]
@@ -259,8 +261,17 @@ impl ClientConfig {
         // Core rejects DNS load balancing alongside an HTTP CONNECT proxy, so
         // suppress DNS LB whenever a proxy is configured to keep the
         // pre-existing behavior even if a caller leaves the default.
+        let service_override = self
+            .local_server_module
+            .map(|path| local_server_host::grpc_service(Path::new(&path)))
+            .transpose()
+            .map_err(|err| {
+                PyRuntimeError::new_err(format!("Failed loading local server module: {err}"))
+            })?;
         let dns_load_balancing = if has_proxy {
             warn!("Disabling DNS load balancing because http_connect_proxy_config is set");
+            None
+        } else if service_override.is_some() {
             None
         } else {
             self.dns_load_balancing_config.map(Into::into)
@@ -279,6 +290,7 @@ impl ClientConfig {
         .keep_alive(self.keep_alive_config.map(Into::into))
         .maybe_http_connect_proxy(self.http_connect_proxy_config.map(Into::into))
         .dns_load_balancing(dns_load_balancing)
+        .maybe_service_override(service_override)
         .grpc_compression(grpc_compression_from_str(&self.grpc_compression)?)
         .payload_limits(
             temporalio_client::PayloadLimitsOptions::builder()
