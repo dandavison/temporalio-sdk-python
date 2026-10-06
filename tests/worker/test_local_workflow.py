@@ -32,10 +32,16 @@ RUN_SPECIFIC_FIELDS = {
 # Fields holding sets, whose order is arbitrary.
 SET_FIELDS = {"coreUsedFlags", "langUsedFlags"}
 
-# Fields whose server values the local server does not reproduce. historySizeBytes: the server
-# counts the bytes of persisted event batches, which include task IDs; the local server counts the
-# bytes of its events, which have none.
-UNREPRODUCED_FIELDS = {"historySizeBytes"}
+# Fields whose server values the local server does not reproduce:
+# - historySizeBytes: the server counts the bytes of persisted event batches, which include task
+#   IDs; the local server counts the bytes of its events, which have none.
+# - workerVersion, binaryChecksum: the local server does not implement build ID based versioning,
+#   so workers send a binary checksum where against the server they send a worker version stamp.
+UNREPRODUCED_FIELDS = {"historySizeBytes", "workerVersion", "binaryChecksum"}
+
+# The local server does not implement sticky queues, so its workflow tasks are scheduled on the
+# normal task queue where the server schedules them on the worker's sticky queue.
+UNREPRODUCED_EVENT_FIELDS = {("workflowTaskScheduledEventAttributes", "taskQueue")}
 
 
 @activity.defn
@@ -250,16 +256,15 @@ async def history(client: Client, workflow_id: str) -> list[dict[str, Any]]:
     return [comparable(MessageToDict(e)) for e in events]
 
 
-def comparable(value: Any) -> Any:
-    """Drops run-specific and unreproduced fields, and sorts sets. The name of a sticky task queue
-    is run-specific because each worker has its own."""
+def comparable(value: Any, parent: str = "") -> Any:
+    """Drops run-specific and unreproduced fields, and sorts sets."""
     if isinstance(value, dict):
         return {
-            k: sorted(v) if k in SET_FIELDS else comparable(v)
+            k: sorted(v) if k in SET_FIELDS else comparable(v, k)
             for k, v in value.items()
             if k not in RUN_SPECIFIC_FIELDS | UNREPRODUCED_FIELDS
+            and (parent, k) not in UNREPRODUCED_EVENT_FIELDS
             and not k.endswith("Time")
-            and not (k == "name" and value.get("kind") == "TASK_QUEUE_KIND_STICKY")
         }
     if isinstance(value, list):
         return [comparable(v) for v in value]
