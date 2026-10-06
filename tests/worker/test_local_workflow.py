@@ -26,6 +26,14 @@ RUN_SPECIFIC_FIELDS = {
     "firstExecutionRunId",
 }
 
+# Fields holding sets, whose order is arbitrary.
+SET_FIELDS = {"coreUsedFlags", "langUsedFlags"}
+
+# Fields whose server values the local server does not reproduce. historySizeBytes: the server
+# counts the bytes of persisted event batches, which include task IDs; the local server counts the
+# bytes of its events, which have none.
+UNREPRODUCED_FIELDS = {"historySizeBytes"}
+
 
 @activity.defn
 async def fail_first_attempt(name: str) -> str:
@@ -76,16 +84,20 @@ async def run_workflow(
         )
         assert await handle.result() == "Hello, local!"
     history = await handle.fetch_history()
-    return [without_run_specific_fields(MessageToDict(e)) for e in history.events]
+    return [comparable(MessageToDict(e)) for e in history.events]
 
 
-def without_run_specific_fields(value: Any) -> Any:
+def comparable(value: Any) -> Any:
+    """Drops run-specific and unreproduced fields, and sorts sets. The name of a sticky task queue
+    is run-specific because each worker has its own."""
     if isinstance(value, dict):
         return {
-            k: without_run_specific_fields(v)
+            k: sorted(v) if k in SET_FIELDS else comparable(v)
             for k, v in value.items()
-            if k not in RUN_SPECIFIC_FIELDS and not k.endswith("Time")
+            if k not in RUN_SPECIFIC_FIELDS | UNREPRODUCED_FIELDS
+            and not k.endswith("Time")
+            and not (k == "name" and value.get("kind") == "TASK_QUEUE_KIND_STICKY")
         }
     if isinstance(value, list):
-        return [without_run_specific_fields(v) for v in value]
+        return [comparable(v) for v in value]
     return value
