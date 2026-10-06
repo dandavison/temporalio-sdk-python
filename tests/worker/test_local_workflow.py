@@ -202,16 +202,21 @@ async def worker_replaced(client: Client, workflow_id: str, task_queue: str) -> 
     ],
 )
 async def test_local_history_matches_server_history(client: Client, scenario: Scenario):
+    # Both clients are connected the same way: the fixture's client has interceptors that appear
+    # in workflow task failure stack traces.
+    server_client = await Client.connect(
+        client.service_client.config.target_host, namespace=client.namespace
+    )
     module = os.environ["TEMPORAL_LOCAL_SERVER_MODULE"]
     local_client = await Client.connect("local", local_server_module=module)
     workflow_id = f"wf-{uuid.uuid4()}"
     task_queue = f"tq-{uuid.uuid4()}"
 
-    await scenario(client, workflow_id, task_queue)
+    await scenario(server_client, workflow_id, task_queue)
     await scenario(local_client, workflow_id, task_queue)
 
     assert await history(local_client, workflow_id) == await history(
-        client, workflow_id
+        server_client, workflow_id
     )
 
 
