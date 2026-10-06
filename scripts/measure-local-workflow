@@ -1,0 +1,132 @@
+#!/usr/bin/env -S uv run python
+"""Measures the server overhead of a synthetic agent loop on a dev server and on the in-process
+local server.
+
+Each workflow alternates model and tool activities. The activities do no work, so the gap between
+one activity finishing and the next starting is the cost of the server round trips and workflow
+tasks in between.
+
+    scripts/measure-local-workflow --module /tmp/local-server.cwasm
+"""
+
+import argparse
+import asyncio
+import statistics
+import time
+import uuid
+from dataclasses import dataclass
+from datetime import timedelta
+
+from temporalio import activity, workflow
+from temporalio.client import Client
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+# Activity start and end times (time.monotonic) in the order they occurred.
+activity_spans: list[tuple[float, float]] = []
+
+
+@activity.defn
+async def call_model(step: int) -> str:
+    start = time.monotonic()
+    activity_spans.append((start, time.monotonic()))
+    return f"tool call {step}"
+
+
+@activity.defn
+async def run_tool(call: str) -> str:
+    start = time.monotonic()
+    activity_spans.append((start, time.monotonic()))
+    return f"result of {call}"
+
+
+@workflow.defn
+class AgentLoopWorkflow:
+    @workflow.run
+    async def run(self, steps: int) -> int:
+        for step in range(steps):
+            call = await workflow.execute_activity(
+                call_model, step, start_to_close_timeout=timedelta(seconds=10)
+            )
+            await workflow.execute_activity(
+                run_tool, call, start_to_close_timeout=timedelta(seconds=10)
+            )
+        return steps
+
+
+@dataclass
+class Measurement:
+    wall_seconds: list[float]
+    gaps_ms: list[float]
+    history_events: int
+    workflow_tasks: int
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--module", required=True, help="local-server .cwasm path")
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--dev-server", default="/opt/homebrew/bin/temporal")
+    args = parser.parse_args()
+
+    env = await WorkflowEnvironment.start_local(
+        dev_server_existing_path=args.dev_server
+    )
+    try:
+        server = await Client.connect(env.client.service_client.config.target_host)
+        local = await Client.connect("local", local_server_module=args.module)
+        for name, client in [("dev server", server), ("local", local)]:
+            report(name, await measure(client, args.steps, args.runs))
+    finally:
+        await env.shutdown()
+
+
+async def measure(client: Client, steps: int, runs: int) -> Measurement:
+    task_queue = f"tq-{uuid.uuid4()}"
+    wall_seconds, gaps_ms = [], []
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[AgentLoopWorkflow],
+        activities=[call_model, run_tool],
+        # The sandbox cannot import a script that has no .py suffix.
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        workflow_id = await run_once(client, task_queue, steps)  # warm-up
+        for _ in range(runs):
+            activity_spans.clear()
+            start = time.monotonic()
+            workflow_id = await run_once(client, task_queue, steps)
+            wall_seconds.append(time.monotonic() - start)
+            gaps_ms += [
+                (next_start - end) * 1000
+                for (_, end), (next_start, _) in zip(activity_spans, activity_spans[1:])
+            ]
+    events = (await client.get_workflow_handle(workflow_id).fetch_history()).events
+    workflow_tasks = sum(
+        e.HasField("workflow_task_started_event_attributes") for e in events
+    )
+    return Measurement(wall_seconds, gaps_ms, len(events), workflow_tasks)
+
+
+async def run_once(client: Client, task_queue: str, steps: int) -> str:
+    workflow_id = f"wf-{uuid.uuid4()}"
+    await client.execute_workflow(
+        AgentLoopWorkflow.run, steps, id=workflow_id, task_queue=task_queue
+    )
+    return workflow_id
+
+
+def report(name: str, m: Measurement) -> None:
+    gaps = sorted(m.gaps_ms)
+    p99 = gaps[min(len(gaps) - 1, int(len(gaps) * 0.99))]
+    print(
+        f"{name}: activity-to-activity gap p50 {statistics.median(gaps):.2f} ms, "
+        f"p99 {p99:.2f} ms; workflow wall time p50 {statistics.median(m.wall_seconds) * 1000:.0f} ms; "
+        f"{m.history_events} history events, {m.workflow_tasks} workflow tasks per workflow"
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
