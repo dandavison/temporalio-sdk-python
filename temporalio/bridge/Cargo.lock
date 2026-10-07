@@ -1462,6 +1462,7 @@ name = "local-server-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "futures-util",
  "libc",
  "prost",

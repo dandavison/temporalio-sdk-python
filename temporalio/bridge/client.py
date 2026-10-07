@@ -68,6 +68,16 @@ class ClientDnsLoadBalancingConfig:
 
 
 @dataclass
+class ClientLocalServerUpstream:
+    """Python representation of the Rust struct for the server that owns runs a local server
+    runs.
+    """
+
+    target_url: str
+    sync_interval_millis: int
+
+
+@dataclass
 class ClientConfig:
     """Python representation of the Rust struct for configuring the client."""
 
@@ -86,6 +96,7 @@ class ClientConfig:
     payloads_warn_size: int
     memo_warn_size: int
     local_server_module: str | None
+    local_server_upstream: ClientLocalServerUpstream | None
 
 
 @dataclass

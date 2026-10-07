@@ -51,6 +51,13 @@ pub struct ClientConfig {
     payloads_warn_size: u64,
     memo_warn_size: u64,
     local_server_module: Option<String>,
+    local_server_upstream: Option<ClientLocalServerUpstream>,
+}
+
+#[derive(FromPyObject)]
+struct ClientLocalServerUpstream {
+    target_url: String,
+    sync_interval_millis: u64,
 }
 
 #[derive(FromPyObject)]
@@ -261,9 +268,15 @@ impl ClientConfig {
         // Core rejects DNS load balancing alongside an HTTP CONNECT proxy, so
         // suppress DNS LB whenever a proxy is configured to keep the
         // pre-existing behavior even if a caller leaves the default.
+        let upstream = self
+            .local_server_upstream
+            .map(|upstream| local_server_host::Upstream {
+                target_url: upstream.target_url,
+                sync_interval: Duration::from_millis(upstream.sync_interval_millis),
+            });
         let service_override = self
             .local_server_module
-            .map(|path| local_server_host::grpc_service(Path::new(&path)))
+            .map(|path| local_server_host::grpc_service(Path::new(&path), upstream))
             .transpose()
             .map_err(|err| {
                 PyRuntimeError::new_err(format!("Failed loading local server module: {err}"))
