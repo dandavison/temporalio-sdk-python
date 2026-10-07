@@ -25,6 +25,7 @@ from ._interceptor import (
     WorkflowInterceptorClassInput,
     WorkflowOutboundInterceptor,
 )
+from ._local_execution import LocalExecution
 from ._plugin import Plugin
 from ._replayer import (
     Replayer,
@@ -86,6 +87,7 @@ __all__ = [
     "WorkflowInboundInterceptor",
     "WorkflowOutboundInterceptor",
     "NexusOperationInboundInterceptor",
+    "LocalExecution",
     "Plugin",
     # Interceptor input
     "ContinueAsNewInput",

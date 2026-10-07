@@ -28,6 +28,7 @@ fn temporal_sdk_bridge(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RPCError", py.get_type::<client::RPCError>())?;
     m.add_class::<client::ClientRef>()?;
     m.add_function(wrap_pyfunction!(connect_client, m)?)?;
+    m.add_function(wrap_pyfunction!(connect_local_execution_client, m)?)?;
 
     // Metric stuff
     m.add_class::<metric::MetricMeterRef>()?;
@@ -78,6 +79,15 @@ fn temporal_sdk_bridge(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_submodule(&envconfig_module)?;
 
     Ok(())
+}
+
+#[pyfunction]
+fn connect_local_execution_client(
+    runtime_ref: &runtime::RuntimeRef,
+    config: client::ClientConfig,
+    local_execution: client::LocalExecutionConfig,
+) -> PyResult<client::ClientRef> {
+    client::connect_local_execution_client(runtime_ref, config, local_execution)
 }
 
 #[pyfunction]

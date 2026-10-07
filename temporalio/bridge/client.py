@@ -68,12 +68,10 @@ class ClientDnsLoadBalancingConfig:
 
 
 @dataclass
-class ClientLocalServerUpstream:
-    """Python representation of the Rust struct for the server that owns runs a local server
-    runs.
-    """
+class LocalExecutionConfig:
+    """Python representation of the Rust struct for configuring local execution."""
 
-    target_url: str
+    module: str
     sync_interval_millis: int
 
 
@@ -96,7 +94,6 @@ class ClientConfig:
     payloads_warn_size: int
     memo_warn_size: int
     local_server_module: str | None
-    local_server_upstream: ClientLocalServerUpstream | None
 
 
 @dataclass
@@ -125,6 +122,22 @@ class Client:
             runtime,
             await temporalio.bridge.temporal_sdk_bridge.connect_client(
                 runtime._ref, config
+            ),
+        )
+
+    @staticmethod
+    def connect_local_execution(
+        runtime: temporalio.bridge.runtime.Runtime,
+        config: ClientConfig,
+        local_execution: LocalExecutionConfig,
+    ) -> Client:
+        """Connect a client that the local-server module serves, running there the workflow runs
+        that the server ``config`` connects to owns. Makes no network call.
+        """
+        return Client(
+            runtime,
+            temporalio.bridge.temporal_sdk_bridge.connect_local_execution_client(
+                runtime._ref, config, local_execution
             ),
         )
 

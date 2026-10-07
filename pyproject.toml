@@ -57,6 +57,7 @@ cloud-run-worker-otel = [
 aioboto3 = ["aioboto3>=10.4.0", "types-aioboto3[s3]>=10.4.0"]
 google-genai = ["google-genai>=2.21.0,<3.0.0"]
 strands-agents = ["strands-agents>=1.51.0"]
+local = ["temporalio-localserver"]
 
 [project.urls]
 Homepage = "https://github.com/temporalio/sdk-python"
@@ -92,6 +93,7 @@ dev = [
   "googleapis-common-protos>=1.75.0,<2",
   "pytest-rerunfailures>=16.1",
   "pytest-xdist>=3.6,<4",
+  "temporalio-localserver",
   "moto[s3,server]>=5",
   "langgraph>=1.1.0",
   "langsmith>=0.7.34,<0.13",
@@ -292,3 +294,6 @@ exclude = ["temporalio/bridge/target/**/*", "temporalio/bridge/sdk-core/.git"]
 # Prevent uv commands from building the package by default
 package = false
 exclude-newer = "2 weeks"
+
+[tool.uv.sources]
+temporalio-localserver = { path = "temporalio-localserver", editable = true }

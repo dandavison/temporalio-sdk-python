@@ -32,6 +32,7 @@ from temporalio.common import (
 
 from ._activity import SharedStateManager, _ActivityWorker
 from ._interceptor import Interceptor
+from ._local_execution import LocalExecution
 from ._nexus import _NexusWorker
 from ._plugin import Plugin
 from ._tuning import WorkerTuner
@@ -152,6 +153,7 @@ class Worker:
         ),
         disable_payload_error_limit: bool = False,
         max_workflow_task_external_storage_concurrency: int = _DEFAULT_WORKFLOW_TASK_EXTERNAL_STORAGE_CONCURRENCY,
+        local_execution: LocalExecution | None = None,
     ) -> None:
         """Create a worker to process workflows and/or activities.
 
@@ -343,6 +345,10 @@ class Worker:
                 Defaults to 3. Adjust this value based on your workload's needs.
                 Please report any issues you encounter with this setting or if you
                 feel the default should be changed.
+            local_execution: If set, the worker runs its workflows, and the
+                activities they schedule, in this process on a local server that
+                syncs their history to the server. See :py:class:`LocalExecution`.
+                WARNING: This setting is a prototype.
                 WARNING: This setting is experimental.
 
         """
@@ -392,6 +398,7 @@ class Worker:
             nexus_task_poller_behavior=nexus_task_poller_behavior,
             disable_payload_error_limit=disable_payload_error_limit,
             max_workflow_task_external_storage_concurrency=max_workflow_task_external_storage_concurrency,
+            local_execution=local_execution,
         )
 
         plugins_from_client = cast(
@@ -634,8 +641,11 @@ class Worker:
         # TODO(cretz): Why does this cause a test hang when an exception is
         # thrown after it?
         assert bridge_client._bridge_client
+        local_execution = config.get("local_execution")
         self._bridge_worker = temporalio.bridge.worker.Worker.create(
-            bridge_client._bridge_client,
+            local_execution._connect(bridge_client)
+            if local_execution
+            else bridge_client._bridge_client,
             temporalio.bridge.worker.WorkerConfig(
                 namespace=config["client"].namespace,  # type: ignore[reportTypedDictNotRequiredAccess]
                 task_queue=config["task_queue"],  # type: ignore[reportTypedDictNotRequiredAccess]
@@ -734,6 +744,10 @@ class Worker:
         complete with the existing client. The new client cannot be "lazy" and
         must be using the same runtime as the current client.
         """
+        if self._config.get("local_execution"):
+            raise ValueError(
+                "The client of a worker with local execution cannot be replaced"
+            )
         bridge_client = _extract_bridge_client_for_worker(value)
         if self._runtime is not bridge_client.config.runtime:
             raise ValueError(
@@ -1020,6 +1034,7 @@ class WorkerConfig(TypedDict, total=False):
     nexus_task_poller_behavior: PollerBehavior
     disable_payload_error_limit: bool
     max_workflow_task_external_storage_concurrency: int
+    local_execution: LocalExecution | None
 
 
 def _warn_if_activity_executor_max_workers_is_inconsistent(

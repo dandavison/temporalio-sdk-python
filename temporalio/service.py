@@ -222,27 +222,6 @@ class PayloadLimitsConfig:
     """Warning threshold, in bytes, for outbound memo size. Set to 0 to disable."""
 
 
-@dataclass(frozen=True)
-class LocalServerUpstream:
-    """A server that owns workflow runs that a local server runs.
-
-    The local server acquires runs from the task queues its workers poll, and syncs their history
-    to this server, which must support local execution. The connection is plaintext.
-    """
-
-    target_host: str
-    """``host:port`` of the server's frontend."""
-
-    sync_interval: timedelta = timedelta(seconds=1)
-    """How often a run's new history is sent to the server."""
-
-    def _to_bridge_config(self) -> temporalio.bridge.client.ClientLocalServerUpstream:
-        return temporalio.bridge.client.ClientLocalServerUpstream(
-            target_url=f"http://{self.target_host}",
-            sync_interval_millis=int(self.sync_interval.total_seconds() * 1000),
-        )
-
-
 @dataclass
 class ConnectConfig:
     """Config for connecting to the server."""
@@ -261,7 +240,6 @@ class ConnectConfig:
     grpc_compression: GrpcCompression = GrpcCompression.GZIP
     payload_limits: PayloadLimitsConfig = field(default_factory=PayloadLimitsConfig)
     local_server_module: str | None = None
-    local_server_upstream: LocalServerUpstream | None = None
 
     def __post_init__(self) -> None:
         """Set extra defaults on unset properties."""
@@ -328,11 +306,6 @@ class ConnectConfig:
             payloads_warn_size=self.payload_limits.payloads_warn_size,
             memo_warn_size=self.payload_limits.memo_warn_size,
             local_server_module=self.local_server_module,
-            local_server_upstream=(
-                self.local_server_upstream._to_bridge_config()
-                if self.local_server_upstream
-                else None
-            ),
         )
 
 

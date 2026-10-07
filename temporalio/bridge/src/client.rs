@@ -51,12 +51,11 @@ pub struct ClientConfig {
     payloads_warn_size: u64,
     memo_warn_size: u64,
     local_server_module: Option<String>,
-    local_server_upstream: Option<ClientLocalServerUpstream>,
 }
 
 #[derive(FromPyObject)]
-struct ClientLocalServerUpstream {
-    target_url: String,
+pub struct LocalExecutionConfig {
+    module: String,
     sync_interval_millis: u64,
 }
 
@@ -123,7 +122,7 @@ pub fn connect_client<'a>(
         .core
         .telemetry()
         .get_temporal_metric_meter();
-    let opts = config.into_connection_options(metrics_meter)?;
+    let opts = config.into_connection_options(metrics_meter, None)?;
     runtime_ref.runtime.assert_same_process("create client")?;
     let runtime = runtime_ref.runtime.clone();
     runtime_ref.runtime.future_into_py(py, async move {
@@ -133,6 +132,52 @@ pub fn connect_client<'a>(
                 .map_err(|err| PyRuntimeError::new_err(format!("Failed client connect: {err}")))?,
             runtime,
         })
+    })
+}
+
+/// Connects a client that the local-server module serves, and that runs there the workflow runs
+/// that the server `config` connects to owns. It blocks while it connects, which involves no
+/// network call.
+pub fn connect_local_execution_client(
+    runtime_ref: &runtime::RuntimeRef,
+    mut config: ClientConfig,
+    local_execution: LocalExecutionConfig,
+) -> PyResult<ClientRef> {
+    if config.tls_config.is_some() {
+        return Err(PyValueError::new_err(
+            "local execution does not support TLS connections to the server",
+        ));
+    }
+    let upstream = local_server_host::Upstream {
+        target_url: config.target_url.clone(),
+        sync_interval: Duration::from_millis(local_execution.sync_interval_millis),
+        api_key: config.api_key.clone(),
+        headers: config
+            .metadata
+            .iter()
+            .filter_map(|(key, value)| match value {
+                RpcMetadataValue::Str(value) => Some((key.clone(), value.clone())),
+                RpcMetadataValue::Bytes(_) => None,
+            })
+            .collect(),
+    };
+    config.local_server_module = Some(local_execution.module);
+    let metrics_meter = runtime_ref
+        .runtime
+        .core
+        .telemetry()
+        .get_temporal_metric_meter();
+    let opts = config.into_connection_options(metrics_meter, Some(upstream))?;
+    runtime_ref.runtime.assert_same_process("create client")?;
+    let connection = runtime_ref
+        .runtime
+        .core
+        .tokio_handle()
+        .block_on(Connection::connect(opts))
+        .map_err(|err| PyRuntimeError::new_err(format!("Failed client connect: {err}")))?;
+    Ok(ClientRef {
+        connection,
+        runtime: runtime_ref.runtime.clone(),
     })
 }
 
@@ -262,18 +307,13 @@ impl ClientConfig {
     fn into_connection_options(
         self,
         metrics_meter: Option<temporalio_common::telemetry::metrics::TemporalMeter>,
+        upstream: Option<local_server_host::Upstream>,
     ) -> PyResult<ConnectionOptions> {
         let (ascii_headers, binary_headers) = partition_headers(self.metadata);
         let has_proxy = self.http_connect_proxy_config.is_some();
         // Core rejects DNS load balancing alongside an HTTP CONNECT proxy, so
         // suppress DNS LB whenever a proxy is configured to keep the
         // pre-existing behavior even if a caller leaves the default.
-        let upstream = self
-            .local_server_upstream
-            .map(|upstream| local_server_host::Upstream {
-                target_url: upstream.target_url,
-                sync_interval: Duration::from_millis(upstream.sync_interval_millis),
-            });
         let service_override = self
             .local_server_module
             .map(|path| local_server_host::grpc_service(Path::new(&path), upstream))

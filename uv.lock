@@ -4830,6 +4830,9 @@ langgraph = [
 langsmith = [
     { name = "langsmith" },
 ]
+local = [
+    { name = "temporalio-localserver" },
+]
 openai-agents = [
     { name = "temporalio-openai-agents" },
 ]
@@ -4886,6 +4889,7 @@ dev = [
     { name = "setuptools" },
     { name = "strands-agents" },
     { name = "strands-agents-tools" },
+    { name = "temporalio-localserver" },
     { name = "temporalio-openai-agents" },
     { name = "toml" },
     { name = "twine" },
@@ -4919,12 +4923,13 @@ requires-dist = [
     { name = "pydantic", marker = "extra == 'pydantic'", specifier = ">=2.0.0,<3" },
     { name = "python-dateutil", marker = "python_full_version < '3.11'", specifier = ">=2.8.2,<3" },
     { name = "strands-agents", marker = "extra == 'strands-agents'", specifier = ">=1.51.0" },
+    { name = "temporalio-localserver", marker = "extra == 'local'", editable = "temporalio-localserver" },
     { name = "temporalio-openai-agents", marker = "extra == 'openai-agents'", specifier = ">=1.0.0" },
     { name = "types-aioboto3", extras = ["s3"], marker = "extra == 'aioboto3'", specifier = ">=10.4.0" },
     { name = "types-protobuf", specifier = ">=3.20,<8.0.0" },
     { name = "typing-extensions", specifier = ">=4.2.0,<5" },
 ]
-provides-extras = ["grpc", "opentelemetry", "pydantic", "openai-agents", "google-adk", "langgraph", "langsmith", "deepagents", "lambda-worker-otel", "cloud-run-worker-otel", "aioboto3", "google-genai", "strands-agents"]
+provides-extras = ["grpc", "opentelemetry", "pydantic", "openai-agents", "google-adk", "langgraph", "langsmith", "deepagents", "lambda-worker-otel", "cloud-run-worker-otel", "aioboto3", "google-genai", "strands-agents", "local"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -4967,10 +4972,16 @@ dev = [
     { name = "setuptools", specifier = "<82" },
     { name = "strands-agents", specifier = ">=1.51.0" },
     { name = "strands-agents-tools", specifier = ">=0.5.2" },
+    { name = "temporalio-localserver", editable = "temporalio-localserver" },
     { name = "temporalio-openai-agents", specifier = ">=1.0.0" },
     { name = "toml", specifier = ">=0.10.2,<0.11" },
     { name = "twine", specifier = ">=4.0.1,<5" },
 ]
+
+[[package]]
+name = "temporalio-localserver"
+version = "0.1.0"
+source = { editable = "temporalio-localserver" }
 
 [[package]]
 name = "temporalio-openai-agents"

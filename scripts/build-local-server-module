@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Builds the local-server module into the temporalio-localserver package, from a checkout of the
+# temporal server branch dandavison/temporalio-temporal:local-chasm.
+#
+#     scripts/build-local-server-module ~/worktrees/temporal/chasm-standalone-build-libs/temporal
+set -euo pipefail
+
+temporal=${1:?usage: build-local-server-module <temporal checkout>}
+out="$(cd "$(dirname "$0")/.." && pwd)/temporalio-localserver/src/temporalio_localserver/local-server.wasm"
+cd "$temporal"
+GOOS=wasip1 GOARCH=wasm GOFLAGS=-buildvcs=false \
+  go build -buildmode=c-shared -ldflags="-s -w" -trimpath -o "$out" ./cmd/chasmwasm
+ls -l "$out"
