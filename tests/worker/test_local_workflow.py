@@ -1,17 +1,17 @@
 """Runs workflows against the in-process local server and compares their histories with those of
 the same workflows run on a real server.
 
-Requires TEMPORAL_LOCAL_SERVER_MODULE: the path of a precompiled local-server module (.cwasm).
+Requires the temporalio-localserver package (``temporalio[local]``), with its module built.
 """
 
 import asyncio
-import os
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import timedelta
 from typing import Any
 
 import pytest
+import temporalio_localserver
 from google.protobuf.json_format import MessageToDict
 
 from temporalio import activity, workflow
@@ -213,8 +213,9 @@ async def test_local_history_matches_server_history(client: Client, scenario: Sc
     server_client = await Client.connect(
         client.service_client.config.target_host, namespace=client.namespace
     )
-    module = os.environ["TEMPORAL_LOCAL_SERVER_MODULE"]
-    local_client = await Client.connect("local", local_server_module=module)
+    local_client = await Client.connect(
+        "local", local_server_module=str(temporalio_localserver.module_path())
+    )
     workflow_id = f"wf-{uuid.uuid4()}"
     task_queue = f"tq-{uuid.uuid4()}"
 

@@ -6,7 +6,7 @@ Each workflow alternates model and tool activities. The activities do no work, s
 one activity finishing and the next starting is the cost of the server round trips and workflow
 tasks in between.
 
-    scripts/measure-local-workflow --module /tmp/local-server.cwasm
+    scripts/measure-local-workflow
 """
 
 import argparse
@@ -16,6 +16,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
+
+import temporalio_localserver
 
 from temporalio import activity, workflow
 from temporalio.client import Client
@@ -64,7 +66,6 @@ class Measurement:
 
 async def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--module", required=True, help="local-server .cwasm path")
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--dev-server", default="/opt/homebrew/bin/temporal")
@@ -75,7 +76,9 @@ async def main() -> None:
     )
     try:
         server = await Client.connect(env.client.service_client.config.target_host)
-        local = await Client.connect("local", local_server_module=args.module)
+        local = await Client.connect(
+            "local", local_server_module=str(temporalio_localserver.module_path())
+        )
         for name, client in [("dev server", server), ("local", local)]:
             report(name, await measure(client, args.steps, args.runs))
     finally:

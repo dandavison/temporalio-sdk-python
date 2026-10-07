@@ -221,9 +221,9 @@ class Client:
             payload_limits: Warning thresholds for outbound payload/memo sizes. Over-threshold
                 fields are logged but still sent. Set a threshold to 0 to disable it.
             header_codec_behavior: Encoding behavior for headers sent by the client.
-            local_server_module: Path of a local-server module (``.wasm``, or
-                ``.cwasm`` precompiled for this SDK's wasmtime). If set, the
-                client serves every call in-process from that module and
+            local_server_module: Path of a local-server wasm module, such as
+                ``temporalio_localserver.module_path()``. If set, the client
+                serves every call in-process from that module and
                 ``target_host`` is not used.
         """
         connect_config = temporalio.service.ConnectConfig(
