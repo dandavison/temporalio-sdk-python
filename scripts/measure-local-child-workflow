@@ -1,0 +1,202 @@
+#!/usr/bin/env -S uv run python
+"""Measures a turn run as a child workflow by a worker connected to the server, and by a local
+server that owns it and syncs its history to the server.
+
+The turn is a synthetic agent loop that alternates model and tool activities that do no work. The
+server must support local execution (temporalio/temporal branch sj/local-first-execution); its
+frontend request counts come from its Prometheus metrics.
+
+    scripts/measure-local-child-workflow --module /tmp/local-server.cwasm \\
+        --cli ~/worktrees/cli/local-first-child/temporal
+"""
+
+import argparse
+import asyncio
+import re
+import statistics
+import time
+import urllib.request
+import uuid
+from collections import Counter
+from dataclasses import dataclass
+from datetime import timedelta
+
+from temporalio import activity, workflow
+from temporalio.client import Client
+from temporalio.service import LocalServerUpstream
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+METRICS_PORT = 9471
+
+# Activity start times (time.monotonic) in the order they occurred.
+activity_starts: list[float] = []
+
+
+@activity.defn
+async def call_model(step: int) -> str:
+    activity_starts.append(time.monotonic())
+    return f"tool call {step}"
+
+
+@activity.defn
+async def run_tool(call: str) -> str:
+    activity_starts.append(time.monotonic())
+    return f"result of {call}"
+
+
+@workflow.defn
+class Turn:
+    @workflow.run
+    async def run(self, steps: int) -> int:
+        for step in range(steps):
+            call = await workflow.execute_activity(
+                call_model, step, start_to_close_timeout=timedelta(seconds=10)
+            )
+            await workflow.execute_activity(
+                run_tool, call, start_to_close_timeout=timedelta(seconds=10)
+            )
+        return steps
+
+
+@workflow.defn
+class Agent:
+    @workflow.run
+    async def run(self, steps: int, turn_task_queue: str) -> int:
+        return await workflow.execute_child_workflow(
+            Turn.run, steps, task_queue=turn_task_queue
+        )
+
+
+@dataclass
+class Measurement:
+    wall_ms: list[float]
+    gaps_ms: list[float]
+    requests_per_turn: dict[str, float]
+    turn_history_events: int
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--module", required=True, help="local-server .cwasm path")
+    parser.add_argument("--cli", required=True, help="CLI supporting local execution")
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--runs", type=int, default=10)
+    parser.add_argument("--sync-interval-ms", type=int, default=1000)
+    args = parser.parse_args()
+
+    env = await WorkflowEnvironment.start_local(
+        dev_server_existing_path=args.cli,
+        dev_server_extra_args=[
+            "--dynamic-config-value",
+            "history.enableLocalExecution=true",
+            "--metrics-port",
+            str(METRICS_PORT),
+        ],
+    )
+    try:
+        target_host = env.client.service_client.config.target_host
+        server = await Client.connect(target_host)
+        local = await Client.connect(
+            "local",
+            local_server_module=args.module,
+            local_server_upstream=LocalServerUpstream(
+                target_host=target_host,
+                sync_interval=timedelta(milliseconds=args.sync_interval_ms),
+            ),
+        )
+        for name, turn_client in [("server worker", server), ("local", local)]:
+            report(name, await measure(server, turn_client, args.steps, args.runs))
+    finally:
+        await env.shutdown()
+
+
+async def measure(
+    server: Client, turn_client: Client, steps: int, runs: int
+) -> Measurement:
+    agent_task_queue = f"agent-{uuid.uuid4()}"
+    turn_task_queue = f"turn-{uuid.uuid4()}"
+    wall_ms, gaps_ms = [], []
+    async with (
+        Worker(
+            server,
+            task_queue=agent_task_queue,
+            workflows=[Agent],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(
+            turn_client,
+            task_queue=turn_task_queue,
+            workflows=[Turn],
+            activities=[call_model, run_tool],
+            # The sandbox cannot import a script that has no .py suffix.
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+    ):
+        await run_turn(server, agent_task_queue, turn_task_queue, steps)  # warm-up
+        before = frontend_requests()
+        for _ in range(runs):
+            activity_starts.clear()
+            start = time.monotonic()
+            agent_id = await run_turn(server, agent_task_queue, turn_task_queue, steps)
+            wall_ms.append((time.monotonic() - start) * 1000)
+            gaps_ms += [
+                (b - a) * 1000 for a, b in zip(activity_starts, activity_starts[1:])
+            ]
+        requests = frontend_requests() - before
+    agent_events = (await server.get_workflow_handle(agent_id).fetch_history()).events
+    turn_id = next(
+        e.child_workflow_execution_started_event_attributes.workflow_execution.workflow_id
+        for e in agent_events
+        if e.HasField("child_workflow_execution_started_event_attributes")
+    )
+    turn_events = (await server.get_workflow_handle(turn_id).fetch_history()).events
+    return Measurement(
+        wall_ms,
+        gaps_ms,
+        {operation: n / runs for operation, n in requests.items() if n},
+        len(turn_events),
+    )
+
+
+async def run_turn(
+    client: Client, agent_task_queue: str, turn_task_queue: str, steps: int
+) -> str:
+    agent_id = f"agent-{uuid.uuid4()}"
+    await client.execute_workflow(
+        Agent.run,
+        args=[steps, turn_task_queue],
+        id=agent_id,
+        task_queue=agent_task_queue,
+    )
+    return agent_id
+
+
+def frontend_requests() -> Counter[str]:
+    metrics = urllib.request.urlopen(f"http://localhost:{METRICS_PORT}/metrics").read()
+    requests: Counter[str] = Counter()
+    for line in metrics.decode().splitlines():
+        match = re.match(
+            r'service_requests\{namespace="default",operation="(\w+)",service_name="frontend"\} (\S+)',
+            line,
+        )
+        if match:
+            requests[match[1]] += int(float(match[2]))
+    return requests
+
+
+def report(name: str, m: Measurement) -> None:
+    gaps = sorted(m.gaps_ms)
+    print(
+        f"{name}: turn wall time p50 {statistics.median(m.wall_ms):.0f} ms, "
+        f"activity-to-activity gap p50 {statistics.median(gaps):.2f} ms, "
+        f"p99 {gaps[min(len(gaps) - 1, int(len(gaps) * 0.99))]:.2f} ms; "
+        f"turn history {m.turn_history_events} events"
+    )
+    print("  frontend requests per turn (including the agent workflow's):")
+    for operation, n in sorted(m.requests_per_turn.items()):
+        print(f"    {n:7.1f} {operation}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
