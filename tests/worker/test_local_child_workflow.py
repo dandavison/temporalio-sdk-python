@@ -3,19 +3,25 @@ server acquires the child from the server and syncs the child's history to it.
 
 Requires:
 - TEMPORAL_LOCAL_SERVER_MODULE: the path of a precompiled local-server module (.cwasm).
-- TEMPORAL_LOCAL_EXECUTION_SERVER: the address of a server that supports local execution (branch
-  sj/local-first-execution) with history.enableLocalExecution enabled.
+- TEMPORAL_LOCAL_EXECUTION_CLI: a Temporal CLI built against a server that supports local
+  execution (temporalio/temporal branch sj/local-first-execution).
 """
 
 import asyncio
 import os
+import subprocess
+import sys
 import uuid
+from collections.abc import AsyncIterator
 from datetime import timedelta
+
+import pytest
 
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowHandle
 from temporalio.service import LocalServerUpstream, RPCError, RPCStatusCode
+from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, Worker
 from tests.helpers import assert_eventually
 
@@ -53,20 +59,29 @@ class Agent:
         )
 
 
-async def test_child_workflow_runs_locally_and_syncs_to_server():
-    turn_may_finish.clear()
-    address = os.environ["TEMPORAL_LOCAL_EXECUTION_SERVER"]
-    server_client = await Client.connect(address)
-    local_client = await Client.connect(
-        "local",
-        local_server_module=os.environ["TEMPORAL_LOCAL_SERVER_MODULE"],
-        local_server_upstream=LocalServerUpstream(target_host=address),
+@pytest.fixture
+async def server() -> AsyncIterator[WorkflowEnvironment]:
+    env = await WorkflowEnvironment.start_local(
+        dev_server_existing_path=os.environ["TEMPORAL_LOCAL_EXECUTION_CLI"],
+        dev_server_extra_args=[
+            "--dynamic-config-value",
+            "history.enableLocalExecution=true",
+        ],
     )
+    yield env
+    await env.shutdown()
+
+
+async def test_child_workflow_runs_locally_and_syncs_to_server(
+    server: WorkflowEnvironment,
+):
+    turn_may_finish.clear()
+    local_client = await connect_local_client(target_host(server))
     agent_task_queue = f"agent-{uuid.uuid4()}"
     turn_task_queue = f"turn-{uuid.uuid4()}"
     # The only worker for the turn's task queue is connected to the local server.
     async with (
-        Worker(server_client, task_queue=agent_task_queue, workflows=[Agent]),
+        Worker(server.client, task_queue=agent_task_queue, workflows=[Agent]),
         Worker(
             local_client,
             task_queue=turn_task_queue,
@@ -74,21 +89,11 @@ async def test_child_workflow_runs_locally_and_syncs_to_server():
             activities=[step],
         ),
     ):
-        agent = await server_client.start_workflow(
-            Agent.run,
-            turn_task_queue,
-            id=f"agent-{uuid.uuid4()}",
-            task_queue=agent_task_queue,
-        )
-        turn = server_client.get_workflow_handle(f"{agent.id}-turn")
+        agent = await start_agent(server.client, agent_task_queue, turn_task_queue)
+        turn = server.client.get_workflow_handle(f"{agent.id}-turn")
 
         # While the turn waits in its second activity, the server shows the first one completed.
-        async def first_activity_synced() -> None:
-            assert EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED in await event_types(
-                turn
-            )
-
-        await assert_eventually(first_activity_synced)
+        await assert_eventually(lambda: assert_synced(turn, completed_activities=1))
         assert (await turn.describe()).status == WorkflowExecutionStatus.RUNNING
 
         turn_may_finish.set()
@@ -99,6 +104,105 @@ async def test_child_workflow_runs_locally_and_syncs_to_server():
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED
     )
     await Replayer(workflows=[Turn]).replay_workflow(history)
+
+
+async def test_child_workflow_continues_on_the_server_when_the_local_worker_dies(
+    server: WorkflowEnvironment,
+):
+    turn_may_finish.clear()
+    agent_task_queue = f"agent-{uuid.uuid4()}"
+    turn_task_queue = f"turn-{uuid.uuid4()}"
+    local_worker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import asyncio, sys; "
+            "from tests.worker.test_local_child_workflow import run_local_worker; "
+            "asyncio.run(run_local_worker(sys.argv[1], sys.argv[2]))",
+            target_host(server),
+            turn_task_queue,
+        ]
+    )
+    try:
+        async with Worker(
+            server.client, task_queue=agent_task_queue, workflows=[Agent]
+        ):
+            agent = await start_agent(server.client, agent_task_queue, turn_task_queue)
+            turn = server.client.get_workflow_handle(f"{agent.id}-turn")
+
+            # The local worker dies while the turn waits in its second activity, whose scheduling
+            # the server has.
+            await assert_eventually(
+                lambda: assert_synced(
+                    turn, completed_activities=1, scheduled_activities=2
+                )
+            )
+            local_worker.kill()
+
+            # Once the local worker's ownership expires, a worker connected to the server
+            # continues the turn from its synced history.
+            turn_may_finish.set()
+            async with Worker(
+                server.client,
+                task_queue=turn_task_queue,
+                workflows=[Turn],
+                activities=[step],
+            ):
+                assert await asyncio.wait_for(agent.result(), timeout=30) == 3
+    finally:
+        local_worker.kill()
+        local_worker.wait()
+
+    history = await turn.fetch_history()
+    types = [event.event_type for event in history.events]
+    assert types.count(EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED) == 3
+    await Replayer(workflows=[Turn]).replay_workflow(history)
+
+
+async def run_local_worker(upstream: str, task_queue: str) -> None:
+    """Runs a local worker for the turn until the process is killed."""
+    client = await connect_local_client(upstream)
+    async with Worker(
+        client, task_queue=task_queue, workflows=[Turn], activities=[step]
+    ):
+        await asyncio.Event().wait()
+
+
+async def connect_local_client(upstream: str) -> Client:
+    return await Client.connect(
+        "local",
+        local_server_module=os.environ["TEMPORAL_LOCAL_SERVER_MODULE"],
+        local_server_upstream=LocalServerUpstream(target_host=upstream),
+    )
+
+
+async def start_agent(
+    client: Client, agent_task_queue: str, turn_task_queue: str
+) -> WorkflowHandle:
+    return await client.start_workflow(
+        Agent.run,
+        turn_task_queue,
+        id=f"agent-{uuid.uuid4()}",
+        task_queue=agent_task_queue,
+    )
+
+
+def target_host(server: WorkflowEnvironment) -> str:
+    return server.client.service_client.config.target_host
+
+
+async def assert_synced(
+    turn: WorkflowHandle, completed_activities: int, scheduled_activities: int = 0
+) -> None:
+    types = await event_types(turn)
+    assert (
+        types.count(EventType.EVENT_TYPE_ACTIVITY_TASK_COMPLETED)
+        >= completed_activities
+    )
+    assert (
+        types.count(EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED)
+        >= scheduled_activities
+    )
 
 
 async def event_types(handle: WorkflowHandle) -> list[EventType.ValueType]:
