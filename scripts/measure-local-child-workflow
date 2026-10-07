@@ -6,8 +6,7 @@ The turn is a synthetic agent loop that alternates model and tool activities tha
 server must support local execution (temporalio/temporal branch sj/local-first-execution); its
 frontend request counts come from its Prometheus metrics.
 
-    scripts/measure-local-child-workflow --module /tmp/local-server.cwasm \\
-        --cli ~/worktrees/cli/local-first-child/temporal
+    scripts/measure-local-child-workflow --cli ~/worktrees/cli/local-first-child/temporal
 """
 
 import argparse
@@ -23,9 +22,8 @@ from datetime import timedelta
 
 from temporalio import activity, workflow
 from temporalio.client import Client
-from temporalio.service import LocalServerUpstream
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import LocalExecution, UnsandboxedWorkflowRunner, Worker
 
 METRICS_PORT = 9471
 
@@ -78,7 +76,6 @@ class Measurement:
 
 async def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--module", required=True, help="local-server .cwasm path")
     parser.add_argument("--cli", required=True, help="CLI supporting local execution")
     parser.add_argument("--steps", type=int, default=20)
     parser.add_argument("--runs", type=int, default=10)
@@ -97,22 +94,23 @@ async def main() -> None:
     try:
         target_host = env.client.service_client.config.target_host
         server = await Client.connect(target_host)
-        local = await Client.connect(
-            "local",
-            local_server_module=args.module,
-            local_server_upstream=LocalServerUpstream(
-                target_host=target_host,
-                sync_interval=timedelta(milliseconds=args.sync_interval_ms),
-            ),
+        local_execution = LocalExecution(
+            sync_interval=timedelta(milliseconds=args.sync_interval_ms)
         )
-        for name, turn_client in [("server worker", server), ("local", local)]:
-            report(name, await measure(server, turn_client, args.steps, args.runs))
+        for name, turn_local_execution in [
+            ("server worker", None),
+            ("local", local_execution),
+        ]:
+            report(
+                name,
+                await measure(server, turn_local_execution, args.steps, args.runs),
+            )
     finally:
         await env.shutdown()
 
 
 async def measure(
-    server: Client, turn_client: Client, steps: int, runs: int
+    server: Client, local_execution: LocalExecution | None, steps: int, runs: int
 ) -> Measurement:
     agent_task_queue = f"agent-{uuid.uuid4()}"
     turn_task_queue = f"turn-{uuid.uuid4()}"
@@ -125,12 +123,13 @@ async def measure(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ),
         Worker(
-            turn_client,
+            server,
             task_queue=turn_task_queue,
             workflows=[Turn],
             activities=[call_model, run_tool],
             # The sandbox cannot import a script that has no .py suffix.
             workflow_runner=UnsandboxedWorkflowRunner(),
+            local_execution=local_execution,
         ),
     ):
         await run_turn(server, agent_task_queue, turn_task_queue, steps)  # warm-up
