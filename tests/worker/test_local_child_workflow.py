@@ -1,5 +1,6 @@
-"""Runs a child workflow on a worker with local execution: the worker's in-process local server
-acquires the child from the server, runs it, and syncs the child's history to the server.
+"""Runs a child workflow, or a workflow backing a Nexus operation, on a worker with local execution:
+the worker's in-process local server acquires the run from the server, runs it, and syncs its
+history to the server.
 
 Requires:
 - the temporalio-localserver package (``temporalio[local]``), with its module built;
@@ -15,17 +16,20 @@ import uuid
 from collections.abc import AsyncIterator
 from datetime import timedelta
 
+import nexusrpc
 import pytest
 
-from temporalio import activity, workflow
+from temporalio import activity, nexus, workflow
 from temporalio.api.enums.v1 import EventType, TaskQueueType
 from temporalio.api.taskqueue.v1 import TaskQueue
 from temporalio.api.workflowservice.v1 import DescribeTaskQueueRequest
 from temporalio.client import Client, WorkflowExecutionStatus, WorkflowHandle
+from temporalio.nexus import WorkflowRunOperationContext, workflow_run_operation
 from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import LocalExecution, Replayer, Worker
 from tests.helpers import assert_eventually
+from tests.helpers.nexus import make_nexus_endpoint_name
 
 turn_may_finish = asyncio.Event()
 
@@ -59,6 +63,28 @@ class Agent:
             id=f"{workflow.info().workflow_id}-turn",
             task_queue=turn_task_queue,
         )
+
+
+@nexusrpc.handler.service_handler
+class TurnService:
+    def __init__(self, turn_task_queue: str) -> None:
+        self.turn_task_queue = turn_task_queue
+
+    @workflow_run_operation
+    async def run_turn(
+        self, ctx: WorkflowRunOperationContext, steps: int
+    ) -> nexus.WorkflowHandle[int]:
+        return await ctx.start_workflow(
+            Turn.run, steps, id=f"turn-{uuid.uuid4()}", task_queue=self.turn_task_queue
+        )
+
+
+@workflow.defn
+class NexusAgent:
+    @workflow.run
+    async def run(self, endpoint: str) -> int:
+        turns = workflow.create_nexus_client(service=TurnService, endpoint=endpoint)
+        return await turns.execute_operation(TurnService.run_turn, 3)
 
 
 @pytest.fixture
@@ -117,6 +143,47 @@ async def test_child_workflow_runs_locally_and_syncs_to_server(
         EventType.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED
     )
     await Replayer(workflows=[Turn]).replay_workflow(history)
+
+
+async def test_nexus_operation_backed_by_a_local_workflow_completes(
+    server: WorkflowEnvironment,
+):
+    turn_may_finish.set()
+    agent_task_queue = f"agent-{uuid.uuid4()}"
+    handler_task_queue = f"handler-{uuid.uuid4()}"
+    turn_task_queue = f"turn-{uuid.uuid4()}"
+    endpoint = make_nexus_endpoint_name(handler_task_queue)
+    await server.create_nexus_endpoint(endpoint, handler_task_queue)
+    async with (
+        Worker(server.client, task_queue=agent_task_queue, workflows=[NexusAgent]),
+        Worker(
+            server.client,
+            task_queue=handler_task_queue,
+            nexus_service_handlers=[TurnService(turn_task_queue)],
+        ),
+        Worker(
+            server.client,
+            task_queue=turn_task_queue,
+            workflows=[Turn],
+            activities=[step],
+            local_execution=LocalExecution(),
+        ),
+    ):
+        agent = await server.client.start_workflow(
+            NexusAgent.run,
+            endpoint,
+            id=f"agent-{uuid.uuid4()}",
+            task_queue=agent_task_queue,
+        )
+        # The operation completes through the Nexus callback attached to the turn, which the
+        # server must deliver when the local server syncs the turn's close.
+        assert await asyncio.wait_for(agent.result(), timeout=30) == 3
+        assert (
+            await poller_identities(
+                server.client, turn_task_queue, TaskQueueType.TASK_QUEUE_TYPE_ACTIVITY
+            )
+            == []
+        )
 
 
 async def test_child_workflow_continues_on_the_server_when_the_local_worker_dies(
