@@ -57,6 +57,9 @@ cloud-run-worker-otel = [
 aioboto3 = ["aioboto3>=10.4.0", "types-aioboto3[s3]>=10.4.0"]
 google-genai = ["google-genai>=2.21.0,<3.0.0"]
 strands-agents = ["strands-agents>=1.39.0"]
+redis = [
+    "redis>=5,<8",
+]
 
 [project.urls]
 Homepage = "https://github.com/temporalio/sdk-python"
