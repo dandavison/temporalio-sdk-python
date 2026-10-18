@@ -11,7 +11,10 @@ import temporalio.api.common.v1
 
 @dataclass(frozen=True)
 class ClientProducer:
-    """A client appending under an identity and epoch that it chooses."""
+    """A client appending under an identity and epoch that it chooses. The epoch must be from 0 to
+    2^53-1, as every epoch and seq must be on every backend; an append with any other raises
+    :py:class:`temporalio.streams.StreamError`.
+    """
 
     id: str
     epoch: int
