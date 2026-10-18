@@ -18,6 +18,7 @@ import google.protobuf.message
 import google.protobuf.timestamp_pb2
 
 import temporalio.api.common.v1.message_pb2
+import temporalio.bridge.proto.workflow_activation.workflow_activation_pb2
 
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
@@ -161,6 +162,7 @@ class Start(google.protobuf.message.Message):
     IS_LOCAL_FIELD_NUMBER: builtins.int
     RUN_ID_FIELD_NUMBER: builtins.int
     ATTEMPT_STAMP_FIELD_NUMBER: builtins.int
+    WORKFLOW_TASK_FIELD_NUMBER: builtins.int
     workflow_namespace: builtins.str
     """The namespace the workflow lives in"""
     workflow_type: builtins.str
@@ -232,6 +234,13 @@ class Start(google.protobuf.message.Message):
     """Identifies this attempt among all attempts of the activity. Unlike `attempt`, it never goes
     back, so it tells a superseded attempt from the current one. Zero for local activities.
     """
+    @property
+    def workflow_task(
+        self,
+    ) -> temporalio.bridge.proto.workflow_activation.workflow_activation_pb2.WorkflowTaskIdentity:
+        """For a local activity: the workflow task it was scheduled in. Its stream producer epoch
+        includes this, so that a rerun of a failed workflow task does not collide with it.
+        """
     def __init__(
         self,
         *,
@@ -264,6 +273,8 @@ class Start(google.protobuf.message.Message):
         is_local: builtins.bool = ...,
         run_id: builtins.str = ...,
         attempt_stamp: builtins.int = ...,
+        workflow_task: temporalio.bridge.proto.workflow_activation.workflow_activation_pb2.WorkflowTaskIdentity
+        | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -286,6 +297,8 @@ class Start(google.protobuf.message.Message):
             b"started_time",
             "workflow_execution",
             b"workflow_execution",
+            "workflow_task",
+            b"workflow_task",
         ],
     ) -> builtins.bool: ...
     def ClearField(
@@ -329,6 +342,8 @@ class Start(google.protobuf.message.Message):
             b"workflow_execution",
             "workflow_namespace",
             b"workflow_namespace",
+            "workflow_task",
+            b"workflow_task",
             "workflow_type",
             b"workflow_type",
         ],

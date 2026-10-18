@@ -75,6 +75,12 @@ class _StreamFailureTypeEnumTypeWrapper(
     STREAM_FAILURE_TYPE_EPOCH_FENCED: _StreamFailureType.ValueType  # 8
     """The producer's epoch is lower than one already seen, or is not the current attempt."""
     STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: _StreamFailureType.ValueType  # 9
+    STREAM_FAILURE_TYPE_SEQ_GAP: _StreamFailureType.ValueType  # 10
+    """The seq skips one: a new epoch must start at 0, and an epoch's next seq must follow its
+    latest.
+    """
+    STREAM_FAILURE_TYPE_TOO_LARGE: _StreamFailureType.ValueType  # 11
+    """A record, or the append as a whole, exceeds a size limit."""
 
 class StreamFailureType(
     _StreamFailureType, metaclass=_StreamFailureTypeEnumTypeWrapper
@@ -95,6 +101,12 @@ STREAM_FAILURE_TYPE_SEQ_STALE: StreamFailureType.ValueType  # 7
 STREAM_FAILURE_TYPE_EPOCH_FENCED: StreamFailureType.ValueType  # 8
 """The producer's epoch is lower than one already seen, or is not the current attempt."""
 STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: StreamFailureType.ValueType  # 9
+STREAM_FAILURE_TYPE_SEQ_GAP: StreamFailureType.ValueType  # 10
+"""The seq skips one: a new epoch must start at 0, and an epoch's next seq must follow its
+latest.
+"""
+STREAM_FAILURE_TYPE_TOO_LARGE: StreamFailureType.ValueType  # 11
+"""A record, or the append as a whole, exceeds a size limit."""
 global___StreamFailureType = StreamFailureType
 
 class StreamRef(google.protobuf.message.Message):
@@ -175,6 +187,55 @@ class WorkflowTaskProducer(google.protobuf.message.Message):
 
 global___WorkflowTaskProducer = WorkflowTaskProducer
 
+class LocalActivityProducer(google.protobuf.message.Message):
+    """A local activity attempt. It runs inside a workflow task of its run, which may complete before the
+    local activity does. The server cannot verify it, because Core, not the server, makes its task
+    token.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    RUN_ID_FIELD_NUMBER: builtins.int
+    PREVIOUS_STARTED_EVENT_ID_FIELD_NUMBER: builtins.int
+    WORKFLOW_TASK_ATTEMPT_FIELD_NUMBER: builtins.int
+    ACTIVITY_ID_FIELD_NUMBER: builtins.int
+    ATTEMPT_FIELD_NUMBER: builtins.int
+    run_id: builtins.str
+    previous_started_event_id: builtins.int
+    """The workflow task the local activity started in: the started event ID of the run's last
+    completed workflow task at that time, and that task's attempt.
+    """
+    workflow_task_attempt: builtins.int
+    activity_id: builtins.str
+    attempt: builtins.int
+    """The local activity's attempt."""
+    def __init__(
+        self,
+        *,
+        run_id: builtins.str = ...,
+        previous_started_event_id: builtins.int = ...,
+        workflow_task_attempt: builtins.int = ...,
+        activity_id: builtins.str = ...,
+        attempt: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "activity_id",
+            b"activity_id",
+            "attempt",
+            b"attempt",
+            "previous_started_event_id",
+            b"previous_started_event_id",
+            "run_id",
+            b"run_id",
+            "workflow_task_attempt",
+            b"workflow_task_attempt",
+        ],
+    ) -> None: ...
+
+global___LocalActivityProducer = LocalActivityProducer
+
 class ClientProducer(google.protobuf.message.Message):
     """A client appending under an identity and epoch that it chooses."""
 
@@ -202,6 +263,7 @@ class Producer(google.protobuf.message.Message):
     CLIENT_FIELD_NUMBER: builtins.int
     ACTIVITY_TASK_TOKEN_FIELD_NUMBER: builtins.int
     WORKFLOW_TASK_FIELD_NUMBER: builtins.int
+    LOCAL_ACTIVITY_FIELD_NUMBER: builtins.int
     @property
     def client(self) -> global___ClientProducer: ...
     activity_task_token: builtins.bytes
@@ -210,12 +272,15 @@ class Producer(google.protobuf.message.Message):
     """
     @property
     def workflow_task(self) -> global___WorkflowTaskProducer: ...
+    @property
+    def local_activity(self) -> global___LocalActivityProducer: ...
     def __init__(
         self,
         *,
         client: global___ClientProducer | None = ...,
         activity_task_token: builtins.bytes = ...,
         workflow_task: global___WorkflowTaskProducer | None = ...,
+        local_activity: global___LocalActivityProducer | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -224,6 +289,8 @@ class Producer(google.protobuf.message.Message):
             b"activity_task_token",
             "client",
             b"client",
+            "local_activity",
+            b"local_activity",
             "variant",
             b"variant",
             "workflow_task",
@@ -237,6 +304,8 @@ class Producer(google.protobuf.message.Message):
             b"activity_task_token",
             "client",
             b"client",
+            "local_activity",
+            b"local_activity",
             "variant",
             b"variant",
             "workflow_task",
@@ -246,15 +315,22 @@ class Producer(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing_extensions.Literal["variant", b"variant"]
     ) -> (
-        typing_extensions.Literal["client", "activity_task_token", "workflow_task"]
+        typing_extensions.Literal[
+            "client", "activity_task_token", "workflow_task", "local_activity"
+        ]
         | None
     ): ...
 
 global___Producer = Producer
 
 class ProducerIdentity(google.protobuf.message.Message):
-    """The (producer, epoch, seq) stored with every record. `workflow_task` is set only for a workflow
-    producer, and is part of its epoch.
+    """The (producer, epoch, seq) stored with every record. A producer's epoch is (workflow_task,
+    workflow_task_attempt, epoch), compared in that order.
+
+    The workflow fields are set only for workflow and local activity producers: the run, the workflow
+    task the record was appended in (the started event ID of the run's last completed workflow task),
+    and that task's attempt. A reader keeps such a record if the task's commit record names the same
+    attempt, and discards it if the commit record names another.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -263,10 +339,14 @@ class ProducerIdentity(google.protobuf.message.Message):
     WORKFLOW_TASK_FIELD_NUMBER: builtins.int
     EPOCH_FIELD_NUMBER: builtins.int
     SEQ_FIELD_NUMBER: builtins.int
+    WORKFLOW_RUN_ID_FIELD_NUMBER: builtins.int
+    WORKFLOW_TASK_ATTEMPT_FIELD_NUMBER: builtins.int
     producer: builtins.str
     workflow_task: builtins.int
     epoch: builtins.int
     seq: builtins.int
+    workflow_run_id: builtins.str
+    workflow_task_attempt: builtins.int
     def __init__(
         self,
         *,
@@ -274,6 +354,8 @@ class ProducerIdentity(google.protobuf.message.Message):
         workflow_task: builtins.int = ...,
         epoch: builtins.int = ...,
         seq: builtins.int = ...,
+        workflow_run_id: builtins.str = ...,
+        workflow_task_attempt: builtins.int = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -284,8 +366,12 @@ class ProducerIdentity(google.protobuf.message.Message):
             b"producer",
             "seq",
             b"seq",
+            "workflow_run_id",
+            b"workflow_run_id",
             "workflow_task",
             b"workflow_task",
+            "workflow_task_attempt",
+            b"workflow_task_attempt",
         ],
     ) -> None: ...
 
@@ -316,20 +402,22 @@ class AppendRecord(google.protobuf.message.Message):
 global___AppendRecord = AppendRecord
 
 class WorkflowTaskCommit(google.protobuf.message.Message):
-    """Records which attempt of a workflow task committed."""
+    """Records which attempt completed a workflow task. The server writes one for every workflow task of
+    a run whose workflow has a stream.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    PRODUCER_FIELD_NUMBER: builtins.int
+    WORKFLOW_RUN_ID_FIELD_NUMBER: builtins.int
     WORKFLOW_TASK_FIELD_NUMBER: builtins.int
     ATTEMPT_FIELD_NUMBER: builtins.int
-    producer: builtins.str
+    workflow_run_id: builtins.str
     workflow_task: builtins.int
     attempt: builtins.int
     def __init__(
         self,
         *,
-        producer: builtins.str = ...,
+        workflow_run_id: builtins.str = ...,
         workflow_task: builtins.int = ...,
         attempt: builtins.int = ...,
     ) -> None: ...
@@ -338,8 +426,8 @@ class WorkflowTaskCommit(google.protobuf.message.Message):
         field_name: typing_extensions.Literal[
             "attempt",
             b"attempt",
-            "producer",
-            b"producer",
+            "workflow_run_id",
+            b"workflow_run_id",
             "workflow_task",
             b"workflow_task",
         ],

@@ -68,7 +68,7 @@ class WorkflowTaskCommit:
     Readers discard records of other attempts of that task. Only the native backend writes it.
     """
 
-    producer: str
+    workflow_run_id: str
     workflow_task: int
     attempt: int
 

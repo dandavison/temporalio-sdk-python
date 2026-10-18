@@ -6,6 +6,7 @@ mod client_rpc_generated;
 mod envconfig;
 mod metric;
 mod runtime;
+mod streams;
 mod testing;
 mod worker;
 
@@ -47,6 +48,12 @@ fn temporal_sdk_bridge(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<runtime::BufferedLogEntry>()?;
     m.add_function(wrap_pyfunction!(init_runtime, m)?)?;
     m.add_function(wrap_pyfunction!(raise_in_thread, m)?)?;
+
+    // Streams stuff
+    m.add("StreamError", py.get_type::<streams::StreamError>())?;
+    m.add_class::<streams::StreamsRef>()?;
+    m.add_function(wrap_pyfunction!(new_native_streams, m)?)?;
+    m.add_function(wrap_pyfunction!(new_redis_streams, m)?)?;
 
     // Testing stuff
     m.add_class::<testing::EphemeralServerRef>()?;
@@ -102,6 +109,20 @@ fn init_runtime(options: runtime::RuntimeOptions) -> PyResult<runtime::RuntimeRe
 #[pyfunction]
 fn raise_in_thread(py: Python, thread_id: std::os::raw::c_long, exc: &Bound<'_, PyAny>) -> bool {
     runtime::raise_in_thread(py, thread_id, exc)
+}
+
+#[pyfunction]
+fn new_native_streams(client: &client::ClientRef, options: &[u8]) -> PyResult<streams::StreamsRef> {
+    streams::new_native_streams(client, options)
+}
+
+#[pyfunction]
+fn new_redis_streams<'a>(
+    py: Python<'a>,
+    runtime_ref: &runtime::RuntimeRef,
+    options: &[u8],
+) -> PyResult<Bound<'a, PyAny>> {
+    streams::new_redis_streams(py, runtime_ref, options)
 }
 
 #[pyfunction]

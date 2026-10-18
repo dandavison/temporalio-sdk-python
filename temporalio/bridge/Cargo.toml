@@ -71,6 +71,8 @@ temporalio-sdk-core = { version = "0.7", path = "./sdk-core/crates/sdk-core", de
     "envconfig",
     "prometheus",
 ] }
+# Stream backends shared by Temporal SDKs. Prototype.
+temporalio-streams = { git = "ssh://git@github.com/dandavison/temporalio-sdk-streams.git", rev = "1aecefb4a50fb5d64b032badb7ec4989d639a149" }
 tokio = "1.26"
 # Matches the sdk-core client crate's rustls stack; used to build the custom
 # server certificate verifier for ClientTlsConfig.verification_server_name.
@@ -82,6 +84,11 @@ tokio-stream = "0.1"
 tonic = "0.14"
 tracing = "0.1"
 url = "2.2"
+
+# temporalio-streams depends on sdk-core by git; use the vendored copy, so that both share its types.
+[patch."https://github.com/dandavison/temporalio-sdk-core"]
+temporalio-client = { path = "./sdk-core/crates/client" }
+temporalio-protos = { path = "./sdk-core/crates/protos" }
 
 [profile.release]
 opt-level = 3

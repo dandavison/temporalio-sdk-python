@@ -228,7 +228,7 @@ def _record(r: RecordProto) -> Record:
         payload=r.payload if r.HasField("payload") else None,
         finish=r.finish,
         workflow_task_commit=WorkflowTaskCommit(
-            producer=commit.producer,
+            workflow_run_id=commit.workflow_run_id,
             workflow_task=commit.workflow_task,
             attempt=commit.attempt,
         )

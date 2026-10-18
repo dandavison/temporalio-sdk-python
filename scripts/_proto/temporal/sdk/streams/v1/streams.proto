@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+// The requests and responses of the crate's entry point, `Streams::call`. An SDK sends each as
+// bytes, with the name of the call. Prototype.
+package temporal.sdk.streams.v1;
+
+import "google/protobuf/duration.proto";
+import "temporal/api/nexusservices/streamservice/v1/request_response.proto";
+
+// A stream owned by a workflow run chain. On Redis, appends and closes need first_run_id; a read
+// without it reads the workflow ID's latest chain.
+message StreamRef {
+    string workflow_id = 1;
+    string first_run_id = 2;
+}
+
+message ClientProducer {
+    string id = 1;
+    int64 epoch = 2;
+}
+
+// An activity attempt. Its epoch is the stamp its attempt started with.
+message ActivityProducer {
+    bytes task_token = 1;
+    // Empty for a standalone activity.
+    string workflow_run_id = 2;
+    string activity_id = 3;
+    // Set only for a standalone activity.
+    string activity_run_id = 4;
+    int32 attempt_stamp = 5;
+}
+
+// A workflow task attempt of a run.
+message WorkflowProducer {
+    string run_id = 1;
+    int64 previous_started_event_id = 2;
+    int32 attempt = 3;
+}
+
+// A local activity attempt, and the workflow task it was scheduled in.
+message LocalActivityProducer {
+    string run_id = 1;
+    int64 previous_started_event_id = 2;
+    int32 workflow_task_attempt = 3;
+    string activity_id = 4;
+    int32 attempt = 5;
+}
+
+message Producer {
+    oneof variant {
+        ClientProducer client = 1;
+        ActivityProducer activity = 2;
+        WorkflowProducer workflow = 3;
+        LocalActivityProducer local_activity = 4;
+    }
+}
+
+// "Append". Appends the records as one atomic, contiguous batch.
+message AppendRequest {
+    StreamRef stream = 1;
+    Producer producer = 2;
+    int64 seq = 3;
+    repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 4;
+    bool finish = 5;
+}
+
+message AppendResponse {
+    repeated bytes cursors = 1;
+}
+
+// "Close". Only the stream's owner closes the stream.
+message CloseRequest {
+    StreamRef stream = 1;
+    WorkflowProducer owner = 2;
+    int64 seq = 3;
+    temporal.api.nexusservices.streamservice.v1.StreamClose close = 4;
+}
+
+message CloseResponse {
+}
+
+// "Read". The response is a temporal.api.nexusservices.streamservice.v1.ReadResponse.
+message ReadRequest {
+    StreamRef stream = 1;
+    // Empty means from the beginning.
+    bytes after = 2;
+    repeated string topics = 3;
+    int32 max_records = 4;
+    google.protobuf.Duration wait = 5;
+    int32 last = 6;
+}
+
+// "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
+// activation's completion is sent. Appends the activation's records, splitting them into appends
+// that fit the size limits.
+message WorkflowActivationCompletedRequest {
+    string workflow_id = 1;
+    string run_id = 2;
+    string first_run_id = 3;
+    // The workflow task of the activation.
+    int64 previous_started_event_id = 4;
+    int32 attempt = 5;
+    repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 6;
+    // Set when the completion ends the run.
+    WorkflowEnding ending = 7;
+}
+
+// How a run ends, from the terminal command of its completion.
+message WorkflowEnding {
+    temporal.api.nexusservices.streamservice.v1.StreamClose close = 1;
+    // The workflow has a cron schedule, so a completed run is followed by another.
+    bool cron = 2;
+    // The workflow has a retry policy, so a failed run may be retried.
+    bool retry_policy = 3;
+}
+
+message WorkflowActivationCompletedResponse {
+}
+
+// "WorkflowEvicted". Sent by the worker when a run is evicted. execution_ending is set when the
+// eviction's reason is WORKFLOW_EXECUTION_ENDING, which Core sends only after the server accepted
+// the run's terminal completion.
+message WorkflowEvictedRequest {
+    string run_id = 1;
+    bool execution_ending = 2;
+}
+
+message WorkflowEvictedResponse {
+}
+
+message RedisOptions {
+    string url = 1;
+    string namespace = 2;
+    // How long a stream's data is kept after its last write.
+    google.protobuf.Duration retention = 3;
+}
+
+message NativeOptions {
+    string namespace = 1;
+}

@@ -218,6 +218,11 @@ def generate_protos(output_dir: Path):
     for p in (output_dir / "temporal" / "sdk" / "core").iterdir():
         shutil.rmtree(sdk_out_dir / p.name, ignore_errors=True)
         p.replace(sdk_out_dir / p.name)
+    # The temporalio-streams crate's API, a copy of that crate's streams.proto
+    shutil.rmtree(sdk_out_dir / "streams", ignore_errors=True)
+    (output_dir / "temporal" / "sdk" / "streams" / "v1").replace(
+        sdk_out_dir / "streams"
+    )
     shutil.rmtree(sdk_out_dir / "health", ignore_errors=True)
     (output_dir / "health").replace(sdk_out_dir / "health")
     # Move test protos
