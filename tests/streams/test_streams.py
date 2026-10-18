@@ -7,16 +7,15 @@ localhost:7233``.
 
 from __future__ import annotations
 
-import asyncio
 import socket
 import subprocess
+import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import Iterator
 from datetime import timedelta
 
 import pytest
 import pytest_asyncio
-import redis.asyncio
 
 from temporalio import activity, workflow
 from temporalio.client import Client
@@ -31,12 +30,13 @@ from temporalio.streams import (
     decode,
     workflow_append,
 )
+from temporalio.streams.native import NativeStreamBackend
 from temporalio.streams.redis import RedisStreamBackend
 from temporalio.worker import Worker
 
 
-@pytest_asyncio.fixture  # type: ignore[reportUntypedFunctionDecorator]
-async def redis_client() -> AsyncIterator[redis.asyncio.Redis]:
+@pytest.fixture
+def redis_url() -> Iterator[str]:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
@@ -44,30 +44,26 @@ async def redis_client() -> AsyncIterator[redis.asyncio.Redis]:
         ["redis-server", "--port", str(port), "--save", "", "--appendonly", "no"],
         stdout=subprocess.DEVNULL,
     )
-    client = redis.asyncio.Redis(port=port)
     try:
         for _ in range(100):
             try:
-                await client.ping()  # type: ignore[misc,reportGeneralTypeIssues]
+                socket.create_connection(("127.0.0.1", port)).close()
                 break
-            except redis.ConnectionError:
-                await asyncio.sleep(0.05)
-        yield client
+            except OSError:
+                time.sleep(0.05)
+        yield f"redis://127.0.0.1:{port}"
     finally:
-        await client.aclose()
         server.kill()
         server.wait()
 
 
-@pytest.fixture(params=["redis", "native"])
-def backend(request: pytest.FixtureRequest, client: Client) -> StreamBackend:
+@pytest_asyncio.fixture(params=["redis", "native"])  # type: ignore[reportUntypedFunctionDecorator]
+async def backend(request: pytest.FixtureRequest, client: Client) -> StreamBackend:
     if request.param == "redis":
-        return RedisStreamBackend(
-            request.getfixturevalue("redis_client"), client.namespace
+        return await RedisStreamBackend.connect(
+            request.getfixturevalue("redis_url"), client.namespace
         )
-    from temporalio.streams.native import NativeStreamBackend
-
-    return NativeStreamBackend(client)
+    return await NativeStreamBackend.connect(client)
 
 
 async def read_all(backend: StreamBackend, ref: StreamRef) -> list[Record]:
@@ -87,7 +83,7 @@ async def start_owner(client: Client) -> StreamRef:
     handle = await client.start_workflow(
         "StreamOwner", id=f"wf-{uuid.uuid4()}", task_queue=f"tq-{uuid.uuid4()}"
     )
-    return StreamRef(handle.id)
+    return StreamRef.for_handle(handle)
 
 
 async def values(records: list[Record]) -> list[str]:
@@ -140,7 +136,7 @@ async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_comp
         handle = await client.start_workflow(
             WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
         )
-        ref = StreamRef(handle.id)
+        ref = StreamRef.for_handle(handle)
         first = await backend.read(ref, wait=timedelta(seconds=10))
         assert await values(list(first.records)) == ["first"]
         assert first.close is None
@@ -175,11 +171,11 @@ async def test_workflow_append_is_not_repeated_on_replay(
         handle = await client.start_workflow(
             WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
         )
-        await backend.read(StreamRef(handle.id), wait=timedelta(seconds=10))
+        await backend.read(StreamRef.for_handle(handle), wait=timedelta(seconds=10))
         await handle.signal(WaitForSignalWorkflow.finish)
         await handle.result()
 
-    assert await values(await read_all(backend, StreamRef(handle.id))) == [
+    assert await values(await read_all(backend, StreamRef.for_handle(handle))) == [
         "first",
         "second",
     ]
@@ -228,7 +224,7 @@ async def test_failed_workflow_task_records_carry_lower_epoch(
         )
         await handle.result()
 
-    records = await read_all(backend, StreamRef(handle.id))
+    records = await read_all(backend, StreamRef.for_handle(handle))
     assert await values(records) == [
         "before local activity",
         "before local activity",
@@ -260,7 +256,7 @@ class RunActivityWorkflow:
     async def run(self) -> None:
         await workflow.execute_activity_method(
             StreamActivities.append_then_fail_first_attempt,
-            StreamRef(workflow.info().workflow_id),
+            StreamRef.for_workflow(),
             start_to_close_timeout=timedelta(seconds=10),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(milliseconds=10), maximum_attempts=2
@@ -283,7 +279,7 @@ async def test_retried_activity_attempt_has_higher_epoch(
         )
         await handle.result()
 
-    records = await read_all(backend, StreamRef(handle.id))
+    records = await read_all(backend, StreamRef.for_handle(handle))
     assert await values(records) == ["attempt 1", "attempt 2"]
     assert records[0].producer.producer == records[1].producer.producer
     assert records[1].producer.epoch > records[0].producer.epoch

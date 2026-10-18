@@ -18,7 +18,11 @@ class ClientProducer:
 
 @dataclass(frozen=True)
 class ActivityProducer:
-    """An activity attempt. Its epoch is the attempt stamp, which a retry or reset increases."""
+    """An activity attempt. Its epoch is the attempt stamp, which a retry or reset increases.
+
+    A local activity's epoch is (the workflow task it was scheduled in, that task's attempt, its own
+    attempt).
+    """
 
     info: temporalio.activity.Info
 
@@ -44,11 +48,15 @@ Producer = ClientProducer | ActivityProducer | WorkflowProducer
 class ProducerIdentity:
     """The (producer, epoch, seq) stored with every record.
 
-    ``workflow_task`` is set only for a workflow producer, and is part of its epoch.
+    The epoch is (``workflow_task``, ``workflow_task_attempt``, ``epoch``), compared in that order.
+    ``workflow_run_id`` and the workflow task fields are set only for workflow and local activity
+    producers.
     """
 
     producer: str
+    workflow_run_id: str
     workflow_task: int
+    workflow_task_attempt: int
     epoch: int
     seq: int
 

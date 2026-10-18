@@ -41,3 +41,15 @@ class EpochFencedError(StreamError):
 
 class SpeculativeWorkflowTaskError(StreamError):
     """Appends from speculative workflow tasks are not supported."""
+
+
+class SeqGapError(StreamError):
+    """The seq is not the next seq: an epoch's first append has seq 0, and each later one the next."""
+
+
+class StreamTooLargeError(StreamError):
+    """The append exceeds a size limit."""
+
+
+class StreamUnavailableError(StreamError):
+    """The store could not be reached, after retrying."""

@@ -145,6 +145,13 @@ class Info:
     """Identifies this attempt among all attempts of the activity. Unlike :py:attr:`attempt`, which
     a reset sets back to 1, it never decreases. Zero for local activities."""
 
+    workflow_task_previous_started_event_id: int = 0
+    """For a local activity, the previous started event ID of the workflow task it was scheduled
+    in. Zero otherwise."""
+
+    workflow_task_attempt: int = 0
+    """For a local activity, the attempt of the workflow task it was scheduled in. Zero otherwise."""
+
     @property
     def in_workflow(self) -> bool:
         """Was this activity started by a workflow?"""

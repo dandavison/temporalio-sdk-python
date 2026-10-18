@@ -21,6 +21,8 @@ from temporalio.streams._backend import (
     ReadResponse,
     StreamBackend,
     StreamClose,
+    WorkflowActivationCompleted,
+    WorkflowEnding,
 )
 from temporalio.streams._body import (
     decode,
@@ -28,6 +30,7 @@ from temporalio.streams._body import (
 from temporalio.streams._errors import (
     EpochFencedError,
     SeqDivergentError,
+    SeqGapError,
     SeqStaleError,
     SpeculativeWorkflowTaskError,
     StreamClosedError,
@@ -36,6 +39,8 @@ from temporalio.streams._errors import (
     StreamExpiredError,
     StreamNotFoundError,
     StreamNotOwnerError,
+    StreamTooLargeError,
+    StreamUnavailableError,
 )
 from temporalio.streams._handles import (
     StreamWriter,
@@ -58,6 +63,11 @@ from temporalio.streams._workflow import (
 )
 
 __all__ = [
+    "WorkflowEnding",
+    "WorkflowActivationCompleted",
+    "StreamUnavailableError",
+    "StreamTooLargeError",
+    "SeqGapError",
     "ActivityProducer",
     "AppendRecord",
     "ClientProducer",

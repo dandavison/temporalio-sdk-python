@@ -45,6 +45,32 @@ class ReadResponse:
     close: StreamClose | None
 
 
+@dataclass(frozen=True)
+class WorkflowEnding:
+    """How a run ends, from the terminal command of its completion.
+
+    ``cron`` and ``retry_policy`` say whether the run chain may continue: a completed cron run is
+    followed by another, and a failed run with a retry policy may be retried.
+    """
+
+    close: StreamClose
+    cron: bool
+    retry_policy: bool
+
+
+@dataclass(frozen=True)
+class WorkflowActivationCompleted:
+    """The records a successful activation appended to its workflow's own stream.
+
+    ``ending`` is set when the activation's completion ends the run.
+    """
+
+    ref: StreamRef
+    producer: WorkflowProducer
+    records: Sequence[AppendRecord]
+    ending: WorkflowEnding | None
+
+
 class StreamBackend(ABC):
     """Stores streams. A producer must not have more than one append in flight within an epoch."""
 
@@ -86,4 +112,23 @@ class StreamBackend(ABC):
 
         ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
         matching record. ``last``, if positive, reads the last N matching records instead.
+        """
+
+    @abstractmethod
+    async def workflow_activation_completed(
+        self, completed: WorkflowActivationCompleted
+    ) -> None:
+        """Append an activation's records. Called by the worker after each successful activation,
+        before its completion is sent.
+
+        If the completion ends the run, a backend that the server cannot write to keeps the close
+        until :py:meth:`workflow_evicted` says the server accepted the completion.
+        """
+
+    @abstractmethod
+    async def workflow_evicted(self, run_id: str, *, execution_ending: bool) -> None:
+        """Forget an evicted run. Called by the worker on every eviction.
+
+        ``execution_ending`` is set when the eviction follows the server accepting the run's
+        terminal completion.
         """

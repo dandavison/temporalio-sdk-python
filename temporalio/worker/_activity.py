@@ -634,6 +634,8 @@ class _ActivityWorker:
             if not started_by_workflow
             else None,
             attempt_stamp=start.attempt_stamp,
+            workflow_task_previous_started_event_id=start.workflow_task.previous_started_event_id,
+            workflow_task_attempt=start.workflow_task.attempt,
         )
 
         if self._encode_headers:

@@ -551,8 +551,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
         data_converter: temporalio.converter.DataConverter,
     ) -> None:
-        """Append the records the activation appended, and close the stream if the workflow is
-        ending, before the completion reaches the server.
+        """Pass the records the activation appended, and how the run ends if the completion ends
+        it, to the stream backend before the completion reaches the server.
 
         A failed activation never gets here: its records are dropped, and the retried workflow
         task appends them again.
@@ -566,30 +566,34 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             raise RuntimeError(
                 "Workflow appended to its stream outside a workflow task"
             )
-        producer = temporalio.streams.WorkflowProducer(
-            workflow_id=workflow.workflow_id,
-            run_id=act.run_id,
-            previous_started_event_id=act.workflow_task.previous_started_event_id,
-            attempt=act.workflow_task.attempt,
+        info = workflow.get_info()
+        payloads = await data_converter._encode_payload_sequence(
+            [p for _, p in appends]
         )
-        ref = temporalio.streams.StreamRef(workflow.workflow_id)
-        if appends:
-            payloads = await data_converter._encode_payload_sequence(
-                [p for _, p in appends]
-            )
-            await self._stream_backend.append(
-                ref,
-                producer,
-                workflow.next_stream_seq(producer),
-                [
+        await self._stream_backend.workflow_activation_completed(
+            temporalio.streams.WorkflowActivationCompleted(
+                ref=temporalio.streams.StreamRef(
+                    info.workflow_id, info.first_execution_run_id
+                ),
+                producer=temporalio.streams.WorkflowProducer(
+                    workflow_id=info.workflow_id,
+                    run_id=act.run_id,
+                    previous_started_event_id=act.workflow_task.previous_started_event_id,
+                    attempt=act.workflow_task.attempt,
+                ),
+                records=[
                     temporalio.streams.AppendRecord(topic, payload)
                     for (topic, _), payload in zip(appends, payloads)
                 ],
+                ending=temporalio.streams.WorkflowEnding(
+                    close,
+                    cron=bool(info.cron_schedule),
+                    retry_policy=info.retry_policy is not None,
+                )
+                if close
+                else None,
             )
-        if close:
-            await self._stream_backend.close(
-                ref, producer, workflow.next_stream_seq(producer), close
-            )
+        )
 
     async def _handle_cache_eviction(
         self,
@@ -689,6 +693,19 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             # Decrement the could-not-evict-count if it finally succeeded
             if seen_fail:
                 self._could_not_evict_count -= 1
+
+        if self._stream_backend:
+            try:
+                await self._stream_backend.workflow_evicted(
+                    act.run_id,
+                    execution_ending=job.reason
+                    == temporalio.bridge.proto.workflow_activation.RemoveFromCache.EvictionReason.WORKFLOW_EXECUTION_ENDING,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed writing stream of evicted workflow with run ID %s",
+                    act.run_id,
+                )
 
         # Remove from map and send completion
         if act.run_id in self._running_workflows:
@@ -910,21 +927,12 @@ class _RunningWorkflow:
     ):
         self.instance = instance
         self.workflow_id = workflow_id
-        self._stream_epoch: tuple[int, int] | None = None
-        self._stream_seq = 0
         self.deadlocked_activation_task: Awaitable | None = None
         self._deadlock_can_be_interrupted_lock = threading.Lock()
         self._deadlock_can_be_interrupted = False
 
     def get_info(self) -> temporalio.workflow.Info:
         return self.instance.get_info()
-
-    def next_stream_seq(self, producer: temporalio.streams.WorkflowProducer) -> int:
-        epoch = (producer.previous_started_event_id, producer.attempt)
-        if epoch != self._stream_epoch:
-            self._stream_epoch, self._stream_seq = epoch, 0
-        seq, self._stream_seq = self._stream_seq, self._stream_seq + 1
-        return seq
 
     def activate(
         self, act: temporalio.bridge.proto.workflow_activation.WorkflowActivation
