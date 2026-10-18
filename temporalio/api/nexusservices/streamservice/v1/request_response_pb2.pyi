@@ -42,8 +42,9 @@ class _CloseStateEnumTypeWrapper(
 
 class CloseState(_CloseState, metaclass=_CloseStateEnumTypeWrapper):
     """The state a stream closed with: the state its owner ended in, or the state an owner's Close
-    request gave. The server does not close a workflow's stream when the run continues as new, when a
-    cron run completes, or when a failed or timed-out run will be retried.
+    request gave. The server does not close a workflow's stream when the run's chain continues in a new
+    run: at continue-as-new, when a cron run completes, fails or times out, and when a failed or
+    timed-out run is retried.
     """
 
 CLOSE_STATE_UNSPECIFIED: CloseState.ValueType  # 0
@@ -75,16 +76,17 @@ class _StreamFailureTypeEnumTypeWrapper(
     A read from the beginning waits instead of failing this way.
     """
     STREAM_FAILURE_TYPE_EXPIRED: _StreamFailureType.ValueType  # 3
-    """A read after a cursor whose owner, or whose run chain, no longer exists. The server does not
-    tell an owner removed by retention from one replaced by a new chain with the same ID.
+    """A read after a cursor whose owner, or whose run chain, no longer exists, or whose workflow
+    run is no longer its chain's current run. The server does not tell an owner removed by
+    retention from one replaced by a new chain with the same ID.
     """
     STREAM_FAILURE_TYPE_NOT_OWNER: _StreamFailureType.ValueType  # 4
     """A close of an activity-owned stream by anything but the activity's own task token. A non-owner
     close of a workflow-owned stream fails as EPOCH_FENCED instead.
     """
     STREAM_FAILURE_TYPE_CURSOR_MISMATCH: _StreamFailureType.ValueType  # 5
-    """The cursor belongs to another stream, or cannot be decoded. A cursor of an earlier run of the
-    same workflow chain is not detected; see StreamRef.
+    """The cursor belongs to another stream, including another run chain or activity execution than
+    the pinned one, or cannot be decoded.
     """
     STREAM_FAILURE_TYPE_SEQ_DIVERGENT: _StreamFailureType.ValueType  # 6
     """The seq is the producer's latest in its epoch, but stored with different content."""
@@ -130,16 +132,17 @@ STREAM_FAILURE_TYPE_NOT_FOUND: StreamFailureType.ValueType  # 2
 A read from the beginning waits instead of failing this way.
 """
 STREAM_FAILURE_TYPE_EXPIRED: StreamFailureType.ValueType  # 3
-"""A read after a cursor whose owner, or whose run chain, no longer exists. The server does not
-tell an owner removed by retention from one replaced by a new chain with the same ID.
+"""A read after a cursor whose owner, or whose run chain, no longer exists, or whose workflow
+run is no longer its chain's current run. The server does not tell an owner removed by
+retention from one replaced by a new chain with the same ID.
 """
 STREAM_FAILURE_TYPE_NOT_OWNER: StreamFailureType.ValueType  # 4
 """A close of an activity-owned stream by anything but the activity's own task token. A non-owner
 close of a workflow-owned stream fails as EPOCH_FENCED instead.
 """
 STREAM_FAILURE_TYPE_CURSOR_MISMATCH: StreamFailureType.ValueType  # 5
-"""The cursor belongs to another stream, or cannot be decoded. A cursor of an earlier run of the
-same workflow chain is not detected; see StreamRef.
+"""The cursor belongs to another stream, including another run chain or activity execution than
+the pinned one, or cannot be decoded.
 """
 STREAM_FAILURE_TYPE_SEQ_DIVERGENT: StreamFailureType.ValueType  # 6
 """The seq is the producer's latest in its epoch, but stored with different content."""
@@ -232,8 +235,8 @@ class StreamRef(google.protobuf.message.Message):
 
     A workflow's stream is kept in the run that created it. It is not moved to the next run at
     continue-as-new, retry or cron, so the next run starts with a new, empty stream, and the earlier
-    run's records can no longer be read. A cursor of the earlier run's stream is not rejected by the
-    new one: a read after it skips the new stream's records up to the cursor's offset.
+    run's records can no longer be read: a read after a cursor of the earlier run's stream fails as
+    EXPIRED.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -246,7 +249,8 @@ class StreamRef(google.protobuf.message.Message):
     workflow_id: builtins.str
     first_run_id: builtins.str
     """Pins the run chain. Empty means the workflow ID's current chain. A pinned chain that is not
-    the current one fails as NOT_FOUND, without waiting.
+    the current one fails as NOT_FOUND, without waiting, and a read after a cursor of another
+    chain fails as CURSOR_MISMATCH.
     """
     namespace: builtins.str
     """The caller's namespace. The server sets it when empty, and rejects any other namespace."""
@@ -385,6 +389,7 @@ class ClientProducer(google.protobuf.message.Message):
     EPOCH_FIELD_NUMBER: builtins.int
     id: builtins.str
     epoch: builtins.int
+    """From 0 to 2^53-1, as every epoch and seq must be; see AppendRequest."""
     def __init__(
         self,
         *,
@@ -412,10 +417,11 @@ class Producer(google.protobuf.message.Message):
     for the started attempt of an activity of the workflow's current run: a superseded
     attempt fails as EPOCH_FENCED, and a token of another workflow or of a Standalone
     Activity fails as an invalid argument. On an activity-owned stream the owning activity's
-    token must be for its current attempt; tokens of other activities are not checked. Task
-    tokens are not signed, so these checks fence superseded attempts but do not stop a caller
-    that builds a token. A token from a server that did not stamp tokens carries stamp 0,
-    which matches a first attempt.
+    token must be for its current attempt, and a token that the frontend made for a by-ID
+    call fails as an invalid argument; tokens of other activities are not checked. Task tokens
+    are not signed, so these checks fence superseded attempts but do not stop a caller that
+    builds a token. A token from a server that did not stamp tokens carries stamp 0, which
+    matches a first attempt.
 
     A workflow activity's retry raises the stamp only when the server is configured to. If it
     does not, the retry has the same epoch as the attempt before it, so its appends collide
@@ -825,9 +831,13 @@ class AppendRequest(google.protobuf.message.Message):
     an earlier seq fails as SEQ_STALE. The content is compared by a hash of the records as sent. The
     dedupe check comes before the close check, so a retry of a stored append succeeds after close.
 
+    seq, and every part of the producer's epoch (the workflow task, its attempt, and the epoch), must
+    be integers from 0 to 2^53-1, the integers that every stream backend holds exactly (Redis holds
+    them as doubles). Any other value fails with a gRPC InvalidArgument error.
+
     An append has at most 1000 records, of at most 1 MiB each and 4 MiB in all, counting payloads but
     not topics. An append to an owner that does not exist fails as NOT_FOUND; one to the stream of an
-    activity that has ended fails as CLOSED.
+    owner that has ended fails as CLOSED, also when the owner never had a stream.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
