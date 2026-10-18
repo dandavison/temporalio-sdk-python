@@ -71,7 +71,8 @@ temporalio-sdk-core = { version = "0.7", path = "./sdk-core/crates/sdk-core", de
     "envconfig",
     "prometheus",
 ] }
-# Stream backends shared by Temporal SDKs. Prototype.
+# Stream backends shared by Temporal SDKs. Prototype. A private repository fetched over SSH, so
+# building needs CARGO_NET_GIT_FETCH_WITH_CLI=true.
 temporalio-streams = { git = "ssh://git@github.com/dandavison/temporalio-sdk-streams.git", rev = "d26242378196242ac6f010fdd328bfa9f3648d9b" }
 tokio = "1.26"
 # Matches the sdk-core client crate's rustls stack; used to build the custom

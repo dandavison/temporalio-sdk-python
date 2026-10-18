@@ -4,24 +4,34 @@
     This API is a prototype and will change.
 
 The calls are made by the temporalio-streams crate, through the bridge; the server never talks to
-Redis. A run chain's stream is a set of keys sharing a hash tag with its workflow ID, and every
-append and close goes through one Lua script, which checks and writes in one step. Producers that
-XADD to the log directly are not supported. Every write refreshes the keys' time-to-live, the
-retention.
+Redis. A stream is keyed by its owner's kind and ID and its run: a workflow's first run ID, or a
+Standalone Activity's run ID, which an append needs. Every append and close goes through one Lua
+script, which checks and writes in one step. Producers that XADD to the log directly are not
+supported. Every write refreshes the keys' time-to-live, the retention.
 
 The deployment must run Redis 6.2 or later with ``maxmemory-policy`` ``noeviction``.
 
 Properties weaker than Temporal-native streams, all because Redis cannot see the server's state:
 
 * A stale producer is fenced only once its successor has appended.
-* Nothing writes workflow task commit records, so a failed workflow task attempt's records, and its
-  local activities', are not withdrawn.
+* Nothing writes workflow task commit records, stream creation records or append mode records, so
+  a failed workflow task attempt's records, and its local activities', are not withdrawn if the
+  attempt that succeeds appends nothing.
 * Producers are not verified, and anything that can write to Redis can write any key, so the
   owner-only close guards against mistakes, not against other writers.
-* The owner's worker writes the close. A stream is left open, until its retention passes, when its
-  workflow is terminated or times out, when a failed run with a retry policy is not retried, or
-  when the worker stops before writing the close.
+* Appends from speculative workflow tasks are stored: neither the worker nor Core can tell that a
+  task is speculative.
+* The owner's worker writes a workflow's close, and only after Core reports that the server
+  accepted the run's terminal completion. It writes none for a completed cron run or a failed run
+  with a retry policy, since the chain may continue. A stream is left open, until its retention
+  passes, when its workflow is terminated or times out, when a failed run with a retry policy is
+  not retried, or when the worker stops before writing the close.
+* Nothing closes a Standalone Activity's stream when the activity ends: the worker cannot learn
+  whether the server accepted the activity's completion, or whether a failed attempt will be
+  retried. The activity must close its own stream, or it stays open until its retention passes.
 * A topic filter is applied after reading: the reader receives every record.
+
+There is no commit mode.
 """
 
 from __future__ import annotations

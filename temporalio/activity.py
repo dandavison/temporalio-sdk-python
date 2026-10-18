@@ -143,7 +143,9 @@ class Info:
 
     attempt_stamp: int = 0
     """Identifies this attempt among all attempts of the activity. Unlike :py:attr:`attempt`, which
-    a reset sets back to 1, it never decreases. Zero for local activities."""
+    a reset sets back to 1, it never decreases. A retry increases it only when the server enables
+    ``system.enableActivityRetryStampIncrement``. Zero for local activities, and from a server that
+    does not send it."""
 
     workflow_task_previous_started_event_id: int = 0
     """For a local activity, the previous started event ID of the workflow task it was scheduled

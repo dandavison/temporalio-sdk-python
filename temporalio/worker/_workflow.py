@@ -525,9 +525,13 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             )
 
         if workflow and self._stream_backend and completion.HasField("successful"):
+            # This waits for the store, which the crate retries for up to 30 seconds; that is
+            # longer than the default workflow task timeout, so a long outage times the task out.
             try:
                 await self._write_stream(act, workflow, completion, data_converter)
             except Exception as err:
+                # Setting the failure replaces the successful completion, so the workflow task
+                # fails and is retried. Records of this attempt that were already appended stay.
                 logger.exception(
                     "Failed writing stream of workflow with run ID %s", act.run_id
                 )
@@ -555,8 +559,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         it, to the stream backend before the completion reaches the server. In commit mode the
         backend returns the records as protocol messages, which travel in the completion.
 
-        A failed activation never gets here: its records are dropped, and the retried workflow
-        task appends them again.
+        A failed activation never gets here: its records are dropped with the workflow instance,
+        which Core evicts after a failed activation, and the retried workflow task appends them
+        again.
         """
         assert self._stream_backend
         appends = workflow.instance.take_stream_appends()
@@ -568,6 +573,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 "Workflow appended to its stream outside a workflow task"
             )
         info = workflow.get_info()
+        # The workflow converted each value to a payload; only the codec remains.
         payloads = await data_converter._encode_payload_sequence(
             [p for _, p in appends]
         )
@@ -704,6 +710,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                     == temporalio.bridge.proto.workflow_activation.RemoveFromCache.EvictionReason.WORKFLOW_EXECUTION_ENDING,
                 )
             except Exception:
+                # The close is not tried again, so a stream the server cannot write to stays open
+                # until its retention passes.
                 logger.exception(
                     "Failed writing stream of evicted workflow with run ID %s",
                     act.run_id,
@@ -1053,6 +1061,7 @@ class _InterruptDeadlockError(BaseException):
 def _stream_close(
     completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
 ) -> temporalio.streams.StreamClose | None:
+    # Continue-as-new does not close the stream: it belongs to the run chain.
     for command in completion.successful.commands:
         if command.HasField("complete_workflow_execution"):
             return temporalio.streams.StreamClose(

@@ -348,8 +348,13 @@ class Worker:
                 WARNING: This setting is experimental.
             stream_backend: Backend that stores the streams workflows append to with
                 :py:func:`temporalio.streams.workflow_append`. The worker appends a workflow's
-                records at the end of each activation, before completing it, and closes the
-                stream when the workflow completes, fails or is canceled.
+                records at the end of each successful activation, before sending its
+                completion, or in the native backend's commit mode sends them in the
+                completion. If the append fails, the workflow task fails. On a backend the
+                server cannot write to, the worker closes the stream once the server has
+                accepted a completion that completes, fails or cancels the workflow, except for
+                a completed cron run or a failed run with a retry policy; on native the server
+                closes it.
                 WARNING: This setting is a prototype.
 
         """

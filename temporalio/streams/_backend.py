@@ -32,7 +32,7 @@ class CloseStatus(IntEnum):
 
 @dataclass(frozen=True)
 class StreamClose:
-    """The close of a stream, written by its owner."""
+    """The close of a stream: written by its owner, or by the native server when the owner ends."""
 
     status: CloseStatus
     failure: temporalio.api.failure.v1.Failure | None = None
@@ -57,7 +57,8 @@ class WorkflowEnding:
     """How a run ends, from the terminal command of its completion.
 
     ``cron`` and ``retry_policy`` say whether the run chain may continue: a completed cron run is
-    followed by another, and a failed run with a retry policy may be retried.
+    followed by another, and a failed run with a retry policy may be retried. The worker cannot
+    learn whether the server retries a failed run, so a backend does not close the stream for either.
     """
 
     close: StreamClose
@@ -93,9 +94,11 @@ class StreamBackend(ABC):
     ) -> Sequence[bytes]:
         """Append records as one atomic, contiguous batch, returning their cursors.
 
-        The first append creates the stream. A retry of the producer's latest seq with the same
-        content stores nothing and returns the original cursors. ``finish`` records that the
-        producer will write no more; it does not close the stream.
+        The first append creates the stream; on native, only while its owner exists. An epoch's
+        first append has seq 0 and each later one the next seq. A retry of the producer's latest seq
+        with the same content stores nothing and returns the original cursors, even after the
+        stream is closed. Content is compared as encoded, so a retry must encode to the same bytes.
+        ``finish`` records that the producer will write no more; it does not close the stream.
         """
 
     @abstractmethod
@@ -108,6 +111,14 @@ class StreamBackend(ABC):
     ) -> None:
         """Close the stream. Only the stream's owner may close it: a workflow task of the owning
         run, or an attempt of the owning Standalone Activity.
+
+        On native the server also closes the stream in the transaction that ends its owner. A
+        backend the server cannot write to has no such close. For a workflow owner the worker
+        writes it (see :py:meth:`workflow_evicted`). For a Standalone Activity owner nothing writes
+        it: the worker cannot learn whether the server accepted the activity's completion (Core
+        sends the respond call and discards its result), or whether a failed attempt will be
+        retried (the failed response does not say). Such an activity must close its own stream, or
+        the stream stays open until its retention passes.
         """
 
     @abstractmethod
@@ -124,7 +135,11 @@ class StreamBackend(ABC):
         """Read records after a cursor, or from the beginning.
 
         ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
-        matching record. ``last``, if positive, reads the last N matching records instead.
+        matching record. ``last``, if positive, reads the last N matching records instead. Markers
+        match every topic filter, and count towards ``max_records`` and ``last``.
+
+        A read from the beginning of a stream that does not exist yet waits, and returns no
+        records when ``wait`` passes. A read after a cursor of a stream that does not exist fails.
         """
 
     @abstractmethod
@@ -134,10 +149,14 @@ class StreamBackend(ABC):
         """Append an activation's records. Called by the worker after each successful activation,
         before its completion is sent.
 
+        The worker does not call it for a failed activation: the retried workflow task appends
+        those records again.
+
         In commit mode, returns the records as protocol messages instead, which the worker sends in
         the activation's completion. If the completion ends the run, a backend that the server
         cannot write to keeps the close until :py:meth:`workflow_evicted` says the server accepted
-        the completion.
+        the completion, and keeps none for a completed cron run or a failed run with a retry
+        policy.
         """
 
     @abstractmethod
@@ -145,5 +164,6 @@ class StreamBackend(ABC):
         """Forget an evicted run. Called by the worker on every eviction.
 
         ``execution_ending`` is set when the eviction follows the server accepting the run's
-        terminal completion.
+        terminal completion. Only then does a backend that the server cannot write to write the
+        close it kept. If this call fails, or the worker stops first, the close is never written.
         """

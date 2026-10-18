@@ -1960,7 +1960,8 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
 
     def workflow_stream_append(self, topic: str, value: Any) -> None:
         self._assert_not_read_only("append to a stream")
-        # The worker appended these records when the code first ran.
+        # Replay runs only code of completed workflow tasks, whose records were appended, or in
+        # commit mode sent in the completion, when the code first ran.
         if self._is_replaying:
             return
         self._stream_appends.append(

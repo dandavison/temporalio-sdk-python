@@ -146,6 +146,7 @@ class CrateStreamBackend(StreamBackend):
         req = CloseRequest(stream=_ref(ref), seq=seq, close=_close_proto(close))
         if isinstance(owner, ActivityProducer):
             req.activity_owner.CopyFrom(_activity_producer(owner).activity)
+        # The crate's workflow producer has no workflow ID, so the owner's workflow is checked here.
         elif owner.workflow_id == ref.workflow_id:
             req.owner.CopyFrom(_workflow_producer(owner))
         else:

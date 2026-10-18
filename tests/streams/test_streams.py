@@ -1,8 +1,12 @@
-"""End-to-end tests of workflow-owned streams, against each stream backend.
+"""End-to-end tests of streams owned by workflows and Standalone Activities, against each stream
+backend. Each test says which guarantee it checks and whether it holds on every backend.
 
 These need redis-server on PATH, and the prototype's server with retry stamps and direct Nexus
 calls enabled, as the superproject's dev-server runs it: pass ``--workflow-environment
 localhost:7233``.
+
+The two tests of a run chain that continues (a failed run with a retry policy, and a cron run) fail
+on native, because the native stream is not moved to the next run of the chain.
 """
 
 from __future__ import annotations
@@ -72,7 +76,7 @@ async def backend(request: pytest.FixtureRequest, client: Client) -> StreamBacke
 
 
 async def read_all(backend: StreamBackend, ref: StreamRef) -> list[Record]:
-    """Read every data record, omitting workflow task commit markers, which only native writes."""
+    """Read every data record, omitting markers, which only native writes."""
     records: list[Record] = []
     cursor = None
     while True:
@@ -96,6 +100,9 @@ async def values(records: list[Record]) -> list[str]:
 
 
 async def test_client_append_and_read(client: Client, backend: StreamBackend):
+    """Every backend: an append stores its values in order with one seq, a record's payload is the
+    value's payload, and a read after a record's cursor resumes after that record.
+    """
     ref = await start_owner(client)
     writer = StreamWriter(backend, ref, ClientProducer("restaurant", 1))
     await writer.append("accepted", topic="stage")
@@ -131,6 +138,10 @@ class WaitForSignalWorkflow:
 async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_completion(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: a workflow's records are visible while it runs, a later workflow task's
+    records carry a higher workflow task, and the stream closes as completed when the run completes:
+    on native the server closes it, on Redis the worker.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -164,6 +175,7 @@ async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_comp
 async def test_workflow_append_is_not_repeated_on_replay(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: replay does not append a workflow's records again."""
     task_queue = f"tq-{uuid.uuid4()}"
     # With no cache, every workflow task replays the workflow from the start.
     async with Worker(
@@ -214,6 +226,10 @@ class FailFirstTaskWorkflow:
 async def test_failed_workflow_task_records_carry_lower_epoch(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: a failed workflow task attempt may deliver records, and the rerun's records
+    carry the same producer and workflow task with a higher epoch, so a reader can discard the
+    failed attempt's.
+    """
     global failed_task_attempts
     failed_task_attempts = 0
     task_queue = f"tq-{uuid.uuid4()}"
@@ -272,6 +288,9 @@ class RunActivityWorkflow:
 async def test_retried_activity_attempt_has_higher_epoch(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: a retried activity attempt appends as the same producer with a higher epoch.
+    Holds only when the server enables ``system.enableActivityRetryStampIncrement``.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -352,6 +371,9 @@ class LocalActivityRetryWorkflow:
 async def test_local_activity_retry_has_higher_epoch(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: a retried local activity attempt appends as the same producer, in the same
+    workflow task, with a higher epoch.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -393,10 +415,10 @@ class LocalActivityOutlivesTaskWorkflow:
 async def test_local_activity_appends_after_task_heartbeat(
     client: Client, backend: StreamBackend
 ):
-    """The local activity outlives its workflow task, which the worker completes early to keep it
-    running, and appends after that. Its append creates the stream, so on native its task has no
-    commit record, and the stream's creation record says the task completed before the stream
-    existed, which makes its records committed.
+    """Every backend: a local activity can append after its workflow task was completed early to
+    keep it running. Native only: its append creates the stream, so its task has no commit record,
+    and the stream's creation record says the task completed before the stream existed, which makes
+    its records committed.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -447,8 +469,9 @@ class LocalActivityOfFailedTaskWorkflow:
 async def test_local_activity_of_failed_task_does_not_collide_with_rerun(
     client: Client, backend: StreamBackend
 ):
-    """The rerun of a failed workflow task runs its local activity again, which appends again
-    under a higher workflow task attempt. On native, the task's commit names the rerun's attempt.
+    """Every backend: the rerun of a failed workflow task runs its local activity again, which
+    appends as the same producer under a higher workflow task attempt, so the two do not collide.
+    Native only: the task's commit record has the rerun's attempt.
     """
     global failed_local_activity_task_attempts
     failed_local_activity_task_attempts = 0
@@ -500,9 +523,10 @@ class SlowLastActivationWorkflow:
 async def test_rejected_terminal_completion_does_not_close_stream(
     client: Client, backend: StreamBackend
 ):
-    """A signal arriving while the run's terminal completion is in flight makes the server reject
-    that completion. The stream stays open, so the rerun of the task can append, and closes when
-    the server accepts a terminal completion.
+    """Every backend: a signal arriving while the run's terminal completion is in flight makes the
+    server reject that completion. The stream stays open, so the rerun of the task can append, and
+    closes when the server accepts a terminal completion. The failed attempt's record may also be
+    delivered, so only the set of values is checked.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -543,7 +567,9 @@ class FailFirstRunWorkflow:
 async def test_failed_run_with_retry_policy_does_not_close_stream(
     client: Client, backend: StreamBackend
 ):
-    """The retried run appends to the same stream, which closes when the retried run completes."""
+    """Every backend: the retried run appends to the same stream, which closes when the retried run
+    completes. Fails on native, because the stream is not moved to the retried run.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -578,6 +604,9 @@ class CronWorkflow:
 async def test_completed_cron_run_does_not_close_stream(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: a completed cron run does not close the stream, and the next run appends to
+    it. Fails on native, because the stream is not moved to the next run.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -612,6 +641,9 @@ class ManyRecordsWorkflow:
 async def test_activation_of_more_records_than_one_append_holds(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: an activation's records that exceed one append's size limits are split into
+    appends that fit, and all are stored in order.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -631,6 +663,10 @@ async def test_activation_of_more_records_than_one_append_holds(
 async def test_stream_closes_on_completion_with_workflow_cache_disabled(
     client: Client, backend: StreamBackend
 ):
+    """Every backend: the stream closes when the run completes with the workflow cache disabled.
+    On Redis this depends on Core reporting the eviction that follows the accepted completion as
+    WORKFLOW_EXECUTION_ENDING rather than CACHE_FULL.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -663,9 +699,9 @@ def append_modes(records: list[Record]) -> list[WorkflowAppendMode]:
 async def test_commit_mode_delivers_only_the_committed_task_attempt(
     client: Client, commit_mode_backend: StreamBackend
 ):
-    """The records of a failed workflow task attempt are never delivered. The records of every
-    activation of the attempt that commits, before and after a local activity resolves, are
-    delivered with its completion.
+    """Native commit mode only: the records of a failed workflow task attempt are never delivered.
+    The records of every activation of the attempt that commits, before and after a local activity
+    resolves, are delivered with its completion, and the run's mode is recorded as commit.
     """
     global failed_task_attempts
     failed_task_attempts = 0
@@ -695,6 +731,9 @@ async def test_commit_mode_delivers_only_the_committed_task_attempt(
 async def test_commit_mode_records_are_visible_when_the_task_commits(
     client: Client, commit_mode_backend: StreamBackend
 ):
+    """Native commit mode only: a workflow's records are visible while it runs, once their task
+    commits, and the stream closes as completed when the run completes.
+    """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -720,8 +759,8 @@ async def test_commit_mode_records_are_visible_when_the_task_commits(
 async def test_commit_mode_records_are_not_sent_again_on_replay(
     client: Client, commit_mode_backend: StreamBackend
 ):
-    """With no cache, every workflow task replays the workflow from the start; the records of
-    earlier tasks are not sent again.
+    """Native commit mode only: with no cache, every workflow task replays the workflow from the
+    start; the records of earlier tasks are not sent again.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -747,8 +786,8 @@ async def test_commit_mode_records_are_not_sent_again_on_replay(
 async def test_workers_that_disagree_on_append_mode_fail_the_workflow_task(
     client: Client, commit_mode_backend: StreamBackend
 ):
-    """As in a rolling deploy: a sink-mode worker fixes the run's mode, and a commit-mode worker's
-    workflow task then fails, naming both modes.
+    """Native only: as in a rolling deploy, a sink-mode worker fixes the run's mode, and a
+    commit-mode worker's workflow task then fails, naming both modes.
     """
     backend = await NativeStreamBackend.connect(client)
     task_queue = f"tq-{uuid.uuid4()}"
@@ -834,9 +873,10 @@ class StartToolWorkflow:
 async def test_client_reads_the_stream_of_a_standalone_activity_a_workflow_started(
     client: Client, backend: StreamBackend
 ):
-    """A tool call owns its stream: a workflow starts a Standalone Activity, which appends to its own
-    stream, and a client that names the stream before the activity starts reads it. On native the
-    stream closes with the activity's outcome.
+    """Every backend: a tool call owns its stream: a workflow starts a Standalone Activity, which
+    appends to its own stream, and a client that refers to the stream before the activity starts
+    reads it. Native only: the stream closes with the activity's outcome; on Redis nothing closes
+    it.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     tool_id = f"tool-{uuid.uuid4()}"

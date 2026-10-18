@@ -13,7 +13,15 @@ from temporalio.streams._ref import StreamRef
 
 
 class StreamWriter:
-    """Appends values for one producer, assigning each append the next seq."""
+    """Appends values for one producer, assigning each append the next seq.
+
+    Use one writer per producer and epoch: another writer for the same producer and epoch starts
+    again at seq 0, and its appends are rejected, or not stored if one repeats the content of the
+    latest stored append. A failed append does not advance the seq, so calling :py:meth:`append`
+    again with the same values is a retry of it; the retry is a no-op if the failed append was
+    stored, but only if the values encode to the same bytes, which a codec that encrypts with a
+    random nonce does not do.
+    """
 
     def __init__(
         self,

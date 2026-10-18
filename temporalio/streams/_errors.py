@@ -40,7 +40,11 @@ class EpochFencedError(StreamError):
 
 
 class SpeculativeWorkflowTaskError(StreamError):
-    """Appends from speculative workflow tasks are not supported."""
+    """Appends from speculative workflow tasks are not supported.
+
+    Only the native backend raises it. Neither the worker nor Core can tell that a task is
+    speculative, so on Redis such appends are stored.
+    """
 
 
 class SeqGapError(StreamError):
@@ -52,10 +56,13 @@ class StreamTooLargeError(StreamError):
 
 
 class StreamUnavailableError(StreamError):
-    """The store could not be reached, after retrying."""
+    """The store could not be reached: transient failures are retried for 30 seconds."""
 
 
 class WorkflowAppendModeMismatchError(StreamError):
-    """A workflow append is in the other mode from the one its run fixed: the run's workers
-    disagree on the append mode.
+    """A sink-mode workflow append to a run whose first workflow append fixed commit mode: the
+    run's workers disagree on the append mode.
+
+    A commit-mode completion in the wrong mode does not raise it: the server fails the workflow
+    task with an application failure of type ``BAD_STREAM_APPEND``, and the task is retried.
     """

@@ -3,15 +3,31 @@
 .. warning::
     This API is a prototype and will change.
 
-The stream is embedded in its owning workflow. Every operation is a direct Nexus call to the stream
-service on the System Nexus Endpoint, which the server runs in a transaction on the owning
-workflow. The server checks activity and workflow producers against the workflow's state, records
-which attempt of each workflow task committed, and closes the stream when the workflow ends.
+The stream is embedded in its owner: a workflow run, or a Standalone Activity execution. Every
+operation is a direct Nexus call to the stream service on the System Nexus Endpoint, which the
+server runs in a transaction on the owner. An append or close whose owner does not exist fails as
+not found.
+
+The server checks the owner's producers against the owner's state. On a workflow's stream, a
+workflow task must be the run's current one, not speculative, and an activity task token must be
+for the started attempt of one of the run's activities, with the stamp that attempt started with;
+other activities' tokens are rejected. On a Standalone Activity's stream, only the activity's own
+attempts are checked; workflows and other activities are not verified. Clients and local
+activities are never verified. A task token from before the attempt stamp existed reads as stamp
+0, which matches a first attempt.
+
+The server records which attempt completed each workflow task, and closes the stream in the
+transaction that ends its owner. A retry of a Standalone Activity does not close it. The worker
+never writes the close.
+
+The stream is not moved to the next run of a chain at continue-as-new, retry or cron: the next run
+starts with no stream, so a chain's records do not continue across runs.
 
 With ``commit_mode``, a worker using the backend sends each workflow's own records in its workflow
 task completion, and they become visible when the task commits; a failed task attempt's records
 are never delivered. A run's first workflow append fixes its mode, so during a rolling deploy in
-which workers disagree, a run's workflow tasks fail on the workers whose mode differs.
+which workers disagree, a run's workflow tasks fail on the workers whose mode differs, and the run
+makes progress only on workers whose mode matches.
 
 The calls are made by the temporalio-streams crate, through the bridge.
 """
@@ -25,7 +41,7 @@ from temporalio.streams._crate import CrateStreamBackend
 
 
 class NativeStreamBackend(CrateStreamBackend):
-    """Stores streams in Temporal, embedded in their owning workflows."""
+    """Stores streams in Temporal, embedded in their owners."""
 
     @staticmethod
     async def connect(

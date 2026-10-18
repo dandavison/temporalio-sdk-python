@@ -19,10 +19,12 @@ class ClientProducer:
 
 @dataclass(frozen=True)
 class ActivityProducer:
-    """An activity attempt. Its epoch is the attempt stamp, which a retry or reset increases.
+    """An activity attempt. Its epoch is the attempt stamp, which a reset increases, and a retry
+    increases only when the server enables ``system.enableActivityRetryStampIncrement``; otherwise
+    a retry has its predecessor's epoch and does not fence it.
 
     A local activity's epoch is (the workflow task it was scheduled in, that task's attempt, its own
-    attempt).
+    attempt). The server cannot verify a local activity.
     """
 
     info: temporalio.activity.Info
@@ -51,7 +53,7 @@ class ProducerIdentity:
 
     The epoch is (``workflow_task``, ``workflow_task_attempt``, ``epoch``), compared in that order.
     ``workflow_run_id`` and the workflow task fields are set only for workflow and local activity
-    producers.
+    producers. For a workflow producer ``epoch`` is the workflow task attempt.
     """
 
     producer: str
@@ -72,9 +74,10 @@ class AppendRecord:
 
 @dataclass(frozen=True)
 class WorkflowTaskCommit:
-    """Records which attempt of a workflow task committed.
+    """Records which attempt of a workflow task committed. Only the native backend writes it.
 
-    Readers discard records of other attempts of that task. Only the native backend writes it.
+    It is written for every completed workflow task of a run whose stream exists, and not for a
+    rejected speculative task. See :py:class:`Record` for how a reader uses it.
     """
 
     workflow_run_id: str
@@ -88,7 +91,9 @@ class StreamCreated:
 
     The run's workflow tasks whose identity (``previous_started_event_id``) is lower than
     ``next_workflow_task`` completed before the stream existed, so they have no commit record; a
-    reader treats a workflow or local activity record of such a task as committed.
+    reader treats a workflow or local activity record of such a task as committed. This is wrong for
+    one case: a local activity from a failed attempt of such a task, still running after the
+    rerun, has its records treated as committed.
     """
 
     workflow_run_id: str
@@ -101,7 +106,8 @@ class WorkflowAppendMode(IntEnum):
     SINK = 1
     """The worker appends at the end of each activation, before sending its completion."""
     COMMIT = 2
-    """The records travel in the workflow task completion. Native only."""
+    """The records travel in the workflow task completion, and only the committed attempt's are
+    delivered. Native only."""
 
 
 @dataclass(frozen=True)
@@ -119,7 +125,13 @@ class Record:
     """A stored record. ``cursor`` marks the boundary after it.
 
     A record is data, a producer's finish, or a marker: a workflow task commit, the stream's
-    creation, or a run's append mode.
+    creation, or a run's append mode. Only the native backend writes markers.
+
+    On native, a workflow or local activity record of workflow task T is final when T's commit
+    record has the record's workflow task attempt, withdrawn when it has another attempt, final
+    when T has no commit record and T is lower than the stream creation record's
+    ``next_workflow_task``, and provisional otherwise. On other backends nothing withdraws a failed
+    attempt's records if the attempt that succeeds appends nothing.
     """
 
     cursor: bytes
