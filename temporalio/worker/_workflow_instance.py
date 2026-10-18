@@ -244,6 +244,14 @@ class WorkflowInstance(ABC):
         """
         return None
 
+    def take_stream_appends(
+        self,
+    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
+        """Return and clear the (topic, payload) records the workflow appended to its stream
+        since the last call.
+        """
+        return []
+
 
 class UnsandboxedWorkflowRunner(WorkflowRunner):
     """Workflow runner that does not do any sandboxing."""
@@ -406,6 +414,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         # The current details (as opposed to static details on workflow start), returned in the
         # metadata query
         self._current_details = ""
+        self._stream_appends: list[tuple[str, temporalio.api.common.v1.Payload]] = []
 
         self._last_completion_result = det.last_completion_result
         self._last_failure = det.last_failure
@@ -1948,6 +1957,21 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
 
     def workflow_get_current_details(self) -> str:
         return self._current_details
+
+    def workflow_stream_append(self, topic: str, value: Any) -> None:
+        self._assert_not_read_only("append to a stream")
+        # The worker appended these records when the code first ran.
+        if self._is_replaying:
+            return
+        self._stream_appends.append(
+            (topic, self._workflow_context_payload_converter.to_payload(value))
+        )
+
+    def take_stream_appends(
+        self,
+    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
+        appends, self._stream_appends = self._stream_appends, []
+        return appends
 
     def workflow_set_current_details(self, details: str):
         self._assert_not_read_only("set current details")

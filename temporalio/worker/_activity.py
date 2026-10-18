@@ -633,6 +633,7 @@ class _ActivityWorker:
             activity_run_id=getattr(start, "run_id", None)
             if not started_by_workflow
             else None,
+            attempt_stamp=start.attempt_stamp,
         )
 
         if self._encode_headers:

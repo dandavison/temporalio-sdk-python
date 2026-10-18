@@ -141,6 +141,10 @@ class Info:
     activity_run_id: str | None = None
     """Run ID of this activity. None for workflow activities."""
 
+    attempt_stamp: int = 0
+    """Identifies this attempt among all attempts of the activity. Unlike :py:attr:`attempt`, which
+    a reset sets back to 1, it never decreases. Zero for local activities."""
+
     @property
     def in_workflow(self) -> bool:
         """Was this activity started by a workflow?"""

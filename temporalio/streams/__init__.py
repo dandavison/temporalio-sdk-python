@@ -278,4 +278,6 @@ async def decode(
     if record.payload is None:
         raise ValueError("record has no payload")
     [payload] = await data_converter.decode([record.payload])
+    if type_hint is None:
+        return data_converter.payload_converter.from_payload(payload)
     return data_converter.payload_converter.from_payload(payload, type_hint)

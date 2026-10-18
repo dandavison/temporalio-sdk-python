@@ -284,6 +284,7 @@ class Replayer:
                 )
                 != HeaderCodecBehavior.NO_CODEC,
                 max_workflow_task_external_storage_concurrency=1,
+                stream_backend=None,
                 default_workflow_logic_flags=frozenset(
                     self._default_workflow_logic_flags
                 ),

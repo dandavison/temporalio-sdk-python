@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import temporalio.api.common.v1
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.common
@@ -190,6 +191,20 @@ class _Instance(WorkflowInstance):
 
     def get_info(self) -> temporalio.workflow.Info:
         return self.instance_details.info
+
+    def take_stream_appends(
+        self,
+    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
+        self.importer.restriction_context.is_runtime = True
+        try:
+            self._run_code(
+                "with __temporal_importer.applied():\n"
+                "  __temporal_stream_appends = __temporal_in_sandbox.take_stream_appends()\n",
+                __temporal_importer=self.importer,
+            )
+            return self.globals_and_locals.pop("__temporal_stream_appends")  # type: ignore
+        finally:
+            self.importer.restriction_context.is_runtime = False
 
     def get_thread_id(self) -> int | None:
         return self._current_thread_id

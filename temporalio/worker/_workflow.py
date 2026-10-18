@@ -24,6 +24,7 @@ import temporalio.common
 import temporalio.converter
 import temporalio.converter._extstore
 import temporalio.exceptions
+import temporalio.streams
 import temporalio.workflow
 from temporalio.bridge.worker import PollShutdownError
 from temporalio.converter import StorageDriverStoreContext, StorageDriverWorkflowInfo
@@ -103,6 +104,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         assert_local_activity_valid: Callable[[str], None],
         encode_headers: bool,
         max_workflow_task_external_storage_concurrency: int,
+        stream_backend: temporalio.streams.StreamBackend | None,
         default_workflow_logic_flags: frozenset[_WorkflowLogicFlag] | None = None,
     ) -> None:
         # Debug mode is enabled if specified or if the TEMPORAL_DEBUG env var is truthy
@@ -173,6 +175,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         self._max_workflow_task_external_storage_concurrency = (
             max_workflow_task_external_storage_concurrency
         )
+        self._stream_backend = stream_backend
         self._throw_after_activation: Exception | None = None
 
         # If debug mode is enabled, disable deadlock detection
@@ -521,6 +524,15 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 completion.payload_upload_metrics, upload_metrics
             )
 
+        if workflow and self._stream_backend and completion.HasField("successful"):
+            try:
+                await self._write_stream(act, workflow, completion, data_converter)
+            except Exception as err:
+                logger.exception(
+                    "Failed writing stream of workflow with run ID %s", act.run_id
+                )
+                completion.failed.failure.message = f"Failed writing stream: {err}"
+
         # Send off completion
         if LOG_PROTOS:
             logger.debug("Sending workflow completion:\n%s", completion)
@@ -530,6 +542,51 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             # TODO(cretz): Per others, this is supposed to crash the worker
             logger.exception(
                 "Failed completing activation on workflow with run ID %s", act.run_id
+            )
+
+    async def _write_stream(
+        self,
+        act: temporalio.bridge.proto.workflow_activation.WorkflowActivation,
+        workflow: _RunningWorkflow,
+        completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
+        data_converter: temporalio.converter.DataConverter,
+    ) -> None:
+        """Append the records the activation appended, and close the stream if the workflow is
+        ending, before the completion reaches the server.
+
+        A failed activation never gets here: its records are dropped, and the retried workflow
+        task appends them again.
+        """
+        assert self._stream_backend
+        appends = workflow.instance.take_stream_appends()
+        close = _stream_close(completion)
+        if not appends and not close:
+            return
+        if not act.HasField("workflow_task"):
+            raise RuntimeError(
+                "Workflow appended to its stream outside a workflow task"
+            )
+        producer = temporalio.streams.WorkflowProducer(
+            workflow_id=workflow.workflow_id,
+            run_id=act.run_id,
+            previous_started_event_id=act.workflow_task.previous_started_event_id,
+            attempt=act.workflow_task.attempt,
+        )
+        ref = temporalio.streams.StreamRef(workflow.workflow_id)
+        if appends:
+            payloads = await data_converter.encode([p for _, p in appends])
+            await self._stream_backend.append(
+                ref,
+                producer,
+                workflow.next_stream_seq(producer),
+                [
+                    temporalio.streams.RecordInput(topic, payload)
+                    for (topic, _), payload in zip(appends, payloads)
+                ],
+            )
+        if close:
+            await self._stream_backend.close(
+                ref, producer, workflow.next_stream_seq(producer), close
             )
 
     async def _handle_cache_eviction(
@@ -851,12 +908,21 @@ class _RunningWorkflow:
     ):
         self.instance = instance
         self.workflow_id = workflow_id
+        self._stream_epoch: tuple[int, int] | None = None
+        self._stream_seq = 0
         self.deadlocked_activation_task: Awaitable | None = None
         self._deadlock_can_be_interrupted_lock = threading.Lock()
         self._deadlock_can_be_interrupted = False
 
     def get_info(self) -> temporalio.workflow.Info:
         return self.instance.get_info()
+
+    def next_stream_seq(self, producer: temporalio.streams.WorkflowProducer) -> int:
+        epoch = (producer.previous_started_event_id, producer.attempt)
+        if epoch != self._stream_epoch:
+            self._stream_epoch, self._stream_seq = epoch, 0
+        seq, self._stream_seq = self._stream_seq, self._stream_seq + 1
+        return seq
 
     def activate(
         self, act: temporalio.bridge.proto.workflow_activation.WorkflowActivation
@@ -970,3 +1036,23 @@ class _CommandAwareDataConverter(temporalio.converter.DataConverter):
 
 class _InterruptDeadlockError(BaseException):
     pass
+
+
+def _stream_close(
+    completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
+) -> temporalio.streams.StreamClose | None:
+    for command in completion.successful.commands:
+        if command.HasField("complete_workflow_execution"):
+            return temporalio.streams.StreamClose(
+                temporalio.streams.CloseStatus.COMPLETED
+            )
+        if command.HasField("fail_workflow_execution"):
+            return temporalio.streams.StreamClose(
+                temporalio.streams.CloseStatus.FAILED,
+                failure=command.fail_workflow_execution.failure,
+            )
+        if command.HasField("cancel_workflow_execution"):
+            return temporalio.streams.StreamClose(
+                temporalio.streams.CloseStatus.CANCELED
+            )
+    return None

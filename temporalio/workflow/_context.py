@@ -505,6 +505,9 @@ class _Runtime(ABC):
     def workflow_get_current_details(self) -> str: ...
 
     @abstractmethod
+    def workflow_stream_append(self, topic: str, value: Any) -> None: ...
+
+    @abstractmethod
     def workflow_set_current_details(self, details: str): ...
 
     @abstractmethod

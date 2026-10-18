@@ -8,6 +8,7 @@ import dataclasses
 import logging
 from typing import Any
 
+import temporalio.api.common.v1
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.converter
@@ -82,6 +83,12 @@ class InSandbox:
     ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
         """Send activation to this instance."""
         return self.instance.activate(act)
+
+    def take_stream_appends(
+        self,
+    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
+        """Take the records the workflow appended to its stream."""
+        return self.instance.take_stream_appends()
 
     def get_serialization_context(
         self,
