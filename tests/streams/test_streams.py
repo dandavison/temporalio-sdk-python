@@ -7,6 +7,7 @@ localhost:7233``.
 
 from __future__ import annotations
 
+import asyncio
 import socket
 import subprocess
 import time
@@ -20,6 +21,7 @@ import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 from temporalio.streams import (
     ClientProducer,
     CloseStatus,
@@ -283,3 +285,336 @@ async def test_retried_activity_attempt_has_higher_epoch(
     assert await values(records) == ["attempt 1", "attempt 2"]
     assert records[0].producer.producer == records[1].producer.producer
     assert records[1].producer.epoch > records[0].producer.epoch
+
+
+async def read_all_with_commits(backend: StreamBackend, ref: StreamRef) -> list[Record]:
+    records: list[Record] = []
+    cursor = None
+    while True:
+        resp = await backend.read(ref, after=cursor)
+        if not resp.records:
+            return records
+        records.extend(resp.records)
+        cursor = resp.cursor
+
+
+def commit_attempt(records: list[Record], record: Record) -> int | None:
+    """The attempt that the commit record of ``record``'s workflow task names, or None."""
+    for r in records:
+        c = r.workflow_task_commit
+        if (
+            c
+            and c.workflow_run_id == record.producer.workflow_run_id
+            and c.workflow_task == record.producer.workflow_task
+        ):
+            return c.attempt
+    return None
+
+
+class LocalActivities:
+    def __init__(self, backend: StreamBackend) -> None:
+        self._backend = backend
+
+    @activity.defn
+    async def append_then_fail_first_attempt(self, ref: StreamRef) -> None:
+        info = activity.info()
+        await StreamWriter.for_activity(self._backend, ref).append(
+            f"attempt {info.attempt}"
+        )
+        if info.attempt == 1:
+            raise RuntimeError("fail the first attempt")
+
+    @activity.defn
+    async def sleep_then_append(self, ref: StreamRef) -> None:
+        await asyncio.sleep(3)
+        await StreamWriter.for_activity(self._backend, ref).append("late")
+
+    @activity.defn
+    async def append(self, ref: StreamRef) -> None:
+        await StreamWriter.for_activity(self._backend, ref).append("appended")
+
+
+@workflow.defn
+class LocalActivityRetryWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.execute_local_activity_method(
+            LocalActivities.append_then_fail_first_attempt,
+            StreamRef.for_workflow(),
+            start_to_close_timeout=timedelta(seconds=10),
+            retry_policy=RetryPolicy(initial_interval=timedelta(milliseconds=10)),
+        )
+
+
+async def test_local_activity_retry_has_higher_epoch(
+    client: Client, backend: StreamBackend
+):
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[LocalActivityRetryWorkflow],
+        activities=[LocalActivities(backend).append_then_fail_first_attempt],
+    ):
+        handle = await client.start_workflow(
+            LocalActivityRetryWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+        await handle.result()
+
+    records = await read_all(backend, StreamRef.for_handle(handle))
+    assert await values(records) == ["attempt 1", "attempt 2"]
+    first, second = records[0].producer, records[1].producer
+    assert first.producer == second.producer
+    assert first.producer.startswith("local-activity/")
+    assert first.workflow_run_id == handle.first_execution_run_id
+    assert (first.workflow_task, first.workflow_task_attempt) == (
+        second.workflow_task,
+        second.workflow_task_attempt,
+    )
+    assert second.epoch > first.epoch
+
+
+@workflow.defn
+class LocalActivityOutlivesTaskWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.execute_local_activity_method(
+            LocalActivities.sleep_then_append,
+            StreamRef.for_workflow(),
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+async def test_local_activity_appends_after_task_heartbeat(
+    client: Client, backend: StreamBackend
+):
+    """The local activity outlives its workflow task, which the worker completes early to keep it
+    running, and appends after that.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[LocalActivityOutlivesTaskWorkflow],
+        activities=[LocalActivities(backend).sleep_then_append],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            LocalActivityOutlivesTaskWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+            task_timeout=timedelta(seconds=1),
+        )
+        await handle.result()
+
+    ref = StreamRef.for_handle(handle)
+    records = await read_all_with_commits(backend, ref)
+    [late] = [r for r in records if r.workflow_task_commit is None]
+    assert await decode(late, str) == "late"
+    assert late.producer.producer.startswith("local-activity/")
+    if isinstance(backend, NativeStreamBackend):
+        assert commit_attempt(records, late) == late.producer.workflow_task_attempt
+
+
+failed_local_activity_task_attempts = 0
+
+
+@workflow.defn(sandboxed=False)
+class LocalActivityOfFailedTaskWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        global failed_local_activity_task_attempts
+        await workflow.execute_local_activity_method(
+            LocalActivities.append,
+            StreamRef.for_workflow(),
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        if failed_local_activity_task_attempts == 0:
+            failed_local_activity_task_attempts += 1
+            raise RuntimeError("fail the workflow task")
+
+
+async def test_local_activity_of_failed_task_does_not_collide_with_rerun(
+    client: Client, backend: StreamBackend
+):
+    """The rerun of a failed workflow task runs its local activity again, which appends again
+    under a higher workflow task attempt. On native, the task's commit names the rerun's attempt.
+    """
+    global failed_local_activity_task_attempts
+    failed_local_activity_task_attempts = 0
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[LocalActivityOfFailedTaskWorkflow],
+        activities=[LocalActivities(backend).append],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            LocalActivityOfFailedTaskWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+        await handle.result()
+
+    records = await read_all_with_commits(backend, StreamRef.for_handle(handle))
+    failed, rerun = [r for r in records if r.workflow_task_commit is None]
+    assert failed.producer.producer == rerun.producer.producer
+    assert failed.producer.workflow_task == rerun.producer.workflow_task
+    assert rerun.producer.workflow_task_attempt > failed.producer.workflow_task_attempt
+    if isinstance(backend, NativeStreamBackend):
+        assert commit_attempt(records, rerun) == rerun.producer.workflow_task_attempt
+
+
+@workflow.defn(sandboxed=False)
+class SlowLastActivationWorkflow:
+    def __init__(self) -> None:
+        self.go = False
+
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.wait_condition(lambda: self.go)
+        workflow_append("last")
+        # Lets the test signal while the completion that ends the run is in flight.
+        time.sleep(1)
+
+    @workflow.signal
+    def start(self) -> None:
+        self.go = True
+
+    @workflow.signal
+    def other(self) -> None:
+        pass
+
+
+async def test_rejected_terminal_completion_does_not_close_stream(
+    client: Client, backend: StreamBackend
+):
+    """A signal arriving while the run's terminal completion is in flight makes the server reject
+    that completion. The stream stays open, so the rerun of the task can append, and closes when
+    the server accepts a terminal completion.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[SlowLastActivationWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            SlowLastActivationWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+        await handle.signal(SlowLastActivationWorkflow.start)
+        await asyncio.sleep(0.5)
+        await handle.signal(SlowLastActivationWorkflow.other)
+        await handle.result()
+
+    ref = StreamRef.for_handle(handle)
+    records = await read_all(backend, ref)
+    assert set(await values(records)) == {"last"}
+    end = await backend.read(ref, after=records[-1].cursor)
+    assert end.close is not None and end.close.status == CloseStatus.COMPLETED
+
+
+retried_run_attempts = 0
+
+
+@workflow.defn(sandboxed=False)
+class FailFirstRunWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        workflow_append(f"run attempt {workflow.info().attempt}")
+        if workflow.info().attempt == 1:
+            raise ApplicationError("fail the first run")
+
+
+async def test_failed_run_with_retry_policy_does_not_close_stream(
+    client: Client, backend: StreamBackend
+):
+    """The retried run appends to the same stream, which closes when the retried run completes."""
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[FailFirstRunWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            FailFirstRunWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(milliseconds=10), maximum_attempts=2
+            ),
+        )
+        await handle.result()
+
+    ref = StreamRef.for_handle(handle)
+    records = await read_all(backend, ref)
+    assert await values(records) == ["run attempt 1", "run attempt 2"]
+    end = await backend.read(ref, after=records[-1].cursor)
+    assert end.close is not None and end.close.status == CloseStatus.COMPLETED
+
+
+@workflow.defn
+class CronWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        workflow_append("cron run")
+
+
+async def test_completed_cron_run_does_not_close_stream(
+    client: Client, backend: StreamBackend
+):
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[CronWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            CronWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+            cron_schedule="@every 1s",
+        )
+        ref = StreamRef.for_handle(handle)
+        first = await backend.read(ref, wait=timedelta(seconds=10))
+        assert await values(list(first.records)) == ["cron run"]
+        # Wait until a later run has appended, so the first run's end has been processed.
+        second = await backend.read(ref, after=first.cursor, wait=timedelta(seconds=10))
+        assert await values(list(second.records)) == ["cron run"]
+        assert first.close is None and second.close is None
+        await handle.terminate()
+
+
+@workflow.defn
+class ManyRecordsWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        for i in range(2500):
+            workflow_append(i)
+
+
+async def test_activation_of_more_records_than_one_append_holds(
+    client: Client, backend: StreamBackend
+):
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[ManyRecordsWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            ManyRecordsWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await handle.result()
+
+    records = await read_all(backend, StreamRef.for_handle(handle))
+    assert [await decode(r, int) for r in records] == list(range(2500))
