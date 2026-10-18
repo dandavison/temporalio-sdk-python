@@ -53,3 +53,9 @@ class StreamTooLargeError(StreamError):
 
 class StreamUnavailableError(StreamError):
     """The store could not be reached, after retrying."""
+
+
+class WorkflowAppendModeMismatchError(StreamError):
+    """A workflow append is in the other mode from the one its run fixed: the run's workers
+    disagree on the append mode.
+    """

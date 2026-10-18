@@ -552,7 +552,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         data_converter: temporalio.converter.DataConverter,
     ) -> None:
         """Pass the records the activation appended, and how the run ends if the completion ends
-        it, to the stream backend before the completion reaches the server.
+        it, to the stream backend before the completion reaches the server. In commit mode the
+        backend returns the records as protocol messages, which travel in the completion.
 
         A failed activation never gets here: its records are dropped, and the retried workflow
         task appends them again.
@@ -570,7 +571,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         payloads = await data_converter._encode_payload_sequence(
             [p for _, p in appends]
         )
-        await self._stream_backend.workflow_activation_completed(
+        messages = await self._stream_backend.workflow_activation_completed(
             temporalio.streams.WorkflowActivationCompleted(
                 ref=temporalio.streams.StreamRef(
                     info.workflow_id, info.first_execution_run_id
@@ -594,6 +595,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 else None,
             )
         )
+        completion.successful.protocol_messages.extend(messages)
 
     async def _handle_cache_eviction(
         self,

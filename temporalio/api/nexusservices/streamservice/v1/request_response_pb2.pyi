@@ -81,6 +81,10 @@ class _StreamFailureTypeEnumTypeWrapper(
     """
     STREAM_FAILURE_TYPE_TOO_LARGE: _StreamFailureType.ValueType  # 11
     """A record, or the append as a whole, exceeds a size limit."""
+    STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH: (
+        _StreamFailureType.ValueType
+    )  # 12
+    """A workflow append is in the other mode from the one its run fixed."""
 
 class StreamFailureType(
     _StreamFailureType, metaclass=_StreamFailureTypeEnumTypeWrapper
@@ -107,7 +111,46 @@ latest.
 """
 STREAM_FAILURE_TYPE_TOO_LARGE: StreamFailureType.ValueType  # 11
 """A record, or the append as a whole, exceeds a size limit."""
+STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH: StreamFailureType.ValueType  # 12
+"""A workflow append is in the other mode from the one its run fixed."""
 global___StreamFailureType = StreamFailureType
+
+class _WorkflowAppendMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _WorkflowAppendModeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[
+        _WorkflowAppendMode.ValueType
+    ],
+    builtins.type,
+):  # noqa: F821
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    WORKFLOW_APPEND_MODE_UNSPECIFIED: _WorkflowAppendMode.ValueType  # 0
+    WORKFLOW_APPEND_MODE_SINK: _WorkflowAppendMode.ValueType  # 1
+    """The worker appends a workflow's records at the end of each activation, before the
+    activation's completion is sent.
+    """
+    WORKFLOW_APPEND_MODE_COMMIT: _WorkflowAppendMode.ValueType  # 2
+    """The records travel in the workflow task completion and are appended in its transaction.
+    Native only.
+    """
+
+class WorkflowAppendMode(
+    _WorkflowAppendMode, metaclass=_WorkflowAppendModeEnumTypeWrapper
+):
+    """How a workflow appends to its own stream. Fixed per run at its first workflow append."""
+
+WORKFLOW_APPEND_MODE_UNSPECIFIED: WorkflowAppendMode.ValueType  # 0
+WORKFLOW_APPEND_MODE_SINK: WorkflowAppendMode.ValueType  # 1
+"""The worker appends a workflow's records at the end of each activation, before the
+activation's completion is sent.
+"""
+WORKFLOW_APPEND_MODE_COMMIT: WorkflowAppendMode.ValueType  # 2
+"""The records travel in the workflow task completion and are appended in its transaction.
+Native only.
+"""
+global___WorkflowAppendMode = WorkflowAppendMode
 
 class StreamRef(google.protobuf.message.Message):
     """(--
@@ -435,6 +478,87 @@ class WorkflowTaskCommit(google.protobuf.message.Message):
 
 global___WorkflowTaskCommit = WorkflowTaskCommit
 
+class StreamCreated(google.protobuf.message.Message):
+    """Written when an append creates the stream. The run's workflow tasks whose identity
+    (previous_started_event_id) is lower than next_workflow_task completed before the stream existed,
+    so they have no commit record; readers treat their records as committed.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WORKFLOW_RUN_ID_FIELD_NUMBER: builtins.int
+    NEXT_WORKFLOW_TASK_FIELD_NUMBER: builtins.int
+    workflow_run_id: builtins.str
+    next_workflow_task: builtins.int
+    """The identity of the run's next workflow task: the started event ID of its last completed one."""
+    def __init__(
+        self,
+        *,
+        workflow_run_id: builtins.str = ...,
+        next_workflow_task: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "next_workflow_task",
+            b"next_workflow_task",
+            "workflow_run_id",
+            b"workflow_run_id",
+        ],
+    ) -> None: ...
+
+global___StreamCreated = StreamCreated
+
+class WorkflowAppendModeFixed(google.protobuf.message.Message):
+    """Written when a run's first workflow append fixes how the run's workflow appends."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WORKFLOW_RUN_ID_FIELD_NUMBER: builtins.int
+    MODE_FIELD_NUMBER: builtins.int
+    workflow_run_id: builtins.str
+    mode: global___WorkflowAppendMode.ValueType
+    def __init__(
+        self,
+        *,
+        workflow_run_id: builtins.str = ...,
+        mode: global___WorkflowAppendMode.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "mode", b"mode", "workflow_run_id", b"workflow_run_id"
+        ],
+    ) -> None: ...
+
+global___WorkflowAppendModeFixed = WorkflowAppendModeFixed
+
+class CommitModeAppend(google.protobuf.message.Message):
+    """The body of a protocol message in a workflow task completion: records the workflow appends to its
+    own stream in commit mode. The server appends them in the completion's transaction, with the
+    workflow task as their producer.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    RECORDS_FIELD_NUMBER: builtins.int
+    @property
+    def records(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___AppendRecord
+    ]: ...
+    def __init__(
+        self,
+        *,
+        records: collections.abc.Iterable[global___AppendRecord] | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["records", b"records"]
+    ) -> None: ...
+
+global___CommitModeAppend = CommitModeAppend
+
 class Record(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -444,6 +568,8 @@ class Record(google.protobuf.message.Message):
     PAYLOAD_FIELD_NUMBER: builtins.int
     FINISH_FIELD_NUMBER: builtins.int
     WORKFLOW_TASK_COMMIT_FIELD_NUMBER: builtins.int
+    STREAM_CREATED_FIELD_NUMBER: builtins.int
+    WORKFLOW_APPEND_MODE_FIELD_NUMBER: builtins.int
     cursor: builtins.bytes
     """Marks the boundary after this record."""
     @property
@@ -456,6 +582,12 @@ class Record(google.protobuf.message.Message):
     @property
     def workflow_task_commit(self) -> global___WorkflowTaskCommit:
         """Set when this record is a commit marker rather than data."""
+    @property
+    def stream_created(self) -> global___StreamCreated:
+        """Set when this record marks the stream's creation rather than data."""
+    @property
+    def workflow_append_mode(self) -> global___WorkflowAppendModeFixed:
+        """Set when this record marks a run's workflow append mode rather than data."""
     def __init__(
         self,
         *,
@@ -465,6 +597,8 @@ class Record(google.protobuf.message.Message):
         payload: temporalio.api.common.v1.message_pb2.Payload | None = ...,
         finish: builtins.bool = ...,
         workflow_task_commit: global___WorkflowTaskCommit | None = ...,
+        stream_created: global___StreamCreated | None = ...,
+        workflow_append_mode: global___WorkflowAppendModeFixed | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -473,6 +607,10 @@ class Record(google.protobuf.message.Message):
             b"payload",
             "producer",
             b"producer",
+            "stream_created",
+            b"stream_created",
+            "workflow_append_mode",
+            b"workflow_append_mode",
             "workflow_task_commit",
             b"workflow_task_commit",
         ],
@@ -488,8 +626,12 @@ class Record(google.protobuf.message.Message):
             b"payload",
             "producer",
             b"producer",
+            "stream_created",
+            b"stream_created",
             "topic",
             b"topic",
+            "workflow_append_mode",
+            b"workflow_append_mode",
             "workflow_task_commit",
             b"workflow_task_commit",
         ],

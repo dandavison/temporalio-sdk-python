@@ -25,13 +25,15 @@ from temporalio.api.failure.v1 import (
 )
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\nBtemporal/api/nexusservices/streamservice/v1/request_response.proto\x12+temporal.api.nexusservices.streamservice.v1\x1a\x1egoogle/protobuf/duration.proto\x1a$temporal/api/common/v1/message.proto\x1a%temporal/api/failure/v1/message.proto"I\n\tStreamRef\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x02 \x01(\t\x12\x11\n\tnamespace\x18\x03 \x01(\t"Z\n\x14WorkflowTaskProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x05"\x8f\x01\n\x15LocalActivityProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x1d\n\x15workflow_task_attempt\x18\x03 \x01(\x05\x12\x13\n\x0b\x61\x63tivity_id\x18\x04 \x01(\t\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05"+\n\x0e\x43lientProducer\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x03"\xbd\x02\n\x08Producer\x12M\n\x06\x63lient\x18\x01 \x01(\x0b\x32;.temporal.api.nexusservices.streamservice.v1.ClientProducerH\x00\x12\x1d\n\x13\x61\x63tivity_task_token\x18\x02 \x01(\x0cH\x00\x12Z\n\rworkflow_task\x18\x03 \x01(\x0b\x32\x41.temporal.api.nexusservices.streamservice.v1.WorkflowTaskProducerH\x00\x12\\\n\x0elocal_activity\x18\x04 \x01(\x0b\x32\x42.temporal.api.nexusservices.streamservice.v1.LocalActivityProducerH\x00\x42\t\n\x07variant"\x8f\x01\n\x10ProducerIdentity\x12\x10\n\x08producer\x18\x01 \x01(\t\x12\x15\n\rworkflow_task\x18\x02 \x01(\x03\x12\r\n\x05\x65poch\x18\x03 \x01(\x03\x12\x0b\n\x03seq\x18\x04 \x01(\x03\x12\x17\n\x0fworkflow_run_id\x18\x05 \x01(\t\x12\x1d\n\x15workflow_task_attempt\x18\x06 \x01(\x05"O\n\x0c\x41ppendRecord\x12\r\n\x05topic\x18\x01 \x01(\t\x12\x30\n\x07payload\x18\x02 \x01(\x0b\x32\x1f.temporal.api.common.v1.Payload"U\n\x12WorkflowTaskCommit\x12\x17\n\x0fworkflow_run_id\x18\x01 \x01(\t\x12\x15\n\rworkflow_task\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x03"\x99\x02\n\x06Record\x12\x0e\n\x06\x63ursor\x18\x01 \x01(\x0c\x12O\n\x08producer\x18\x02 \x01(\x0b\x32=.temporal.api.nexusservices.streamservice.v1.ProducerIdentity\x12\r\n\x05topic\x18\x03 \x01(\t\x12\x30\n\x07payload\x18\x04 \x01(\x0b\x32\x1f.temporal.api.common.v1.Payload\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08\x12]\n\x14workflow_task_commit\x18\x06 \x01(\x0b\x32?.temporal.api.nexusservices.streamservice.v1.WorkflowTaskCommit"\x98\x01\n\x0bStreamClose\x12\x46\n\x05state\x18\x01 \x01(\x0e\x32\x37.temporal.api.nexusservices.streamservice.v1.CloseState\x12\x31\n\x07\x66\x61ilure\x18\x02 \x01(\x0b\x32 .temporal.api.failure.v1.Failure\x12\x0e\n\x06reason\x18\x03 \x01(\t"\x89\x02\n\rAppendRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12G\n\x08producer\x18\x02 \x01(\x0b\x32\x35.temporal.api.nexusservices.streamservice.v1.Producer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12J\n\x07records\x18\x04 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08"!\n\x0e\x41ppendResponse\x12\x0f\n\x07\x63ursors\x18\x01 \x03(\x0c"\xc0\x01\n\x0bReadRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12\r\n\x05\x61\x66ter\x18\x02 \x01(\x0c\x12\x0e\n\x06topics\x18\x03 \x03(\t\x12\x13\n\x0bmax_records\x18\x04 \x01(\x05\x12\'\n\x04wait\x18\x05 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0c\n\x04last\x18\x06 \x01(\x05"\xad\x01\n\x0cReadResponse\x12\x44\n\x07records\x18\x01 \x03(\x0b\x32\x33.temporal.api.nexusservices.streamservice.v1.Record\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\x0c\x12G\n\x05\x63lose\x18\x03 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose"\xfe\x01\n\x0c\x43loseRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12P\n\x05owner\x18\x02 \x01(\x0b\x32\x41.temporal.api.nexusservices.streamservice.v1.WorkflowTaskProducer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12G\n\x05\x63lose\x18\x04 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose"\x0f\n\rCloseResponse*\xad\x01\n\nCloseState\x12\x1b\n\x17\x43LOSE_STATE_UNSPECIFIED\x10\x00\x12\x19\n\x15\x43LOSE_STATE_COMPLETED\x10\x01\x12\x16\n\x12\x43LOSE_STATE_FAILED\x10\x02\x12\x18\n\x14\x43LOSE_STATE_CANCELED\x10\x03\x12\x1a\n\x16\x43LOSE_STATE_TERMINATED\x10\x04\x12\x19\n\x15\x43LOSE_STATE_TIMED_OUT\x10\x05*\xcf\x03\n\x11StreamFailureType\x12#\n\x1fSTREAM_FAILURE_TYPE_UNSPECIFIED\x10\x00\x12\x1e\n\x1aSTREAM_FAILURE_TYPE_CLOSED\x10\x01\x12!\n\x1dSTREAM_FAILURE_TYPE_NOT_FOUND\x10\x02\x12\x1f\n\x1bSTREAM_FAILURE_TYPE_EXPIRED\x10\x03\x12!\n\x1dSTREAM_FAILURE_TYPE_NOT_OWNER\x10\x04\x12\'\n#STREAM_FAILURE_TYPE_CURSOR_MISMATCH\x10\x05\x12%\n!STREAM_FAILURE_TYPE_SEQ_DIVERGENT\x10\x06\x12!\n\x1dSTREAM_FAILURE_TYPE_SEQ_STALE\x10\x07\x12$\n STREAM_FAILURE_TYPE_EPOCH_FENCED\x10\x08\x12\x31\n-STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK\x10\t\x12\x1f\n\x1bSTREAM_FAILURE_TYPE_SEQ_GAP\x10\n\x12!\n\x1dSTREAM_FAILURE_TYPE_TOO_LARGE\x10\x0b\x42\xed\x01\n.io.temporal.api.nexusservices.streamservice.v1B\x14RequestResponseProtoP\x01Z?go.temporal.io/api/nexusservices/streamservice/v1;streamservice\xaa\x02-Temporalio.Api.Nexusservices.Streamservice.V1\xea\x02\x31Temporalio::Api::Nexusservices::Streamservice::V1b\x06proto3'
+    b'\nBtemporal/api/nexusservices/streamservice/v1/request_response.proto\x12+temporal.api.nexusservices.streamservice.v1\x1a\x1egoogle/protobuf/duration.proto\x1a$temporal/api/common/v1/message.proto\x1a%temporal/api/failure/v1/message.proto"I\n\tStreamRef\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x02 \x01(\t\x12\x11\n\tnamespace\x18\x03 \x01(\t"Z\n\x14WorkflowTaskProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x05"\x8f\x01\n\x15LocalActivityProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x1d\n\x15workflow_task_attempt\x18\x03 \x01(\x05\x12\x13\n\x0b\x61\x63tivity_id\x18\x04 \x01(\t\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05"+\n\x0e\x43lientProducer\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x03"\xbd\x02\n\x08Producer\x12M\n\x06\x63lient\x18\x01 \x01(\x0b\x32;.temporal.api.nexusservices.streamservice.v1.ClientProducerH\x00\x12\x1d\n\x13\x61\x63tivity_task_token\x18\x02 \x01(\x0cH\x00\x12Z\n\rworkflow_task\x18\x03 \x01(\x0b\x32\x41.temporal.api.nexusservices.streamservice.v1.WorkflowTaskProducerH\x00\x12\\\n\x0elocal_activity\x18\x04 \x01(\x0b\x32\x42.temporal.api.nexusservices.streamservice.v1.LocalActivityProducerH\x00\x42\t\n\x07variant"\x8f\x01\n\x10ProducerIdentity\x12\x10\n\x08producer\x18\x01 \x01(\t\x12\x15\n\rworkflow_task\x18\x02 \x01(\x03\x12\r\n\x05\x65poch\x18\x03 \x01(\x03\x12\x0b\n\x03seq\x18\x04 \x01(\x03\x12\x17\n\x0fworkflow_run_id\x18\x05 \x01(\t\x12\x1d\n\x15workflow_task_attempt\x18\x06 \x01(\x05"O\n\x0c\x41ppendRecord\x12\r\n\x05topic\x18\x01 \x01(\t\x12\x30\n\x07payload\x18\x02 \x01(\x0b\x32\x1f.temporal.api.common.v1.Payload"U\n\x12WorkflowTaskCommit\x12\x17\n\x0fworkflow_run_id\x18\x01 \x01(\t\x12\x15\n\rworkflow_task\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x03"D\n\rStreamCreated\x12\x17\n\x0fworkflow_run_id\x18\x01 \x01(\t\x12\x1a\n\x12next_workflow_task\x18\x02 \x01(\x03"\x81\x01\n\x17WorkflowAppendModeFixed\x12\x17\n\x0fworkflow_run_id\x18\x01 \x01(\t\x12M\n\x04mode\x18\x02 \x01(\x0e\x32?.temporal.api.nexusservices.streamservice.v1.WorkflowAppendMode"^\n\x10\x43ommitModeAppend\x12J\n\x07records\x18\x01 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord"\xd1\x03\n\x06Record\x12\x0e\n\x06\x63ursor\x18\x01 \x01(\x0c\x12O\n\x08producer\x18\x02 \x01(\x0b\x32=.temporal.api.nexusservices.streamservice.v1.ProducerIdentity\x12\r\n\x05topic\x18\x03 \x01(\t\x12\x30\n\x07payload\x18\x04 \x01(\x0b\x32\x1f.temporal.api.common.v1.Payload\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08\x12]\n\x14workflow_task_commit\x18\x06 \x01(\x0b\x32?.temporal.api.nexusservices.streamservice.v1.WorkflowTaskCommit\x12R\n\x0estream_created\x18\x07 \x01(\x0b\x32:.temporal.api.nexusservices.streamservice.v1.StreamCreated\x12\x62\n\x14workflow_append_mode\x18\x08 \x01(\x0b\x32\x44.temporal.api.nexusservices.streamservice.v1.WorkflowAppendModeFixed"\x98\x01\n\x0bStreamClose\x12\x46\n\x05state\x18\x01 \x01(\x0e\x32\x37.temporal.api.nexusservices.streamservice.v1.CloseState\x12\x31\n\x07\x66\x61ilure\x18\x02 \x01(\x0b\x32 .temporal.api.failure.v1.Failure\x12\x0e\n\x06reason\x18\x03 \x01(\t"\x89\x02\n\rAppendRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12G\n\x08producer\x18\x02 \x01(\x0b\x32\x35.temporal.api.nexusservices.streamservice.v1.Producer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12J\n\x07records\x18\x04 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08"!\n\x0e\x41ppendResponse\x12\x0f\n\x07\x63ursors\x18\x01 \x03(\x0c"\xc0\x01\n\x0bReadRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12\r\n\x05\x61\x66ter\x18\x02 \x01(\x0c\x12\x0e\n\x06topics\x18\x03 \x03(\t\x12\x13\n\x0bmax_records\x18\x04 \x01(\x05\x12\'\n\x04wait\x18\x05 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0c\n\x04last\x18\x06 \x01(\x05"\xad\x01\n\x0cReadResponse\x12\x44\n\x07records\x18\x01 \x03(\x0b\x32\x33.temporal.api.nexusservices.streamservice.v1.Record\x12\x0e\n\x06\x63ursor\x18\x02 \x01(\x0c\x12G\n\x05\x63lose\x18\x03 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose"\xfe\x01\n\x0c\x43loseRequest\x12\x46\n\x06stream\x18\x01 \x01(\x0b\x32\x36.temporal.api.nexusservices.streamservice.v1.StreamRef\x12P\n\x05owner\x18\x02 \x01(\x0b\x32\x41.temporal.api.nexusservices.streamservice.v1.WorkflowTaskProducer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12G\n\x05\x63lose\x18\x04 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose"\x0f\n\rCloseResponse*\xad\x01\n\nCloseState\x12\x1b\n\x17\x43LOSE_STATE_UNSPECIFIED\x10\x00\x12\x19\n\x15\x43LOSE_STATE_COMPLETED\x10\x01\x12\x16\n\x12\x43LOSE_STATE_FAILED\x10\x02\x12\x18\n\x14\x43LOSE_STATE_CANCELED\x10\x03\x12\x1a\n\x16\x43LOSE_STATE_TERMINATED\x10\x04\x12\x19\n\x15\x43LOSE_STATE_TIMED_OUT\x10\x05*\x86\x04\n\x11StreamFailureType\x12#\n\x1fSTREAM_FAILURE_TYPE_UNSPECIFIED\x10\x00\x12\x1e\n\x1aSTREAM_FAILURE_TYPE_CLOSED\x10\x01\x12!\n\x1dSTREAM_FAILURE_TYPE_NOT_FOUND\x10\x02\x12\x1f\n\x1bSTREAM_FAILURE_TYPE_EXPIRED\x10\x03\x12!\n\x1dSTREAM_FAILURE_TYPE_NOT_OWNER\x10\x04\x12\'\n#STREAM_FAILURE_TYPE_CURSOR_MISMATCH\x10\x05\x12%\n!STREAM_FAILURE_TYPE_SEQ_DIVERGENT\x10\x06\x12!\n\x1dSTREAM_FAILURE_TYPE_SEQ_STALE\x10\x07\x12$\n STREAM_FAILURE_TYPE_EPOCH_FENCED\x10\x08\x12\x31\n-STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK\x10\t\x12\x1f\n\x1bSTREAM_FAILURE_TYPE_SEQ_GAP\x10\n\x12!\n\x1dSTREAM_FAILURE_TYPE_TOO_LARGE\x10\x0b\x12\x35\n1STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH\x10\x0c*z\n\x12WorkflowAppendMode\x12$\n WORKFLOW_APPEND_MODE_UNSPECIFIED\x10\x00\x12\x1d\n\x19WORKFLOW_APPEND_MODE_SINK\x10\x01\x12\x1f\n\x1bWORKFLOW_APPEND_MODE_COMMIT\x10\x02\x42\xed\x01\n.io.temporal.api.nexusservices.streamservice.v1B\x14RequestResponseProtoP\x01Z?go.temporal.io/api/nexusservices/streamservice/v1;streamservice\xaa\x02-Temporalio.Api.Nexusservices.Streamservice.V1\xea\x02\x31Temporalio::Api::Nexusservices::Streamservice::V1b\x06proto3'
 )
 
 _CLOSESTATE = DESCRIPTOR.enum_types_by_name["CloseState"]
 CloseState = enum_type_wrapper.EnumTypeWrapper(_CLOSESTATE)
 _STREAMFAILURETYPE = DESCRIPTOR.enum_types_by_name["StreamFailureType"]
 StreamFailureType = enum_type_wrapper.EnumTypeWrapper(_STREAMFAILURETYPE)
+_WORKFLOWAPPENDMODE = DESCRIPTOR.enum_types_by_name["WorkflowAppendMode"]
+WorkflowAppendMode = enum_type_wrapper.EnumTypeWrapper(_WORKFLOWAPPENDMODE)
 CLOSE_STATE_UNSPECIFIED = 0
 CLOSE_STATE_COMPLETED = 1
 CLOSE_STATE_FAILED = 2
@@ -50,6 +52,10 @@ STREAM_FAILURE_TYPE_EPOCH_FENCED = 8
 STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK = 9
 STREAM_FAILURE_TYPE_SEQ_GAP = 10
 STREAM_FAILURE_TYPE_TOO_LARGE = 11
+STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH = 12
+WORKFLOW_APPEND_MODE_UNSPECIFIED = 0
+WORKFLOW_APPEND_MODE_SINK = 1
+WORKFLOW_APPEND_MODE_COMMIT = 2
 
 
 _STREAMREF = DESCRIPTOR.message_types_by_name["StreamRef"]
@@ -60,6 +66,9 @@ _PRODUCER = DESCRIPTOR.message_types_by_name["Producer"]
 _PRODUCERIDENTITY = DESCRIPTOR.message_types_by_name["ProducerIdentity"]
 _APPENDRECORD = DESCRIPTOR.message_types_by_name["AppendRecord"]
 _WORKFLOWTASKCOMMIT = DESCRIPTOR.message_types_by_name["WorkflowTaskCommit"]
+_STREAMCREATED = DESCRIPTOR.message_types_by_name["StreamCreated"]
+_WORKFLOWAPPENDMODEFIXED = DESCRIPTOR.message_types_by_name["WorkflowAppendModeFixed"]
+_COMMITMODEAPPEND = DESCRIPTOR.message_types_by_name["CommitModeAppend"]
 _RECORD = DESCRIPTOR.message_types_by_name["Record"]
 _STREAMCLOSE = DESCRIPTOR.message_types_by_name["StreamClose"]
 _APPENDREQUEST = DESCRIPTOR.message_types_by_name["AppendRequest"]
@@ -156,6 +165,39 @@ WorkflowTaskCommit = _reflection.GeneratedProtocolMessageType(
 )
 _sym_db.RegisterMessage(WorkflowTaskCommit)
 
+StreamCreated = _reflection.GeneratedProtocolMessageType(
+    "StreamCreated",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _STREAMCREATED,
+        "__module__": "temporalio.api.nexusservices.streamservice.v1.request_response_pb2",
+        # @@protoc_insertion_point(class_scope:temporal.api.nexusservices.streamservice.v1.StreamCreated)
+    },
+)
+_sym_db.RegisterMessage(StreamCreated)
+
+WorkflowAppendModeFixed = _reflection.GeneratedProtocolMessageType(
+    "WorkflowAppendModeFixed",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _WORKFLOWAPPENDMODEFIXED,
+        "__module__": "temporalio.api.nexusservices.streamservice.v1.request_response_pb2",
+        # @@protoc_insertion_point(class_scope:temporal.api.nexusservices.streamservice.v1.WorkflowAppendModeFixed)
+    },
+)
+_sym_db.RegisterMessage(WorkflowAppendModeFixed)
+
+CommitModeAppend = _reflection.GeneratedProtocolMessageType(
+    "CommitModeAppend",
+    (_message.Message,),
+    {
+        "DESCRIPTOR": _COMMITMODEAPPEND,
+        "__module__": "temporalio.api.nexusservices.streamservice.v1.request_response_pb2",
+        # @@protoc_insertion_point(class_scope:temporal.api.nexusservices.streamservice.v1.CommitModeAppend)
+    },
+)
+_sym_db.RegisterMessage(CommitModeAppend)
+
 Record = _reflection.GeneratedProtocolMessageType(
     "Record",
     (_message.Message,),
@@ -247,10 +289,12 @@ _sym_db.RegisterMessage(CloseResponse)
 if _descriptor._USE_C_DESCRIPTORS == False:
     DESCRIPTOR._options = None
     DESCRIPTOR._serialized_options = b"\n.io.temporal.api.nexusservices.streamservice.v1B\024RequestResponseProtoP\001Z?go.temporal.io/api/nexusservices/streamservice/v1;streamservice\252\002-Temporalio.Api.Nexusservices.Streamservice.V1\352\0021Temporalio::Api::Nexusservices::Streamservice::V1"
-    _CLOSESTATE._serialized_start = 2604
-    _CLOSESTATE._serialized_end = 2777
-    _STREAMFAILURETYPE._serialized_start = 2780
-    _STREAMFAILURETYPE._serialized_end = 3243
+    _CLOSESTATE._serialized_start = 3086
+    _CLOSESTATE._serialized_end = 3259
+    _STREAMFAILURETYPE._serialized_start = 3262
+    _STREAMFAILURETYPE._serialized_end = 3780
+    _WORKFLOWAPPENDMODE._serialized_start = 3782
+    _WORKFLOWAPPENDMODE._serialized_end = 3904
     _STREAMREF._serialized_start = 224
     _STREAMREF._serialized_end = 297
     _WORKFLOWTASKPRODUCER._serialized_start = 299
@@ -267,20 +311,26 @@ if _descriptor._USE_C_DESCRIPTORS == False:
     _APPENDRECORD._serialized_end = 1127
     _WORKFLOWTASKCOMMIT._serialized_start = 1129
     _WORKFLOWTASKCOMMIT._serialized_end = 1214
-    _RECORD._serialized_start = 1217
-    _RECORD._serialized_end = 1498
-    _STREAMCLOSE._serialized_start = 1501
-    _STREAMCLOSE._serialized_end = 1653
-    _APPENDREQUEST._serialized_start = 1656
-    _APPENDREQUEST._serialized_end = 1921
-    _APPENDRESPONSE._serialized_start = 1923
-    _APPENDRESPONSE._serialized_end = 1956
-    _READREQUEST._serialized_start = 1959
-    _READREQUEST._serialized_end = 2151
-    _READRESPONSE._serialized_start = 2154
-    _READRESPONSE._serialized_end = 2327
-    _CLOSEREQUEST._serialized_start = 2330
-    _CLOSEREQUEST._serialized_end = 2584
-    _CLOSERESPONSE._serialized_start = 2586
-    _CLOSERESPONSE._serialized_end = 2601
+    _STREAMCREATED._serialized_start = 1216
+    _STREAMCREATED._serialized_end = 1284
+    _WORKFLOWAPPENDMODEFIXED._serialized_start = 1287
+    _WORKFLOWAPPENDMODEFIXED._serialized_end = 1416
+    _COMMITMODEAPPEND._serialized_start = 1418
+    _COMMITMODEAPPEND._serialized_end = 1512
+    _RECORD._serialized_start = 1515
+    _RECORD._serialized_end = 1980
+    _STREAMCLOSE._serialized_start = 1983
+    _STREAMCLOSE._serialized_end = 2135
+    _APPENDREQUEST._serialized_start = 2138
+    _APPENDREQUEST._serialized_end = 2403
+    _APPENDRESPONSE._serialized_start = 2405
+    _APPENDRESPONSE._serialized_end = 2438
+    _READREQUEST._serialized_start = 2441
+    _READREQUEST._serialized_end = 2633
+    _READRESPONSE._serialized_start = 2636
+    _READRESPONSE._serialized_end = 2809
+    _CLOSEREQUEST._serialized_start = 2812
+    _CLOSEREQUEST._serialized_end = 3066
+    _CLOSERESPONSE._serialized_start = 3068
+    _CLOSERESPONSE._serialized_end = 3083
 # @@protoc_insertion_point(module_scope)

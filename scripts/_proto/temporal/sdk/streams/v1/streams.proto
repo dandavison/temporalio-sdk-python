@@ -5,6 +5,7 @@ syntax = "proto3";
 package temporal.sdk.streams.v1;
 
 import "google/protobuf/duration.proto";
+import "temporal/api/protocol/v1/message.proto";
 import "temporal/api/nexusservices/streamservice/v1/request_response.proto";
 
 // A stream owned by a workflow run chain. On Redis, appends and closes need first_run_id; a read
@@ -115,6 +116,9 @@ message WorkflowEnding {
 }
 
 message WorkflowActivationCompletedResponse {
+    // In commit mode, the records as protocol messages, which the worker sends in the activation's
+    // completion. The server appends them in the workflow task completion's transaction.
+    repeated temporal.api.protocol.v1.Message protocol_messages = 1;
 }
 
 // "WorkflowEvicted". Sent by the worker when a run is evicted. execution_ending is set when the
@@ -137,4 +141,9 @@ message RedisOptions {
 
 message NativeOptions {
     string namespace = 1;
+    // Workflows' own records travel in the workflow task completion and become visible when it
+    // commits, instead of being appended at the end of each activation. A run's first workflow
+    // append fixes its mode, so a worker whose setting differs from the one that fixed a run's mode
+    // fails that run's workflow tasks.
+    bool commit_mode = 2;
 }

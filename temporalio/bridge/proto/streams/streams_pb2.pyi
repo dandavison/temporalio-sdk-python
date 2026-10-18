@@ -15,6 +15,7 @@ import google.protobuf.internal.containers
 import google.protobuf.message
 
 import temporalio.api.nexusservices.streamservice.v1.request_response_pb2
+import temporalio.api.protocol.v1.message_pb2
 
 if sys.version_info >= (3, 8):
     import typing as typing_extensions
@@ -549,8 +550,29 @@ global___WorkflowEnding = WorkflowEnding
 class WorkflowActivationCompletedResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
+    PROTOCOL_MESSAGES_FIELD_NUMBER: builtins.int
+    @property
+    def protocol_messages(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        temporalio.api.protocol.v1.message_pb2.Message
+    ]:
+        """In commit mode, the records as protocol messages, which the worker sends in the activation's
+        completion. The server appends them in the workflow task completion's transaction.
+        """
     def __init__(
         self,
+        *,
+        protocol_messages: collections.abc.Iterable[
+            temporalio.api.protocol.v1.message_pb2.Message
+        ]
+        | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "protocol_messages", b"protocol_messages"
+        ],
     ) -> None: ...
 
 global___WorkflowActivationCompletedResponse = WorkflowActivationCompletedResponse
@@ -625,14 +647,25 @@ class NativeOptions(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     NAMESPACE_FIELD_NUMBER: builtins.int
+    COMMIT_MODE_FIELD_NUMBER: builtins.int
     namespace: builtins.str
+    commit_mode: builtins.bool
+    """Workflows' own records travel in the workflow task completion and become visible when it
+    commits, instead of being appended at the end of each activation. A run's first workflow
+    append fixes its mode, so a worker whose setting differs from the one that fixed a run's mode
+    fails that run's workflow tasks.
+    """
     def __init__(
         self,
         *,
         namespace: builtins.str = ...,
+        commit_mode: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing_extensions.Literal["namespace", b"namespace"]
+        self,
+        field_name: typing_extensions.Literal[
+            "commit_mode", b"commit_mode", "namespace", b"namespace"
+        ],
     ) -> None: ...
 
 global___NativeOptions = NativeOptions

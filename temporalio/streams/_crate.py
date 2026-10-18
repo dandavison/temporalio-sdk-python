@@ -8,6 +8,7 @@ from typing import TypeVar
 
 from google.protobuf.message import Message
 
+import temporalio.api.protocol.v1
 import temporalio.bridge.temporal_sdk_bridge
 from temporalio.api.nexusservices.streamservice.v1 import (
     AppendRecord as AppendRecordProto,
@@ -72,6 +73,7 @@ from temporalio.streams._errors import (
     StreamNotOwnerError,
     StreamTooLargeError,
     StreamUnavailableError,
+    WorkflowAppendModeMismatchError,
 )
 from temporalio.streams._record import (
     ActivityProducer,
@@ -80,6 +82,9 @@ from temporalio.streams._record import (
     Producer,
     ProducerIdentity,
     Record,
+    StreamCreated,
+    WorkflowAppendMode,
+    WorkflowAppendModeFixed,
     WorkflowProducer,
     WorkflowTaskCommit,
 )
@@ -97,6 +102,7 @@ _ERRORS: dict[str, type[StreamError]] = {
     "STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK": SpeculativeWorkflowTaskError,
     "STREAM_FAILURE_TYPE_SEQ_GAP": SeqGapError,
     "STREAM_FAILURE_TYPE_TOO_LARGE": StreamTooLargeError,
+    "STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH": WorkflowAppendModeMismatchError,
     "UNAVAILABLE": StreamUnavailableError,
 }
 
@@ -172,7 +178,7 @@ class CrateStreamBackend(StreamBackend):
 
     async def workflow_activation_completed(
         self, completed: WorkflowActivationCompleted
-    ) -> None:
+    ) -> Sequence[temporalio.api.protocol.v1.Message]:
         """See :py:meth:`StreamBackend.workflow_activation_completed`."""
         p = completed.producer
         req = WorkflowActivationCompletedRequest(
@@ -191,9 +197,10 @@ class CrateStreamBackend(StreamBackend):
                     retry_policy=e.retry_policy,
                 )
             )
-        await self._call(
+        resp = await self._call(
             "WorkflowActivationCompleted", req, WorkflowActivationCompletedResponse
         )
+        return list(resp.protocol_messages)
 
     async def workflow_evicted(self, run_id: str, *, execution_ending: bool) -> None:
         """See :py:meth:`StreamBackend.workflow_evicted`."""
@@ -258,6 +265,8 @@ def _workflow_producer(p: WorkflowProducer) -> WorkflowProducerProto:
 
 def _record(r: RecordProto) -> Record:
     commit = r.workflow_task_commit if r.HasField("workflow_task_commit") else None
+    created = r.stream_created if r.HasField("stream_created") else None
+    mode = r.workflow_append_mode if r.HasField("workflow_append_mode") else None
     return Record(
         cursor=r.cursor,
         producer=ProducerIdentity(
@@ -277,6 +286,18 @@ def _record(r: RecordProto) -> Record:
             attempt=commit.attempt,
         )
         if commit
+        else None,
+        stream_created=StreamCreated(
+            workflow_run_id=created.workflow_run_id,
+            next_workflow_task=created.next_workflow_task,
+        )
+        if created
+        else None,
+        workflow_append_mode=WorkflowAppendModeFixed(
+            workflow_run_id=mode.workflow_run_id,
+            mode=WorkflowAppendMode(mode.mode),
+        )
+        if mode
         else None,
     )
 

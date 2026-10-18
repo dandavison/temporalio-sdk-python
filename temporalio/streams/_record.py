@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 
 import temporalio.activity
 import temporalio.api.common.v1
@@ -82,10 +83,43 @@ class WorkflowTaskCommit:
 
 
 @dataclass(frozen=True)
+class StreamCreated:
+    """Written when an append creates a native stream.
+
+    The run's workflow tasks whose identity (``previous_started_event_id``) is lower than
+    ``next_workflow_task`` completed before the stream existed, so they have no commit record; a
+    reader treats a workflow or local activity record of such a task as committed.
+    """
+
+    workflow_run_id: str
+    next_workflow_task: int
+
+
+class WorkflowAppendMode(IntEnum):
+    """How a run's workflow appends to its stream. A run's first workflow append fixes it."""
+
+    SINK = 1
+    """The worker appends at the end of each activation, before sending its completion."""
+    COMMIT = 2
+    """The records travel in the workflow task completion. Native only."""
+
+
+@dataclass(frozen=True)
+class WorkflowAppendModeFixed:
+    """Records the append mode a run's first workflow append fixed. Only the native backend writes
+    it.
+    """
+
+    workflow_run_id: str
+    mode: WorkflowAppendMode
+
+
+@dataclass(frozen=True)
 class Record:
     """A stored record. ``cursor`` marks the boundary after it.
 
-    A record is data, a producer's finish, or, when ``workflow_task_commit`` is set, a commit marker.
+    A record is data, a producer's finish, or a marker: a workflow task commit, the stream's
+    creation, or a run's append mode.
     """
 
     cursor: bytes
@@ -94,3 +128,14 @@ class Record:
     payload: temporalio.api.common.v1.Payload | None
     finish: bool
     workflow_task_commit: WorkflowTaskCommit | None = None
+    stream_created: StreamCreated | None = None
+    workflow_append_mode: WorkflowAppendModeFixed | None = None
+
+    @property
+    def is_marker(self) -> bool:
+        """Whether this record is a marker rather than data or a finish."""
+        return (
+            self.workflow_task_commit is not None
+            or self.stream_created is not None
+            or self.workflow_append_mode is not None
+        )

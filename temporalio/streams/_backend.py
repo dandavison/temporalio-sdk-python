@@ -9,6 +9,7 @@ from datetime import timedelta
 from enum import IntEnum
 
 import temporalio.api.failure.v1
+import temporalio.api.protocol.v1
 from temporalio.streams._record import AppendRecord, Producer, Record, WorkflowProducer
 from temporalio.streams._ref import StreamRef
 
@@ -117,12 +118,14 @@ class StreamBackend(ABC):
     @abstractmethod
     async def workflow_activation_completed(
         self, completed: WorkflowActivationCompleted
-    ) -> None:
+    ) -> Sequence[temporalio.api.protocol.v1.Message]:
         """Append an activation's records. Called by the worker after each successful activation,
         before its completion is sent.
 
-        If the completion ends the run, a backend that the server cannot write to keeps the close
-        until :py:meth:`workflow_evicted` says the server accepted the completion.
+        In commit mode, returns the records as protocol messages instead, which the worker sends in
+        the activation's completion. If the completion ends the run, a backend that the server
+        cannot write to keeps the close until :py:meth:`workflow_evicted` says the server accepted
+        the completion.
         """
 
     @abstractmethod

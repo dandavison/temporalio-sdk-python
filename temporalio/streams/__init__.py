@@ -41,6 +41,7 @@ from temporalio.streams._errors import (
     StreamNotOwnerError,
     StreamTooLargeError,
     StreamUnavailableError,
+    WorkflowAppendModeMismatchError,
 )
 from temporalio.streams._handles import (
     StreamWriter,
@@ -52,6 +53,9 @@ from temporalio.streams._record import (
     Producer,
     ProducerIdentity,
     Record,
+    StreamCreated,
+    WorkflowAppendMode,
+    WorkflowAppendModeFixed,
     WorkflowProducer,
     WorkflowTaskCommit,
 )
@@ -63,6 +67,10 @@ from temporalio.streams._workflow import (
 )
 
 __all__ = [
+    "WorkflowAppendModeMismatchError",
+    "WorkflowAppendModeFixed",
+    "WorkflowAppendMode",
+    "StreamCreated",
     "WorkflowEnding",
     "WorkflowActivationCompleted",
     "StreamUnavailableError",

@@ -188,6 +188,12 @@ class _WorkflowTaskFailedCauseEnumTypeWrapper(
         _WorkflowTaskFailedCause.ValueType
     )  # 40
     """A workflow task failed because the request exceeded a size limit."""
+    WORKFLOW_TASK_FAILED_CAUSE_BAD_STREAM_APPEND: (
+        _WorkflowTaskFailedCause.ValueType
+    )  # 41
+    """A workflow task completion carried a stream append the server could not apply, such as a
+    commit-mode append from a run whose workflow appends are in sink mode.
+    """
 
 class WorkflowTaskFailedCause(
     _WorkflowTaskFailedCause, metaclass=_WorkflowTaskFailedCauseEnumTypeWrapper
@@ -346,6 +352,10 @@ WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_PAUSE_REQUESTED_BEFORE_TASK_STARTED: (
 """A workflow task is failed because the workflow is paused before the task is started."""
 WORKFLOW_TASK_FAILED_CAUSE_REQUEST_TOO_LARGE: WorkflowTaskFailedCause.ValueType  # 40
 """A workflow task failed because the request exceeded a size limit."""
+WORKFLOW_TASK_FAILED_CAUSE_BAD_STREAM_APPEND: WorkflowTaskFailedCause.ValueType  # 41
+"""A workflow task completion carried a stream append the server could not apply, such as a
+commit-mode append from a run whose workflow appends are in sink mode.
+"""
 global___WorkflowTaskFailedCause = WorkflowTaskFailedCause
 
 class _StartChildWorkflowExecutionFailedCause:

@@ -19,7 +19,9 @@ import pytest
 import pytest_asyncio
 
 from temporalio import activity, workflow
-from temporalio.client import Client
+from temporalio.api.enums.v1 import WorkflowTaskFailedCause
+from temporalio.api.history.v1 import WorkflowTaskFailedEventAttributes
+from temporalio.client import Client, WorkflowHandle
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.streams import (
@@ -29,6 +31,7 @@ from temporalio.streams import (
     StreamBackend,
     StreamRef,
     StreamWriter,
+    WorkflowAppendMode,
     decode,
     workflow_append,
 )
@@ -76,7 +79,7 @@ async def read_all(backend: StreamBackend, ref: StreamRef) -> list[Record]:
         resp = await backend.read(ref, after=cursor)
         if not resp.records:
             return records
-        records.extend(r for r in resp.records if r.workflow_task_commit is None)
+        records.extend(r for r in resp.records if not r.is_marker)
         cursor = resp.cursor
 
 
@@ -287,7 +290,7 @@ async def test_retried_activity_attempt_has_higher_epoch(
     assert records[1].producer.epoch > records[0].producer.epoch
 
 
-async def read_all_with_commits(backend: StreamBackend, ref: StreamRef) -> list[Record]:
+async def read_all_with_markers(backend: StreamBackend, ref: StreamRef) -> list[Record]:
     records: list[Record] = []
     cursor = None
     while True:
@@ -391,7 +394,9 @@ async def test_local_activity_appends_after_task_heartbeat(
     client: Client, backend: StreamBackend
 ):
     """The local activity outlives its workflow task, which the worker completes early to keep it
-    running, and appends after that.
+    running, and appends after that. Its append creates the stream, so on native its task has no
+    commit record, and the stream's creation record says the task completed before the stream
+    existed, which makes its records committed.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -410,12 +415,15 @@ async def test_local_activity_appends_after_task_heartbeat(
         await handle.result()
 
     ref = StreamRef.for_handle(handle)
-    records = await read_all_with_commits(backend, ref)
-    [late] = [r for r in records if r.workflow_task_commit is None]
+    records = await read_all_with_markers(backend, ref)
+    [late] = [r for r in records if not r.is_marker]
     assert await decode(late, str) == "late"
     assert late.producer.producer.startswith("local-activity/")
     if isinstance(backend, NativeStreamBackend):
-        assert commit_attempt(records, late) == late.producer.workflow_task_attempt
+        [created] = [r.stream_created for r in records if r.stream_created]
+        assert created.workflow_run_id == late.producer.workflow_run_id
+        assert late.producer.workflow_task < created.next_workflow_task
+        assert commit_attempt(records, late) is None
 
 
 failed_local_activity_task_attempts = 0
@@ -459,8 +467,8 @@ async def test_local_activity_of_failed_task_does_not_collide_with_rerun(
         )
         await handle.result()
 
-    records = await read_all_with_commits(backend, StreamRef.for_handle(handle))
-    failed, rerun = [r for r in records if r.workflow_task_commit is None]
+    records = await read_all_with_markers(backend, StreamRef.for_handle(handle))
+    failed, rerun = [r for r in records if not r.is_marker]
     assert failed.producer.producer == rerun.producer.producer
     assert failed.producer.workflow_task == rerun.producer.workflow_task
     assert rerun.producer.workflow_task_attempt > failed.producer.workflow_task_attempt
@@ -641,3 +649,117 @@ async def test_stream_closes_on_completion_with_workflow_cache_disabled(
     records = await read_all(backend, ref)
     end = await backend.read(ref, after=records[-1].cursor, wait=timedelta(seconds=5))
     assert end.close is not None and end.close.status == CloseStatus.COMPLETED
+
+
+@pytest_asyncio.fixture  # type: ignore[reportUntypedFunctionDecorator]
+async def commit_mode_backend(client: Client) -> StreamBackend:
+    return await NativeStreamBackend.connect(client, commit_mode=True)
+
+
+def append_modes(records: list[Record]) -> list[WorkflowAppendMode]:
+    return [r.workflow_append_mode.mode for r in records if r.workflow_append_mode]
+
+
+async def test_commit_mode_delivers_only_the_committed_task_attempt(
+    client: Client, commit_mode_backend: StreamBackend
+):
+    """The records of a failed workflow task attempt are never delivered. The records of every
+    activation of the attempt that commits, before and after a local activity resolves, are
+    delivered with its completion.
+    """
+    global failed_task_attempts
+    failed_task_attempts = 0
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[FailFirstTaskWorkflow],
+        activities=[noop],
+        stream_backend=commit_mode_backend,
+    ):
+        handle = await client.start_workflow(
+            FailFirstTaskWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await handle.result()
+
+    records = await read_all_with_markers(
+        commit_mode_backend, StreamRef.for_handle(handle)
+    )
+    data = [r for r in records if not r.is_marker]
+    assert await values(data) == ["before local activity", "after local activity"]
+    assert {r.producer.workflow_task_attempt for r in data} == {2}
+    assert commit_attempt(records, data[0]) == 2
+    assert append_modes(records) == [WorkflowAppendMode.COMMIT]
+
+
+async def test_commit_mode_records_are_visible_when_the_task_commits(
+    client: Client, commit_mode_backend: StreamBackend
+):
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[WaitForSignalWorkflow],
+        stream_backend=commit_mode_backend,
+    ):
+        handle = await client.start_workflow(
+            WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        ref = StreamRef.for_handle(handle)
+        first = await commit_mode_backend.read(ref, wait=timedelta(seconds=10))
+        assert await values([r for r in first.records if not r.is_marker]) == ["first"]
+        await handle.signal(WaitForSignalWorkflow.finish)
+        await handle.result()
+
+    records = await read_all(commit_mode_backend, ref)
+    assert await values(records) == ["first", "second"]
+    end = await commit_mode_backend.read(ref, after=records[-1].cursor)
+    assert end.close is not None and end.close.status == CloseStatus.COMPLETED
+
+
+async def test_workers_that_disagree_on_append_mode_fail_the_workflow_task(
+    client: Client, commit_mode_backend: StreamBackend
+):
+    """As in a rolling deploy: a sink-mode worker fixes the run's mode, and a commit-mode worker's
+    workflow task then fails, naming both modes.
+    """
+    backend = await NativeStreamBackend.connect(client)
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[WaitForSignalWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await backend.read(StreamRef.for_handle(handle), wait=timedelta(seconds=10))
+
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[WaitForSignalWorkflow],
+        stream_backend=commit_mode_backend,
+    ):
+        await handle.signal(WaitForSignalWorkflow.finish)
+        failure = await wait_for_workflow_task_failure(handle)
+        await handle.terminate()
+
+    assert (
+        failure.cause
+        == WorkflowTaskFailedCause.WORKFLOW_TASK_FAILED_CAUSE_BAD_STREAM_APPEND
+    )
+    assert "WORKFLOW_APPEND_MODE_SINK" in failure.failure.message
+    assert "WORKFLOW_APPEND_MODE_COMMIT" in failure.failure.message
+
+
+async def wait_for_workflow_task_failure(
+    handle: WorkflowHandle,
+) -> WorkflowTaskFailedEventAttributes:
+    for _ in range(100):
+        async for event in handle.fetch_history_events():
+            if event.HasField("workflow_task_failed_event_attributes"):
+                return event.workflow_task_failed_event_attributes
+        await asyncio.sleep(0.1)
+    raise AssertionError("no workflow task failed")

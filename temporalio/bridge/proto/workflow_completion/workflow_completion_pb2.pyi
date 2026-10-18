@@ -14,6 +14,7 @@ import google.protobuf.message
 import temporalio.api.enums.v1.failed_cause_pb2
 import temporalio.api.enums.v1.workflow_pb2
 import temporalio.api.failure.v1.message_pb2
+import temporalio.api.protocol.v1.message_pb2
 import temporalio.bridge.proto.common.common_pb2
 import temporalio.bridge.proto.workflow_commands.workflow_commands_pb2
 
@@ -111,6 +112,7 @@ class Success(google.protobuf.message.Message):
     COMMANDS_FIELD_NUMBER: builtins.int
     USED_INTERNAL_FLAGS_FIELD_NUMBER: builtins.int
     VERSIONING_BEHAVIOR_FIELD_NUMBER: builtins.int
+    PROTOCOL_MESSAGES_FIELD_NUMBER: builtins.int
     @property
     def commands(
         self,
@@ -127,6 +129,16 @@ class Success(google.protobuf.message.Message):
         temporalio.api.enums.v1.workflow_pb2.VersioningBehavior.ValueType
     )
     """The versioning behavior this workflow is currently using"""
+    @property
+    def protocol_messages(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        temporalio.api.protocol.v1.message_pb2.Message
+    ]:
+        """Protocol messages that lang sends in the workflow task completion. Core does not interpret
+        them. Messages from every activation of the workflow task are sent in its completion, and are
+        dropped if the task fails.
+        """
     def __init__(
         self,
         *,
@@ -136,12 +148,18 @@ class Success(google.protobuf.message.Message):
         | None = ...,
         used_internal_flags: collections.abc.Iterable[builtins.int] | None = ...,
         versioning_behavior: temporalio.api.enums.v1.workflow_pb2.VersioningBehavior.ValueType = ...,
+        protocol_messages: collections.abc.Iterable[
+            temporalio.api.protocol.v1.message_pb2.Message
+        ]
+        | None = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "commands",
             b"commands",
+            "protocol_messages",
+            b"protocol_messages",
             "used_internal_flags",
             b"used_internal_flags",
             "versioning_behavior",
