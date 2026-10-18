@@ -574,7 +574,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         )
         ref = temporalio.streams.StreamRef(workflow.workflow_id)
         if appends:
-            payloads = await data_converter.encode([p for _, p in appends])
+            payloads = await data_converter._encode_payload_sequence(
+                [p for _, p in appends]
+            )
             await self._stream_backend.append(
                 ref,
                 producer,

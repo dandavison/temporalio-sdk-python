@@ -96,14 +96,30 @@ class RecordInput:
 
 
 @dataclass(frozen=True)
+class WorkflowTaskCommit:
+    """Records which attempt of a workflow task committed.
+
+    Readers discard records of other attempts of that task. Only the native backend writes it.
+    """
+
+    producer: str
+    workflow_task: int
+    attempt: int
+
+
+@dataclass(frozen=True)
 class Record:
-    """A stored record. ``cursor`` marks the boundary after it."""
+    """A stored record. ``cursor`` marks the boundary after it.
+
+    A record is data, a producer's finish, or, when ``workflow_task_commit`` is set, a commit marker.
+    """
 
     cursor: bytes
     producer: ProducerIdentity
     topic: str
     payload: temporalio.api.common.v1.Payload | None
     finish: bool
+    workflow_task_commit: WorkflowTaskCommit | None = None
 
 
 class CloseStatus(IntEnum):
@@ -172,6 +188,10 @@ class SeqSupersededError(StreamError):
 
 class EpochFencedError(StreamError):
     """The epoch is lower than one already seen for this producer."""
+
+
+class SpeculativeWorkflowTaskError(StreamError):
+    """Appends from speculative workflow tasks are not supported."""
 
 
 class StreamBackend(ABC):
@@ -256,9 +276,7 @@ class StreamWriter:
 
     async def append(self, *values: Any, topic: str = "") -> Sequence[bytes]:
         """Convert and encode the values, and append them as one batch."""
-        payloads = await self._data_converter.encode(
-            [self._data_converter.payload_converter.to_payload(v) for v in values]
-        )
+        payloads = await self._data_converter.encode(values)
         cursors = await self._backend.append(
             self._ref,
             self._producer,
@@ -277,7 +295,7 @@ async def decode(
     """Decode and convert a data record's payload."""
     if record.payload is None:
         raise ValueError("record has no payload")
-    [payload] = await data_converter.decode([record.payload])
-    if type_hint is None:
-        return data_converter.payload_converter.from_payload(payload)
-    return data_converter.payload_converter.from_payload(payload, type_hint)
+    [value] = await data_converter.decode(
+        [record.payload], [type_hint] if type_hint else None
+    )
+    return value
