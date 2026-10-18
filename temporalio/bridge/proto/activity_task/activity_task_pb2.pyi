@@ -231,15 +231,20 @@ class Start(google.protobuf.message.Message):
     run_id: builtins.str
     """Run ID of this activity execution. Only set for standalone activities."""
     attempt_stamp: builtins.int
-    """Identifies this attempt among all attempts of the activity. Unlike `attempt`, it never goes
-    back, so it tells a superseded attempt from the current one. Zero for local activities.
+    """The activity's stamp when this attempt started, from the poll response. Unlike `attempt`, it
+    never goes back, so a superseded attempt never has a higher stamp than the current one. The
+    server increases it for a retry only if `system.enableActivityRetryStampIncrement` is enabled;
+    otherwise successive retries have the same stamp. Zero for local activities, and from a
+    server that does not send it.
     """
     @property
     def workflow_task(
         self,
     ) -> temporalio.bridge.proto.workflow_activation.workflow_activation_pb2.WorkflowTaskIdentity:
         """For a local activity: the workflow task it was scheduled in. Its stream producer epoch
-        includes this, so that a rerun of a failed workflow task does not collide with it.
+        includes this, so that a rerun of a failed workflow task does not collide with it. Retries of
+        the local activity keep it, also after a workflow task heartbeat has started a new task.
+        Unset for other activities.
         """
     def __init__(
         self,

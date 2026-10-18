@@ -1,7 +1,8 @@
 syntax = "proto3";
 
 // The requests and responses of the crate's entry point, `Streams::call`. An SDK sends each as
-// bytes, with the name of the call. Prototype.
+// bytes, with the name of the call. Prototype. sdk-python has a copy of this file, which must stay
+// identical.
 package temporal.sdk.streams.v1;
 
 import "google/protobuf/duration.proto";
@@ -11,7 +12,7 @@ import "temporal/api/nexusservices/streamservice/v1/request_response.proto";
 // A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
 // Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
 // activity_id is set. On Redis, appends and closes need the owner's run ID; a read without it reads
-// the owner ID's latest run.
+// the stream of the owner ID's run that most recently created one.
 message StreamRef {
     string workflow_id = 1;
     string first_run_id = 2;
@@ -24,7 +25,8 @@ message ClientProducer {
     int64 epoch = 2;
 }
 
-// An activity attempt. Its epoch is the stamp its attempt started with.
+// An activity attempt. Its epoch is the stamp its attempt started with. Native uses only
+// task_token, from which the server derives the rest; Redis uses only the other fields, as given.
 message ActivityProducer {
     bytes task_token = 1;
     // Empty for a standalone activity.
@@ -38,6 +40,7 @@ message ActivityProducer {
 // A workflow task attempt of a run.
 message WorkflowProducer {
     string run_id = 1;
+    // The workflow task's identity: the started event ID of the run's last completed workflow task.
     int64 previous_started_event_id = 2;
     int32 attempt = 3;
 }
@@ -64,6 +67,7 @@ message Producer {
 message AppendRequest {
     StreamRef stream = 1;
     Producer producer = 2;
+    // 0 for the producer's first append in an epoch, then one more than its latest.
     int64 seq = 3;
     repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 4;
     bool finish = 5;
@@ -74,10 +78,12 @@ message AppendResponse {
 }
 
 // "Close". Only the stream's owner closes the stream: a workflow task of the owning run (owner), or
-// an attempt of the owning Standalone Activity (activity_owner).
+// an attempt of the owning Standalone Activity (activity_owner). Exactly one is set. On Redis
+// nothing else closes an activity's stream when the activity ends.
 message CloseRequest {
     StreamRef stream = 1;
     WorkflowProducer owner = 2;
+    // The owner's next seq in its epoch: a close is an append of no records.
     int64 seq = 3;
     temporal.api.nexusservices.streamservice.v1.StreamClose close = 4;
     ActivityProducer activity_owner = 5;
@@ -93,13 +99,15 @@ message ReadRequest {
     bytes after = 2;
     repeated string topics = 3;
     int32 max_records = 4;
+    // Native caps it at 20 s; Redis does not cap it.
     google.protobuf.Duration wait = 5;
     int32 last = 6;
 }
 
 // "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
 // activation's completion is sent. Appends the activation's records, splitting them into appends
-// that fit the size limits.
+// that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
+// appends of the activation stay stored.
 message WorkflowActivationCompletedRequest {
     string workflow_id = 1;
     string run_id = 2;
@@ -140,8 +148,10 @@ message WorkflowEvictedResponse {
 
 message RedisOptions {
     string url = 1;
+    // Part of every key, so that namespaces sharing a Redis do not share streams. Not checked
+    // against the Temporal namespace.
     string namespace = 2;
-    // How long a stream's data is kept after its last write.
+    // How long a stream's data is kept after its last write; reads do not extend it. Required.
     google.protobuf.Duration retention = 3;
 }
 

@@ -159,8 +159,10 @@ class WorkflowActivation(google.protobuf.message.Message):
     """
     @property
     def workflow_task(self) -> global___WorkflowTaskIdentity:
-        """The workflow task this activation belongs to. Unset if there is no outstanding workflow task,
-        e.g. for an eviction.
+        """The outstanding workflow task when Core issued this activation, or unset if there is none
+        (possible for an eviction). An activation that replays History carries the outstanding task,
+        not the task being replayed. Core sends no activation for a task that has no jobs for lang,
+        such as one started by a workflow task heartbeat, so lang does not see every task.
         """
     def __init__(
         self,
@@ -230,7 +232,9 @@ global___WorkflowActivation = WorkflowActivation
 
 class WorkflowTaskIdentity(google.protobuf.message.Message):
     """Identifies a workflow task attempt. Every attempt of one task has the same
-    `previous_started_event_id`, and it increases with each completed task of the run.
+    `previous_started_event_id`, and it increases with each completed task of the run. It is not
+    unique: a speculative task (started for an Update) that the server discards leaves nothing in
+    History, so the next task can have the same identity and attempt.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor

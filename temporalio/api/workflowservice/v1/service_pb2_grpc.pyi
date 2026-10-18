@@ -1170,6 +1170,11 @@ class WorkflowServiceStub:
     The response follows the Nexus RPC spec semantics: synchronous completion, asynchronous start,
     or operation error.
     Handler errors (e.g., NOT_FOUND, BAD_REQUEST) are returned as gRPC errors.
+
+    (-- Prototype server support: disabled unless frontend.enableDirectNexusCalls is set for the
+        namespace. The server accepts only the System Nexus Endpoint and only operations that
+        complete synchronously, and rejects links. request_id is passed to the operation handler;
+        the server does not deduplicate requests by it. --)
     """
     CancelNexusOperation: grpc.UnaryUnaryMultiCallable[
         temporalio.api.workflowservice.v1.request_response_pb2.CancelNexusOperationRequest,
@@ -1178,6 +1183,9 @@ class WorkflowServiceStub:
     """CancelNexusOperation requests cancellation of a previously started asynchronous Nexus operation.
     Cancellation is cooperative: this forwards a cancel request to the handler, but the operation
     will only transition to canceled if the handler processes it.
+
+    (-- Prototype server support: returns Unimplemented, because the server supports only
+        synchronous direct Nexus calls. --)
     """
 
 class WorkflowServiceServicer(metaclass=abc.ABCMeta):
@@ -2600,6 +2608,11 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         The response follows the Nexus RPC spec semantics: synchronous completion, asynchronous start,
         or operation error.
         Handler errors (e.g., NOT_FOUND, BAD_REQUEST) are returned as gRPC errors.
+
+        (-- Prototype server support: disabled unless frontend.enableDirectNexusCalls is set for the
+            namespace. The server accepts only the System Nexus Endpoint and only operations that
+            complete synchronously, and rejects links. request_id is passed to the operation handler;
+            the server does not deduplicate requests by it. --)
         """
     @abc.abstractmethod
     def CancelNexusOperation(
@@ -2610,6 +2623,9 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         """CancelNexusOperation requests cancellation of a previously started asynchronous Nexus operation.
         Cancellation is cooperative: this forwards a cancel request to the handler, but the operation
         will only transition to canceled if the handler processes it.
+
+        (-- Prototype server support: returns Unimplemented, because the server supports only
+            synchronous direct Nexus calls. --)
         """
 
 def add_WorkflowServiceServicer_to_server(

@@ -2201,10 +2201,15 @@ class PollActivityTaskQueueResponse(google.protobuf.message.Message):
             according to the weights.
         """
     attempt_stamp: builtins.int
-    """Identifies this attempt among all attempts of the activity. It is 0 for the first attempt and
-    increases each time the server schedules another attempt, including after a reset, which sets
-    `attempt` back to 1. It never decreases, so a worker can use it to tell a superseded attempt
-    from the current one.
+    """The stamp this attempt started with. It is 0 for the first attempt and never decreases. Unlike
+    `attempt`, which a reset sets back to 1, it increases when the server schedules another
+    attempt after a reset, unpause or options reset. A standalone activity's retry also increases
+    it; a workflow activity's retry increases it only when the server is configured to. A reset
+    during an attempt does not change that attempt's stamp: a standalone activity applies the
+    reset when the attempt ends, and a workflow activity refuses the attempt's task token instead.
+    So attempts with different stamps are different attempts, but attempts with equal stamps may
+    not be the same one.
+    (-- The server setting is system.enableActivityRetryStampIncrement, default false. --)
     """
     def __init__(
         self,

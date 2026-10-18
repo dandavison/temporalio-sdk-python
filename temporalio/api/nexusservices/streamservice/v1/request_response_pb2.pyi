@@ -40,7 +40,11 @@ class _CloseStateEnumTypeWrapper(
     CLOSE_STATE_TERMINATED: _CloseState.ValueType  # 4
     CLOSE_STATE_TIMED_OUT: _CloseState.ValueType  # 5
 
-class CloseState(_CloseState, metaclass=_CloseStateEnumTypeWrapper): ...
+class CloseState(_CloseState, metaclass=_CloseStateEnumTypeWrapper):
+    """The state a stream closed with: the state its owner ended in, or the state an owner's Close
+    request gave. The server does not close a workflow's stream when the run continues as new, when a
+    cron run completes, or when a failed or timed-out run will be retried.
+    """
 
 CLOSE_STATE_UNSPECIFIED: CloseState.ValueType  # 0
 CLOSE_STATE_COMPLETED: CloseState.ValueType  # 1
@@ -63,18 +67,40 @@ class _StreamFailureTypeEnumTypeWrapper(
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     STREAM_FAILURE_TYPE_UNSPECIFIED: _StreamFailureType.ValueType  # 0
     STREAM_FAILURE_TYPE_CLOSED: _StreamFailureType.ValueType  # 1
+    """The stream is closed, so it takes no new appends. A retry of a producer's latest stored append
+    still succeeds.
+    """
     STREAM_FAILURE_TYPE_NOT_FOUND: _StreamFailureType.ValueType  # 2
+    """The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one.
+    A read from the beginning waits instead of failing this way.
+    """
     STREAM_FAILURE_TYPE_EXPIRED: _StreamFailureType.ValueType  # 3
+    """A read after a cursor whose owner, or whose run chain, no longer exists. The server does not
+    tell an owner removed by retention from one replaced by a new chain with the same ID.
+    """
     STREAM_FAILURE_TYPE_NOT_OWNER: _StreamFailureType.ValueType  # 4
+    """A close of an activity-owned stream by anything but the activity's own task token. A non-owner
+    close of a workflow-owned stream fails as EPOCH_FENCED instead.
+    """
     STREAM_FAILURE_TYPE_CURSOR_MISMATCH: _StreamFailureType.ValueType  # 5
-    """The cursor belongs to another stream."""
+    """The cursor belongs to another stream, or cannot be decoded. A cursor of an earlier run of the
+    same workflow chain is not detected; see StreamRef.
+    """
     STREAM_FAILURE_TYPE_SEQ_DIVERGENT: _StreamFailureType.ValueType  # 6
-    """The seq is already stored with different content."""
+    """The seq is the producer's latest in its epoch, but stored with different content."""
     STREAM_FAILURE_TYPE_SEQ_STALE: _StreamFailureType.ValueType  # 7
-    """The seq is lower than the producer's latest: a stale sequence."""
+    """The seq is lower than the producer's latest in its epoch: a stale sequence. This includes a
+    retry of an earlier append that was stored, since only the latest is deduplicated.
+    """
     STREAM_FAILURE_TYPE_EPOCH_FENCED: _StreamFailureType.ValueType  # 8
-    """The producer's epoch is lower than one already seen, or is not the current attempt."""
+    """The producer's epoch is lower than one already stored for it, or the server found that the
+    activity or workflow task attempt is not the current one. For a producer the server does not
+    check, a superseded epoch is fenced only once its successor has appended.
+    """
     STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: _StreamFailureType.ValueType  # 9
+    """A sink-style append from a speculative workflow task (Update). A discarded speculative task
+    leaves nothing behind, so the next task can repeat its identity and attempt.
+    """
     STREAM_FAILURE_TYPE_SEQ_GAP: _StreamFailureType.ValueType  # 10
     """The seq skips one: a new epoch must start at 0, and an epoch's next seq must follow its
     latest.
@@ -84,7 +110,10 @@ class _StreamFailureTypeEnumTypeWrapper(
     STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH: (
         _StreamFailureType.ValueType
     )  # 12
-    """A workflow append is in the other mode from the one its run fixed."""
+    """A sink-style workflow append to a stream whose run fixed commit mode. Commit-mode records
+    after the run fixed sink mode fail the workflow task instead, with an application failure of
+    type BAD_STREAM_APPEND. A run's workers must agree on the mode.
+    """
 
 class StreamFailureType(
     _StreamFailureType, metaclass=_StreamFailureTypeEnumTypeWrapper
@@ -93,18 +122,40 @@ class StreamFailureType(
 
 STREAM_FAILURE_TYPE_UNSPECIFIED: StreamFailureType.ValueType  # 0
 STREAM_FAILURE_TYPE_CLOSED: StreamFailureType.ValueType  # 1
+"""The stream is closed, so it takes no new appends. A retry of a producer's latest stored append
+still succeeds.
+"""
 STREAM_FAILURE_TYPE_NOT_FOUND: StreamFailureType.ValueType  # 2
+"""The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one.
+A read from the beginning waits instead of failing this way.
+"""
 STREAM_FAILURE_TYPE_EXPIRED: StreamFailureType.ValueType  # 3
+"""A read after a cursor whose owner, or whose run chain, no longer exists. The server does not
+tell an owner removed by retention from one replaced by a new chain with the same ID.
+"""
 STREAM_FAILURE_TYPE_NOT_OWNER: StreamFailureType.ValueType  # 4
+"""A close of an activity-owned stream by anything but the activity's own task token. A non-owner
+close of a workflow-owned stream fails as EPOCH_FENCED instead.
+"""
 STREAM_FAILURE_TYPE_CURSOR_MISMATCH: StreamFailureType.ValueType  # 5
-"""The cursor belongs to another stream."""
+"""The cursor belongs to another stream, or cannot be decoded. A cursor of an earlier run of the
+same workflow chain is not detected; see StreamRef.
+"""
 STREAM_FAILURE_TYPE_SEQ_DIVERGENT: StreamFailureType.ValueType  # 6
-"""The seq is already stored with different content."""
+"""The seq is the producer's latest in its epoch, but stored with different content."""
 STREAM_FAILURE_TYPE_SEQ_STALE: StreamFailureType.ValueType  # 7
-"""The seq is lower than the producer's latest: a stale sequence."""
+"""The seq is lower than the producer's latest in its epoch: a stale sequence. This includes a
+retry of an earlier append that was stored, since only the latest is deduplicated.
+"""
 STREAM_FAILURE_TYPE_EPOCH_FENCED: StreamFailureType.ValueType  # 8
-"""The producer's epoch is lower than one already seen, or is not the current attempt."""
+"""The producer's epoch is lower than one already stored for it, or the server found that the
+activity or workflow task attempt is not the current one. For a producer the server does not
+check, a superseded epoch is fenced only once its successor has appended.
+"""
 STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: StreamFailureType.ValueType  # 9
+"""A sink-style append from a speculative workflow task (Update). A discarded speculative task
+leaves nothing behind, so the next task can repeat its identity and attempt.
+"""
 STREAM_FAILURE_TYPE_SEQ_GAP: StreamFailureType.ValueType  # 10
 """The seq skips one: a new epoch must start at 0, and an epoch's next seq must follow its
 latest.
@@ -112,7 +163,10 @@ latest.
 STREAM_FAILURE_TYPE_TOO_LARGE: StreamFailureType.ValueType  # 11
 """A record, or the append as a whole, exceeds a size limit."""
 STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH: StreamFailureType.ValueType  # 12
-"""A workflow append is in the other mode from the one its run fixed."""
+"""A sink-style workflow append to a stream whose run fixed commit mode. Commit-mode records
+after the run fixed sink mode fail the workflow task instead, with an application failure of
+type BAD_STREAM_APPEND. A run's workers must agree on the mode.
+"""
 global___StreamFailureType = StreamFailureType
 
 class _WorkflowAppendMode:
@@ -129,40 +183,57 @@ class _WorkflowAppendModeEnumTypeWrapper(
     WORKFLOW_APPEND_MODE_UNSPECIFIED: _WorkflowAppendMode.ValueType  # 0
     WORKFLOW_APPEND_MODE_SINK: _WorkflowAppendMode.ValueType  # 1
     """The worker appends a workflow's records at the end of each activation, before the
-    activation's completion is sent.
+    activation's completion is sent. So a failed or timed-out task attempt may already have
+    delivered records; readers use the commit records to discard them.
     """
     WORKFLOW_APPEND_MODE_COMMIT: _WorkflowAppendMode.ValueType  # 2
-    """The records travel in the workflow task completion and are appended in its transaction.
-    Native only.
+    """The records travel in the workflow task completion and are appended in its transaction, so
+    records from a task attempt that does not complete are never delivered. Native only.
     """
 
 class WorkflowAppendMode(
     _WorkflowAppendMode, metaclass=_WorkflowAppendModeEnumTypeWrapper
 ):
-    """How a workflow appends to its own stream. Fixed per run at its first workflow append."""
+    """How a workflow appends to its own stream. Fixed per run at its first workflow append, and recorded
+    in a WorkflowAppendModeFixed record. A workflow's appends to another owner's stream have no mode.
+    """
 
 WORKFLOW_APPEND_MODE_UNSPECIFIED: WorkflowAppendMode.ValueType  # 0
 WORKFLOW_APPEND_MODE_SINK: WorkflowAppendMode.ValueType  # 1
 """The worker appends a workflow's records at the end of each activation, before the
-activation's completion is sent.
+activation's completion is sent. So a failed or timed-out task attempt may already have
+delivered records; readers use the commit records to discard them.
 """
 WORKFLOW_APPEND_MODE_COMMIT: WorkflowAppendMode.ValueType  # 2
-"""The records travel in the workflow task completion and are appended in its transaction.
-Native only.
+"""The records travel in the workflow task completion and are appended in its transaction, so
+records from a task attempt that does not complete are never delivered. Native only.
 """
 global___WorkflowAppendMode = WorkflowAppendMode
 
 class StreamRef(google.protobuf.message.Message):
     """(--
     Prototype. Operations of the "temporalio.api.nexusservices.streamservice.v1.StreamService" service on
-    the System Nexus Endpoint: "Append", "Read" and "Close". They operate on the stream owned by a
-    workflow run chain or a Standalone Activity execution. A failed operation returns an operation
-    failure whose ApplicationFailureInfo type is the name of a StreamFailureType value.
+    the System Nexus Endpoint: "Append", "Read" and "Close". Callers make them as synchronous direct
+    Nexus calls (StartNexusOperation), which the server accepts only when CHASM and
+    frontend.enableDirectNexusCalls are enabled. They operate on the stream owned by a workflow run
+    chain or a Standalone Activity execution. The server stores the stream embedded in its owner, so
+    the stream exists only while its owner does. A failed operation returns an operation failure whose
+    ApplicationFailureInfo type is the name of a StreamFailureType value; a malformed request fails
+    with a gRPC error instead.
+
+    Stream backends outside the server, such as Redis, use the same records, but the server checks
+    none of their producers. The comments below describe the server's stream.
     --)
 
     A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
     Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
-    activity_id is set.
+    activity_id is set; the server rejects a reference with neither or both. A workflow and an
+    activity with the same ID have different streams.
+
+    A workflow's stream is kept in the run that created it. It is not moved to the next run at
+    continue-as-new, retry or cron, so the next run starts with a new, empty stream, and the earlier
+    run's records can no longer be read. A cursor of the earlier run's stream is not rejected by the
+    new one: a read after it skips the new stream's records up to the cursor's offset.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -174,12 +245,16 @@ class StreamRef(google.protobuf.message.Message):
     ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     first_run_id: builtins.str
-    """Pins the run chain. Empty means the workflow ID's current chain."""
+    """Pins the run chain. Empty means the workflow ID's current chain. A pinned chain that is not
+    the current one fails as NOT_FOUND, without waiting.
+    """
     namespace: builtins.str
-    """The caller's namespace. The server sets it when empty."""
+    """The caller's namespace. The server sets it when empty, and rejects any other namespace."""
     activity_id: builtins.str
     activity_run_id: builtins.str
-    """Pins the activity execution. Empty means the activity ID's current execution."""
+    """Pins the activity execution. Empty means the activity ID's current execution. A read after a
+    cursor reads the cursor's execution.
+    """
     def __init__(
         self,
         *,
@@ -208,8 +283,11 @@ class StreamRef(google.protobuf.message.Message):
 global___StreamRef = StreamRef
 
 class WorkflowTaskProducer(google.protobuf.message.Message):
-    """A workflow task attempt appending sink-style. The server checks it against the run's current
-    workflow task.
+    """A workflow task attempt appending sink-style. On a stream owned by the same workflow, the server
+    checks that run_id is the current run and that a workflow task is started with this
+    previous_started_event_id and attempt; otherwise the append fails as EPOCH_FENCED, so another
+    workflow cannot append to it this way. An append from a speculative workflow task fails as
+    SPECULATIVE_WORKFLOW_TASK. On a stream owned by an activity the server checks none of this.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -219,7 +297,9 @@ class WorkflowTaskProducer(google.protobuf.message.Message):
     ATTEMPT_FIELD_NUMBER: builtins.int
     run_id: builtins.str
     previous_started_event_id: builtins.int
-    """The started event ID of the run's last completed workflow task."""
+    """The started event ID of the run's last completed workflow task. It identifies the current
+    workflow task, and is the same for all of its attempts.
+    """
     attempt: builtins.int
     """The attempt of the current workflow task."""
     def __init__(
@@ -246,7 +326,8 @@ global___WorkflowTaskProducer = WorkflowTaskProducer
 class LocalActivityProducer(google.protobuf.message.Message):
     """A local activity attempt. It runs inside a workflow task of its run, which may complete before the
     local activity does. The server cannot verify it, because Core, not the server, makes its task
-    token.
+    token: on a stream owned by the same workflow the server checks only that run_id is the current
+    run, and on a stream owned by an activity it checks nothing.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -293,7 +374,10 @@ class LocalActivityProducer(google.protobuf.message.Message):
 global___LocalActivityProducer = LocalActivityProducer
 
 class ClientProducer(google.protobuf.message.Message):
-    """A client appending under an identity and epoch that it chooses."""
+    """A client appending under an identity and epoch that it chooses. The server does not verify it: any
+    caller can append as any client ID, and an append at a higher epoch fences the ID's lower epochs.
+    The server keeps a client's dedupe and fencing state for the life of the stream.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -324,7 +408,19 @@ class Producer(google.protobuf.message.Message):
     def client(self) -> global___ClientProducer: ...
     activity_task_token: builtins.bytes
     """The task token of an activity attempt. The server derives the producer and its epoch,
-    the attempt stamp, from it.
+    the stamp the attempt started with, from it. On a workflow-owned stream the token must be
+    for the started attempt of an activity of the workflow's current run: a superseded
+    attempt fails as EPOCH_FENCED, and a token of another workflow or of a Standalone
+    Activity fails as an invalid argument. On an activity-owned stream the owning activity's
+    token must be for its current attempt; tokens of other activities are not checked. Task
+    tokens are not signed, so these checks fence superseded attempts but do not stop a caller
+    that builds a token. A token from a server that did not stamp tokens carries stamp 0,
+    which matches a first attempt.
+
+    A workflow activity's retry raises the stamp only when the server is configured to. If it
+    does not, the retry has the same epoch as the attempt before it, so its appends collide
+    with that attempt's seqs.
+    (-- The server setting is system.enableActivityRetryStampIncrement, default false. --)
     """
     @property
     def workflow_task(self) -> global___WorkflowTaskProducer: ...
@@ -381,12 +477,21 @@ global___Producer = Producer
 
 class ProducerIdentity(google.protobuf.message.Message):
     """The (producer, epoch, seq) stored with every record. A producer's epoch is (workflow_task,
-    workflow_task_attempt, epoch), compared in that order.
+    workflow_task_attempt, epoch), compared in that order, and seq orders its appends within an epoch.
+
+    producer is "client/<id>" for a client, "activity/<workflow run ID>/<activity ID>" for a workflow
+    activity, "activity/<run ID>" for a Standalone Activity, "workflow/<run ID>" for a workflow, and
+    "local-activity/<run ID>/<activity ID>" for a local activity. epoch is the client's epoch, the
+    activity attempt's stamp, the workflow task's attempt, or the local activity's attempt.
 
     The workflow fields are set only for workflow and local activity producers: the run, the workflow
-    task the record was appended in (the started event ID of the run's last completed workflow task),
-    and that task's attempt. A reader keeps such a record if the task's commit record names the same
-    attempt, and discards it if the commit record names another.
+    task the record was appended in (for a local activity, the task it started in) as the started
+    event ID of the run's last completed workflow task, and that task's attempt. On a stream owned by
+    the record's workflow, a reader treats such a record of task T as final if T's commit record names
+    the same attempt, withdrawn if it names another, final if T has no commit record and is lower than
+    the StreamCreated record's next_workflow_task, and provisional otherwise. A stream owned by an
+    activity has no commit records, so a reader cannot tell which of a workflow's records there come
+    from a failed task attempt.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -439,8 +544,12 @@ class AppendRecord(google.protobuf.message.Message):
     TOPIC_FIELD_NUMBER: builtins.int
     PAYLOAD_FIELD_NUMBER: builtins.int
     topic: builtins.str
+    """A label for filtering reads. It is not part of the payload, so a reader can filter without
+    decoding data.
+    """
     @property
-    def payload(self) -> temporalio.api.common.v1.message_pb2.Payload: ...
+    def payload(self) -> temporalio.api.common.v1.message_pb2.Payload:
+        """The payload as the producer encoded it, after its codec. The server does not decode it."""
     def __init__(
         self,
         *,
@@ -458,8 +567,10 @@ class AppendRecord(google.protobuf.message.Message):
 global___AppendRecord = AppendRecord
 
 class WorkflowTaskCommit(google.protobuf.message.Message):
-    """Records which attempt completed a workflow task. The server writes one for every workflow task of
-    a run whose workflow has a stream.
+    """Records which attempt completed a workflow task. The server writes one in the transaction that
+    completes each workflow task of a run whose workflow owns a stream, and none for a rejected
+    speculative task. A workflow task that completed before the stream existed has none; see
+    StreamCreated.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -492,9 +603,11 @@ class WorkflowTaskCommit(google.protobuf.message.Message):
 global___WorkflowTaskCommit = WorkflowTaskCommit
 
 class StreamCreated(google.protobuf.message.Message):
-    """Written when an append creates the stream. The run's workflow tasks whose identity
-    (previous_started_event_id) is lower than next_workflow_task completed before the stream existed,
-    so they have no commit record; readers treat their records as committed.
+    """The first record of a workflow-owned stream, written by the append that creates it. The run's
+    workflow tasks whose identity (previous_started_event_id) is lower than next_workflow_task
+    completed before the stream existed, so they have no commit record; readers treat their records as
+    committed. That is wrong in one case: a local activity started in a failed attempt of such a task,
+    and still running after the task's rerun, appends records that readers treat as committed.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -523,7 +636,9 @@ class StreamCreated(google.protobuf.message.Message):
 global___StreamCreated = StreamCreated
 
 class WorkflowAppendModeFixed(google.protobuf.message.Message):
-    """Written when a run's first workflow append fixes how the run's workflow appends."""
+    """Written when a run's first workflow append to its workflow's own stream fixes how the run's
+    workflow appends. The mode is fixed per run, at that append, not when the stream is created.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -548,8 +663,13 @@ global___WorkflowAppendModeFixed = WorkflowAppendModeFixed
 
 class CommitModeAppend(google.protobuf.message.Message):
     """The body of a protocol message in a workflow task completion: records the workflow appends to its
-    own stream in commit mode. The server appends them in the completion's transaction, with the
-    workflow task as their producer.
+    own stream in commit mode. The server appends them in the completion's transaction, before it
+    records the completion and before a terminal command closes the stream, with the workflow task as
+    their producer, so the task's commit record covers them. They are not written to History. A
+    message the server cannot apply fails the workflow task with cause
+    WORKFLOW_WORKER_UNHANDLED_FAILURE and an application failure of type BAD_STREAM_APPEND. Each
+    message is subject to an append's size limits, and all of a completion's messages are subject to
+    the size limit of the completion request.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -573,6 +693,11 @@ class CommitModeAppend(google.protobuf.message.Message):
 global___CommitModeAppend = CommitModeAppend
 
 class Record(google.protobuf.message.Message):
+    """A record of the stream: data, a producer's finish, or a marker written by the server. Markers
+    (workflow_task_commit, stream_created, workflow_append_mode) match every topic filter, so a
+    filtered reader can still judge which records to discard.
+    """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     CURSOR_FIELD_NUMBER: builtins.int
@@ -584,14 +709,16 @@ class Record(google.protobuf.message.Message):
     STREAM_CREATED_FIELD_NUMBER: builtins.int
     WORKFLOW_APPEND_MODE_FIELD_NUMBER: builtins.int
     cursor: builtins.bytes
-    """Marks the boundary after this record."""
+    """Marks the boundary after this record. Opaque, and valid only for this stream."""
     @property
     def producer(self) -> global___ProducerIdentity: ...
     topic: builtins.str
     @property
     def payload(self) -> temporalio.api.common.v1.message_pb2.Payload: ...
     finish: builtins.bool
-    """The producer will write no more."""
+    """The producer will write no more. The server does not enforce it. A finish record has no
+    topic, so a topic-filtered read does not return it.
+    """
     @property
     def workflow_task_commit(self) -> global___WorkflowTaskCommit:
         """Set when this record is a commit marker rather than data."""
@@ -653,6 +780,8 @@ class Record(google.protobuf.message.Message):
 global___Record = Record
 
 class StreamClose(google.protobuf.message.Message):
+    """How a stream was closed: a status, not a result. The owner's result is the owner's outcome."""
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     STATE_FIELD_NUMBER: builtins.int
@@ -660,8 +789,13 @@ class StreamClose(google.protobuf.message.Message):
     REASON_FIELD_NUMBER: builtins.int
     state: global___CloseState.ValueType
     @property
-    def failure(self) -> temporalio.api.failure.v1.message_pb2.Failure: ...
+    def failure(self) -> temporalio.api.failure.v1.message_pb2.Failure:
+        """The owner's failure. When the owner ends, the server sets it only for a failed workflow, not
+        for a failed Standalone Activity or another terminal state; readers learn those from the
+        owner.
+        """
     reason: builtins.str
+    """Set only by an owner's Close request."""
     def __init__(
         self,
         *,
@@ -683,8 +817,17 @@ global___StreamClose = StreamClose
 
 class AppendRequest(google.protobuf.message.Message):
     """Input of the "Append" operation. Appends the records as one atomic, contiguous batch. The first
-    append creates the stream. A retry of the producer's latest seq with the same content stores
-    nothing and returns the original cursors.
+    append creates the stream.
+
+    seq is 0 for a producer's first append in an epoch and one more than its latest after that, so a
+    producer must not have two appends in flight in one epoch. Only the latest seq is deduplicated: a
+    retry of it with the same content stores nothing and returns the original cursors, and a retry of
+    an earlier seq fails as SEQ_STALE. The content is compared by a hash of the records as sent. The
+    dedupe check comes before the close check, so a retry of a stored append succeeds after close.
+
+    An append has at most 1000 records, of at most 1 MiB each and 4 MiB in all, counting payloads but
+    not topics. An append to an owner that does not exist fails as NOT_FOUND; one to the stream of an
+    activity that has ended fails as CLOSED.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -706,7 +849,9 @@ class AppendRequest(google.protobuf.message.Message):
         global___AppendRecord
     ]: ...
     finish: builtins.bool
-    """Records that the producer will write no more. It does not close the stream."""
+    """Records that the producer will write no more. It does not close the stream, and the server
+    does not reject the producer's later appends.
+    """
     def __init__(
         self,
         *,
@@ -749,7 +894,8 @@ class AppendResponse(google.protobuf.message.Message):
         self,
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
         builtins.bytes
-    ]: ...
+    ]:
+        """One per record, in order. There is none for the finish record."""
     def __init__(
         self,
         *,
@@ -775,7 +921,10 @@ class ReadRequest(google.protobuf.message.Message):
     @property
     def stream(self) -> global___StreamRef: ...
     after: builtins.bytes
-    """Reads the records after this cursor. Empty means from the beginning.
+    """Reads the records after this cursor. Empty means from the beginning. A cursor of another
+    stream fails as CURSOR_MISMATCH. A read after a cursor whose owner or run chain no longer
+    exists fails as EXPIRED; a read from the beginning of a stream whose owner does not exist yet
+    waits, as for an empty stream.
     (-- api-linter: core::0140::prepositions=disabled
         aip.dev/not-precedent: a read starts AFTER(cursor), the boundary after the last record the reader has seen. --)
     """
@@ -783,13 +932,20 @@ class ReadRequest(google.protobuf.message.Message):
     def topics(
         self,
     ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
-        """Empty means all topics."""
+        """Empty means all topics. The server filters, so a filtered read waits only for matching
+        records.
+        """
     max_records: builtins.int
+    """Zero means 1000. Markers count towards it."""
     @property
     def wait(self) -> google.protobuf.duration_pb2.Duration:
-        """How long the read may wait for a matching record. The server caps it."""
+        """How long the read may wait for a matching record or the close. Zero returns at once. The
+        server caps it at 20 s; a reader that wants to wait longer reads again.
+        """
     last: builtins.int
-    """If positive, reads the last N matching records instead."""
+    """If positive, reads the last N matching records instead, ignoring the cursor's position and
+    wait. The response cursor is then the stream's end.
+    """
     def __init__(
         self,
         *,
@@ -837,10 +993,14 @@ class ReadResponse(google.protobuf.message.Message):
         global___Record
     ]: ...
     cursor: builtins.bytes
-    """Where the next read resumes, past records a topic filter skipped."""
+    """Where the next read resumes: after the last record this read passed, including records a
+    topic filter skipped. The request's cursor if the read passed none.
+    """
     @property
     def close(self) -> global___StreamClose:
-        """Set once the stream is closed and the reader has every record."""
+        """Set once the stream is closed and the reader has every record. A read of the last N records
+        sets it whenever the stream is closed.
+        """
     def __init__(
         self,
         *,
@@ -861,11 +1021,15 @@ class ReadResponse(google.protobuf.message.Message):
 global___ReadResponse = ReadResponse
 
 class CloseRequest(google.protobuf.message.Message):
-    """Input of the "Close" operation. Only the stream's owner, a workflow task of the owning workflow,
-    may close the stream.
-    Only the stream's owner closes it: for a workflow-owned stream, a workflow task attempt of the
-    run (owner); for an activity-owned stream, the activity's current attempt, by its task token
-    (activity_task_token).
+    """Input of the "Close" operation. Only the stream's owner may close the stream: for a
+    workflow-owned stream, an attempt of the owning run's current workflow task (owner), checked as
+    for a workflow task producer, so a close by anyone else fails as EPOCH_FENCED; for an
+    activity-owned stream, the activity's current attempt, by its task token (activity_task_token),
+    so a close by anyone else fails as NOT_OWNER. The server ignores the other owner field.
+
+    A close is an append of no records by the owner: seq is the owner's next seq in its epoch, and a
+    retry of a stored close succeeds. The server also closes a stream itself, in the transaction in
+    which the owner ends.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -881,7 +1045,8 @@ class CloseRequest(google.protobuf.message.Message):
     def owner(self) -> global___WorkflowTaskProducer: ...
     seq: builtins.int
     @property
-    def close(self) -> global___StreamClose: ...
+    def close(self) -> global___StreamClose:
+        """Its state must not be CLOSE_STATE_UNSPECIFIED."""
     activity_task_token: builtins.bytes
     def __init__(
         self,

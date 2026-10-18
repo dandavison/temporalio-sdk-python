@@ -135,9 +135,11 @@ class Success(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         temporalio.api.protocol.v1.message_pb2.Message
     ]:
-        """Protocol messages that lang sends in the workflow task completion. Core does not interpret
-        them. Messages from every activation of the workflow task are sent in its completion, and are
-        dropped if the task fails.
+        """Protocol messages that Core sends, as they are, in the completion of the current workflow
+        task. Core does not interpret them and adds no command for them. Messages from every
+        activation of the task go in its completion, including a completion that fails the workflow
+        because of nondeterminism. They are dropped if the task fails. Core queues them also while
+        replaying, so lang must not send them then.
         """
     def __init__(
         self,
