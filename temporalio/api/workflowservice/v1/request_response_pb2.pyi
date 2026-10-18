@@ -13649,3 +13649,266 @@ class PollWorkflowExecutionTimeSkippingResponse(google.protobuf.message.Message)
 global___PollWorkflowExecutionTimeSkippingResponse = (
     PollWorkflowExecutionTimeSkippingResponse
 )
+
+class StartNexusOperationRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NAMESPACE_FIELD_NUMBER: builtins.int
+    IDENTITY_FIELD_NUMBER: builtins.int
+    REQUEST_ID_FIELD_NUMBER: builtins.int
+    ENDPOINT_FIELD_NUMBER: builtins.int
+    SERVICE_FIELD_NUMBER: builtins.int
+    OPERATION_FIELD_NUMBER: builtins.int
+    INPUT_FIELD_NUMBER: builtins.int
+    LINKS_FIELD_NUMBER: builtins.int
+    namespace: builtins.str
+    """The namespace to authenticate to. This may be different from the target namespace of the specified endpoint."""
+    identity: builtins.str
+    """The identity of the client who initiated this request."""
+    request_id: builtins.str
+    """A unique identifier for this request, used as an idempotency key."""
+    endpoint: builtins.str
+    """Endpoint name, resolved via the Temporal service's endpoint registry."""
+    service: builtins.str
+    """Nexus service name."""
+    operation: builtins.str
+    """Nexus operation name."""
+    @property
+    def input(self) -> temporalio.api.common.v1.message_pb2.Payload:
+        """Serialized input to the operation."""
+    @property
+    def links(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        temporalio.api.common.v1.message_pb2.Link
+    ]:
+        """Links for associating the caller with the operation."""
+    def __init__(
+        self,
+        *,
+        namespace: builtins.str = ...,
+        identity: builtins.str = ...,
+        request_id: builtins.str = ...,
+        endpoint: builtins.str = ...,
+        service: builtins.str = ...,
+        operation: builtins.str = ...,
+        input: temporalio.api.common.v1.message_pb2.Payload | None = ...,
+        links: collections.abc.Iterable[temporalio.api.common.v1.message_pb2.Link]
+        | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["input", b"input"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "endpoint",
+            b"endpoint",
+            "identity",
+            b"identity",
+            "input",
+            b"input",
+            "links",
+            b"links",
+            "namespace",
+            b"namespace",
+            "operation",
+            b"operation",
+            "request_id",
+            b"request_id",
+            "service",
+            b"service",
+        ],
+    ) -> None: ...
+
+global___StartNexusOperationRequest = StartNexusOperationRequest
+
+class StartNexusOperationResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class SyncSuccess(google.protobuf.message.Message):
+        """An operation completed successfully and synchronously."""
+
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        PAYLOAD_FIELD_NUMBER: builtins.int
+        @property
+        def payload(self) -> temporalio.api.common.v1.message_pb2.Payload: ...
+        def __init__(
+            self,
+            *,
+            payload: temporalio.api.common.v1.message_pb2.Payload | None = ...,
+        ) -> None: ...
+        def HasField(
+            self, field_name: typing_extensions.Literal["payload", b"payload"]
+        ) -> builtins.bool: ...
+        def ClearField(
+            self, field_name: typing_extensions.Literal["payload", b"payload"]
+        ) -> None: ...
+
+    class AsyncSuccess(google.protobuf.message.Message):
+        """An operation was started asynchronously. The token can be used for cancellation."""
+
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        OPERATION_TOKEN_FIELD_NUMBER: builtins.int
+        operation_token: builtins.str
+        def __init__(
+            self,
+            *,
+            operation_token: builtins.str = ...,
+        ) -> None: ...
+        def ClearField(
+            self,
+            field_name: typing_extensions.Literal[
+                "operation_token", b"operation_token"
+            ],
+        ) -> None: ...
+
+    class OperationFailure(google.protobuf.message.Message):
+        """The operation completed unsuccessfully.
+        The operation is considered canceled if the failure has a CanceledFailureInfo object attached.
+        """
+
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        FAILURE_FIELD_NUMBER: builtins.int
+        @property
+        def failure(self) -> temporalio.api.failure.v1.message_pb2.Failure: ...
+        def __init__(
+            self,
+            *,
+            failure: temporalio.api.failure.v1.message_pb2.Failure | None = ...,
+        ) -> None: ...
+        def HasField(
+            self, field_name: typing_extensions.Literal["failure", b"failure"]
+        ) -> builtins.bool: ...
+        def ClearField(
+            self, field_name: typing_extensions.Literal["failure", b"failure"]
+        ) -> None: ...
+
+    SYNC_SUCCESS_FIELD_NUMBER: builtins.int
+    ASYNC_SUCCESS_FIELD_NUMBER: builtins.int
+    OPERATION_FAILURE_FIELD_NUMBER: builtins.int
+    LINKS_FIELD_NUMBER: builtins.int
+    @property
+    def sync_success(self) -> global___StartNexusOperationResponse.SyncSuccess: ...
+    @property
+    def async_success(self) -> global___StartNexusOperationResponse.AsyncSuccess: ...
+    @property
+    def operation_failure(
+        self,
+    ) -> global___StartNexusOperationResponse.OperationFailure: ...
+    @property
+    def links(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        temporalio.api.nexus.v1.message_pb2.Link
+    ]:
+        """Links associated with the operation, as returned by the handler."""
+    def __init__(
+        self,
+        *,
+        sync_success: global___StartNexusOperationResponse.SyncSuccess | None = ...,
+        async_success: global___StartNexusOperationResponse.AsyncSuccess | None = ...,
+        operation_failure: global___StartNexusOperationResponse.OperationFailure
+        | None = ...,
+        links: collections.abc.Iterable[temporalio.api.nexus.v1.message_pb2.Link]
+        | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "async_success",
+            b"async_success",
+            "operation_failure",
+            b"operation_failure",
+            "sync_success",
+            b"sync_success",
+            "variant",
+            b"variant",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "async_success",
+            b"async_success",
+            "links",
+            b"links",
+            "operation_failure",
+            b"operation_failure",
+            "sync_success",
+            b"sync_success",
+            "variant",
+            b"variant",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing_extensions.Literal["variant", b"variant"]
+    ) -> (
+        typing_extensions.Literal["sync_success", "async_success", "operation_failure"]
+        | None
+    ): ...
+
+global___StartNexusOperationResponse = StartNexusOperationResponse
+
+class CancelNexusOperationRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NAMESPACE_FIELD_NUMBER: builtins.int
+    IDENTITY_FIELD_NUMBER: builtins.int
+    ENDPOINT_FIELD_NUMBER: builtins.int
+    SERVICE_FIELD_NUMBER: builtins.int
+    OPERATION_FIELD_NUMBER: builtins.int
+    OPERATION_TOKEN_FIELD_NUMBER: builtins.int
+    namespace: builtins.str
+    """The namespace to authenticate to. This may be different from the target namespace of the specified endpoint."""
+    identity: builtins.str
+    """The identity of the client who initiated this request."""
+    endpoint: builtins.str
+    """Endpoint name, resolved via the Temporal service's endpoint registry."""
+    service: builtins.str
+    """Nexus service name."""
+    operation: builtins.str
+    """Nexus operation name."""
+    operation_token: builtins.str
+    """Operation token from StartNexusOperationResponse.AsyncSuccess."""
+    def __init__(
+        self,
+        *,
+        namespace: builtins.str = ...,
+        identity: builtins.str = ...,
+        endpoint: builtins.str = ...,
+        service: builtins.str = ...,
+        operation: builtins.str = ...,
+        operation_token: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "endpoint",
+            b"endpoint",
+            "identity",
+            b"identity",
+            "namespace",
+            b"namespace",
+            "operation",
+            b"operation",
+            "operation_token",
+            b"operation_token",
+            "service",
+            b"service",
+        ],
+    ) -> None: ...
+
+global___CancelNexusOperationRequest = CancelNexusOperationRequest
+
+class CancelNexusOperationResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___CancelNexusOperationResponse = CancelNexusOperationResponse

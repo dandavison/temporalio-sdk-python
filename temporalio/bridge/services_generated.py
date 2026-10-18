@@ -27,6 +27,24 @@ class WorkflowService:
         self._client = client
         self._service = "workflow"
 
+    async def cancel_nexus_operation(
+        self,
+        req: temporalio.api.workflowservice.v1.CancelNexusOperationRequest,
+        retry: bool = False,
+        metadata: Mapping[str, str | bytes] = {},
+        timeout: timedelta | None = None,
+    ) -> temporalio.api.workflowservice.v1.CancelNexusOperationResponse:
+        """Invokes the WorkflowService.cancel_nexus_operation rpc method."""
+        return await self._client._rpc_call(
+            rpc="cancel_nexus_operation",
+            req=req,
+            service=self._service,
+            resp_type=temporalio.api.workflowservice.v1.CancelNexusOperationResponse,
+            retry=retry,
+            metadata=metadata,
+            timeout=timeout,
+        )
+
     async def count_activity_executions(
         self,
         req: temporalio.api.workflowservice.v1.CountActivityExecutionsRequest,
@@ -1822,6 +1840,24 @@ class WorkflowService:
             req=req,
             service=self._service,
             resp_type=temporalio.api.workflowservice.v1.StartBatchOperationResponse,
+            retry=retry,
+            metadata=metadata,
+            timeout=timeout,
+        )
+
+    async def start_nexus_operation(
+        self,
+        req: temporalio.api.workflowservice.v1.StartNexusOperationRequest,
+        retry: bool = False,
+        metadata: Mapping[str, str | bytes] = {},
+        timeout: timedelta | None = None,
+    ) -> temporalio.api.workflowservice.v1.StartNexusOperationResponse:
+        """Invokes the WorkflowService.start_nexus_operation rpc method."""
+        return await self._client._rpc_call(
+            rpc="start_nexus_operation",
+            req=req,
+            service=self._service,
+            resp_type=temporalio.api.workflowservice.v1.StartNexusOperationResponse,
             retry=retry,
             metadata=metadata,
             timeout=timeout,

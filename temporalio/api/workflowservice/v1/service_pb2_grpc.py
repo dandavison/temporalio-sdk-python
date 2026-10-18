@@ -643,6 +643,16 @@ class WorkflowServiceStub(object):
             request_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingRequest.SerializeToString,
             response_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingResponse.FromString,
         )
+        self.StartNexusOperation = channel.unary_unary(
+            "/temporal.api.workflowservice.v1.WorkflowService/StartNexusOperation",
+            request_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationRequest.SerializeToString,
+            response_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationResponse.FromString,
+        )
+        self.CancelNexusOperation = channel.unary_unary(
+            "/temporal.api.workflowservice.v1.WorkflowService/CancelNexusOperation",
+            request_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationRequest.SerializeToString,
+            response_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationResponse.FromString,
+        )
 
 
 class WorkflowServiceServicer(object):
@@ -1920,6 +1930,26 @@ class WorkflowServiceServicer(object):
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def StartNexusOperation(self, request, context):
+        """StartNexusOperation starts a Nexus operation on an endpoint, communicating directly with the
+        endpoint using the caller's namespace credentials.
+        The response follows the Nexus RPC spec semantics: synchronous completion, asynchronous start,
+        or operation error.
+        Handler errors (e.g., NOT_FOUND, BAD_REQUEST) are returned as gRPC errors.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def CancelNexusOperation(self, request, context):
+        """CancelNexusOperation requests cancellation of a previously started asynchronous Nexus operation.
+        Cancellation is cooperative: this forwards a cancel request to the handler, but the operation
+        will only transition to canceled if the handler processes it.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_WorkflowServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -2537,6 +2567,16 @@ def add_WorkflowServiceServicer_to_server(servicer, server):
             servicer.PollWorkflowExecutionTimeSkipping,
             request_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingRequest.FromString,
             response_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingResponse.SerializeToString,
+        ),
+        "StartNexusOperation": grpc.unary_unary_rpc_method_handler(
+            servicer.StartNexusOperation,
+            request_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationRequest.FromString,
+            response_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationResponse.SerializeToString,
+        ),
+        "CancelNexusOperation": grpc.unary_unary_rpc_method_handler(
+            servicer.CancelNexusOperation,
+            request_deserializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationRequest.FromString,
+            response_serializer=temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -6117,6 +6157,64 @@ class WorkflowService(object):
             "/temporal.api.workflowservice.v1.WorkflowService/PollWorkflowExecutionTimeSkipping",
             temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingRequest.SerializeToString,
             temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.PollWorkflowExecutionTimeSkippingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def StartNexusOperation(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/temporal.api.workflowservice.v1.WorkflowService/StartNexusOperation",
+            temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationRequest.SerializeToString,
+            temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.StartNexusOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+        )
+
+    @staticmethod
+    def CancelNexusOperation(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/temporal.api.workflowservice.v1.WorkflowService/CancelNexusOperation",
+            temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationRequest.SerializeToString,
+            temporal_dot_api_dot_workflowservice_dot_v1_dot_request__response__pb2.CancelNexusOperationResponse.FromString,
             options,
             channel_credentials,
             insecure,

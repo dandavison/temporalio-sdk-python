@@ -1161,6 +1161,24 @@ class WorkflowServiceStub:
         temporalio.api.workflowservice.v1.request_response_pb2.PollWorkflowExecutionTimeSkippingRequest,
         temporalio.api.workflowservice.v1.request_response_pb2.PollWorkflowExecutionTimeSkippingResponse,
     ]
+    StartNexusOperation: grpc.UnaryUnaryMultiCallable[
+        temporalio.api.workflowservice.v1.request_response_pb2.StartNexusOperationRequest,
+        temporalio.api.workflowservice.v1.request_response_pb2.StartNexusOperationResponse,
+    ]
+    """StartNexusOperation starts a Nexus operation on an endpoint, communicating directly with the
+    endpoint using the caller's namespace credentials.
+    The response follows the Nexus RPC spec semantics: synchronous completion, asynchronous start,
+    or operation error.
+    Handler errors (e.g., NOT_FOUND, BAD_REQUEST) are returned as gRPC errors.
+    """
+    CancelNexusOperation: grpc.UnaryUnaryMultiCallable[
+        temporalio.api.workflowservice.v1.request_response_pb2.CancelNexusOperationRequest,
+        temporalio.api.workflowservice.v1.request_response_pb2.CancelNexusOperationResponse,
+    ]
+    """CancelNexusOperation requests cancellation of a previously started asynchronous Nexus operation.
+    Cancellation is cooperative: this forwards a cancel request to the handler, but the operation
+    will only transition to canceled if the handler processes it.
+    """
 
 class WorkflowServiceServicer(metaclass=abc.ABCMeta):
     """WorkflowService API defines how Temporal SDKs and other clients interact with the Temporal server
@@ -2571,6 +2589,28 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         request: temporalio.api.workflowservice.v1.request_response_pb2.PollWorkflowExecutionTimeSkippingRequest,
         context: grpc.ServicerContext,
     ) -> temporalio.api.workflowservice.v1.request_response_pb2.PollWorkflowExecutionTimeSkippingResponse: ...
+    @abc.abstractmethod
+    def StartNexusOperation(
+        self,
+        request: temporalio.api.workflowservice.v1.request_response_pb2.StartNexusOperationRequest,
+        context: grpc.ServicerContext,
+    ) -> temporalio.api.workflowservice.v1.request_response_pb2.StartNexusOperationResponse:
+        """StartNexusOperation starts a Nexus operation on an endpoint, communicating directly with the
+        endpoint using the caller's namespace credentials.
+        The response follows the Nexus RPC spec semantics: synchronous completion, asynchronous start,
+        or operation error.
+        Handler errors (e.g., NOT_FOUND, BAD_REQUEST) are returned as gRPC errors.
+        """
+    @abc.abstractmethod
+    def CancelNexusOperation(
+        self,
+        request: temporalio.api.workflowservice.v1.request_response_pb2.CancelNexusOperationRequest,
+        context: grpc.ServicerContext,
+    ) -> temporalio.api.workflowservice.v1.request_response_pb2.CancelNexusOperationResponse:
+        """CancelNexusOperation requests cancellation of a previously started asynchronous Nexus operation.
+        Cancellation is cooperative: this forwards a cancel request to the handler, but the operation
+        will only transition to canceled if the handler processes it.
+        """
 
 def add_WorkflowServiceServicer_to_server(
     servicer: WorkflowServiceServicer, server: grpc.Server

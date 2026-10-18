@@ -20,6 +20,15 @@ impl ClientRef {
         let mut connection = self.connection.clone();
         self.runtime.future_into_py(py, async move {
             let bytes = match call.rpc.as_str() {
+                "cancel_nexus_operation" => {
+                    rpc_call!(
+                        connection,
+                        call,
+                        WorkflowService,
+                        workflow_service,
+                        cancel_nexus_operation
+                    )
+                }
                 "count_activity_executions" => {
                     rpc_call!(
                         connection,
@@ -918,6 +927,15 @@ impl ClientRef {
                         WorkflowService,
                         workflow_service,
                         start_batch_operation
+                    )
+                }
+                "start_nexus_operation" => {
+                    rpc_call!(
+                        connection,
+                        call,
+                        WorkflowService,
+                        workflow_service,
+                        start_nexus_operation
                     )
                 }
                 "start_nexus_operation_execution" => {

@@ -1,4 +1,6 @@
 from .request_response_pb2 import (
+    CancelNexusOperationRequest,
+    CancelNexusOperationResponse,
     CountActivityExecutionsRequest,
     CountActivityExecutionsResponse,
     CountNexusOperationExecutionsRequest,
@@ -201,6 +203,8 @@ from .request_response_pb2 import (
     StartBatchOperationResponse,
     StartNexusOperationExecutionRequest,
     StartNexusOperationExecutionResponse,
+    StartNexusOperationRequest,
+    StartNexusOperationResponse,
     StartWorkflowExecutionRequest,
     StartWorkflowExecutionResponse,
     StopBatchOperationRequest,
@@ -248,6 +252,8 @@ from .request_response_pb2 import (
 )
 
 __all__ = [
+    "CancelNexusOperationRequest",
+    "CancelNexusOperationResponse",
     "CountActivityExecutionsRequest",
     "CountActivityExecutionsResponse",
     "CountNexusOperationExecutionsRequest",
@@ -450,6 +456,8 @@ __all__ = [
     "StartBatchOperationResponse",
     "StartNexusOperationExecutionRequest",
     "StartNexusOperationExecutionResponse",
+    "StartNexusOperationRequest",
+    "StartNexusOperationResponse",
     "StartWorkflowExecutionRequest",
     "StartWorkflowExecutionResponse",
     "StopBatchOperationRequest",
