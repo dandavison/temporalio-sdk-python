@@ -618,3 +618,26 @@ async def test_activation_of_more_records_than_one_append_holds(
 
     records = await read_all(backend, StreamRef.for_handle(handle))
     assert [await decode(r, int) for r in records] == list(range(2500))
+
+
+async def test_stream_closes_on_completion_with_workflow_cache_disabled(
+    client: Client, backend: StreamBackend
+):
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[WaitForSignalWorkflow],
+        stream_backend=backend,
+        max_cached_workflows=0,
+    ):
+        handle = await client.start_workflow(
+            WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await handle.signal(WaitForSignalWorkflow.finish)
+        await handle.result()
+
+    ref = StreamRef.for_handle(handle)
+    records = await read_all(backend, ref)
+    end = await backend.read(ref, after=records[-1].cursor, wait=timedelta(seconds=5))
+    assert end.close is not None and end.close.status == CloseStatus.COMPLETED
