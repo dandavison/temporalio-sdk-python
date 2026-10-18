@@ -1,7 +1,8 @@
-"""End-to-end tests of workflow-owned streams stored in Redis.
+"""End-to-end tests of workflow-owned streams, against each stream backend.
 
-These need redis-server on PATH, and a server that sends activity attempt stamps with retry stamps
-enabled, such as the prototype's dev-server: pass ``--workflow-environment localhost:7233``.
+These need redis-server on PATH, and the prototype's server with retry stamps and direct Nexus
+calls enabled, as the superproject's dev-server runs it: pass ``--workflow-environment
+localhost:7233``.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from temporalio.streams import (
     ClientProducer,
     CloseStatus,
     Record,
+    StreamBackend,
     StreamRef,
     StreamWriter,
     decode,
@@ -57,28 +59,43 @@ async def redis_client() -> AsyncIterator[redis.asyncio.Redis]:
         server.wait()
 
 
-@pytest.fixture
-def backend(redis_client: redis.asyncio.Redis, client: Client) -> RedisStreamBackend:
-    return RedisStreamBackend(redis_client, client.namespace)
+@pytest.fixture(params=["redis", "native"])
+def backend(request: pytest.FixtureRequest, client: Client) -> StreamBackend:
+    if request.param == "redis":
+        return RedisStreamBackend(
+            request.getfixturevalue("redis_client"), client.namespace
+        )
+    from temporalio.streams.native import NativeStreamBackend
+
+    return NativeStreamBackend(client)
 
 
-async def read_all(backend: RedisStreamBackend, ref: StreamRef) -> list[Record]:
+async def read_all(backend: StreamBackend, ref: StreamRef) -> list[Record]:
+    """Read every data record, omitting workflow task commit markers, which only native writes."""
     records: list[Record] = []
     cursor = None
     while True:
         resp = await backend.read(ref, after=cursor)
         if not resp.records:
             return records
-        records.extend(resp.records)
+        records.extend(r for r in resp.records if r.workflow_task_commit is None)
         cursor = resp.cursor
+
+
+async def start_owner(client: Client) -> StreamRef:
+    """Start a workflow, with no worker, to own a stream."""
+    handle = await client.start_workflow(
+        "StreamOwner", id=f"wf-{uuid.uuid4()}", task_queue=f"tq-{uuid.uuid4()}"
+    )
+    return StreamRef(handle.id)
 
 
 async def values(records: list[Record]) -> list[str]:
     return [await decode(r, str) for r in records if r.payload is not None]
 
 
-async def test_client_append_and_read(backend: RedisStreamBackend):
-    ref = StreamRef(f"wf-{uuid.uuid4()}")
+async def test_client_append_and_read(client: Client, backend: StreamBackend):
+    ref = await start_owner(client)
     writer = StreamWriter(backend, ref, ClientProducer("restaurant", 1))
     await writer.append("accepted", topic="stage")
     cursors = await writer.append("ready", "picked up", topic="stage")
@@ -86,6 +103,9 @@ async def test_client_append_and_read(backend: RedisStreamBackend):
 
     records = await read_all(backend, ref)
     assert await values(records) == ["accepted", "ready", "picked up"]
+    assert all(
+        r.payload and r.payload.metadata["encoding"] == b"json/plain" for r in records
+    )
     assert [r.producer.seq for r in records] == [0, 1, 1]
     resumed = await backend.read(ref, after=records[0].cursor)
     assert await values(list(resumed.records)) == ["ready", "picked up"]
@@ -108,7 +128,7 @@ class WaitForSignalWorkflow:
 
 
 async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_completion(
-    client: Client, backend: RedisStreamBackend
+    client: Client, backend: StreamBackend
 ):
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -130,6 +150,9 @@ async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_comp
 
     records = await read_all(backend, ref)
     assert await values(records) == ["first", "second"]
+    assert all(
+        r.payload and r.payload.metadata["encoding"] == b"json/plain" for r in records
+    )
     producer = records[0].producer
     assert producer.producer == records[1].producer.producer
     assert records[1].producer.workflow_task > producer.workflow_task
@@ -138,7 +161,7 @@ async def test_workflow_append_is_visible_while_workflow_runs_and_closes_on_comp
 
 
 async def test_workflow_append_is_not_repeated_on_replay(
-    client: Client, backend: RedisStreamBackend
+    client: Client, backend: StreamBackend
 ):
     task_queue = f"tq-{uuid.uuid4()}"
     # With no cache, every workflow task replays the workflow from the start.
@@ -188,8 +211,10 @@ class FailFirstTaskWorkflow:
 
 
 async def test_failed_workflow_task_records_carry_lower_epoch(
-    client: Client, backend: RedisStreamBackend
+    client: Client, backend: StreamBackend
 ):
+    global failed_task_attempts
+    failed_task_attempts = 0
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
         client,
@@ -216,7 +241,7 @@ async def test_failed_workflow_task_records_carry_lower_epoch(
 
 
 class StreamActivities:
-    def __init__(self, backend: RedisStreamBackend) -> None:
+    def __init__(self, backend: StreamBackend) -> None:
         self._backend = backend
 
     @activity.defn
@@ -244,7 +269,7 @@ class RunActivityWorkflow:
 
 
 async def test_retried_activity_attempt_has_higher_epoch(
-    client: Client, backend: RedisStreamBackend
+    client: Client, backend: StreamBackend
 ):
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
