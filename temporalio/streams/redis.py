@@ -22,10 +22,11 @@ Properties weaker than Temporal-native streams, all because Redis cannot see the
 * Appends from speculative workflow tasks are stored: neither the worker nor Core can tell that a
   task is speculative.
 * The owner's worker writes a workflow's close, and only after Core reports that the server
-  accepted the run's terminal completion. It writes none for a completed cron run or a failed run
-  with a retry policy, since the chain may continue. A stream is left open, until its retention
-  passes, when its workflow is terminated or times out, when a failed run with a retry policy is
-  not retried, or when the worker stops before writing the close.
+  accepted the run's terminal completion. It writes none for a cron run that completes or fails,
+  or for a failed run with a retry policy, since the chain may continue. A stream is left open,
+  until its retention passes, when its workflow is terminated or times out, when a failed run
+  with a retry policy is not retried (native closes it), or when the worker stops before writing
+  the close.
 * Nothing closes a Standalone Activity's stream when the activity ends: the worker cannot learn
   whether the server accepted the activity's completion, or whether a failed attempt will be
   retried. The activity must close its own stream, or it stays open until its retention passes.

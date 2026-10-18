@@ -56,9 +56,11 @@ class ReadResponse:
 class WorkflowEnding:
     """How a run ends, from the terminal command of its completion.
 
-    ``cron`` and ``retry_policy`` say whether the run chain may continue: a completed cron run is
-    followed by another, and a failed run with a retry policy may be retried. The worker cannot
-    learn whether the server retries a failed run, so a backend does not close the stream for either.
+    ``cron`` and ``retry_policy`` say whether the run chain may continue: a cron run that completes
+    or fails is followed by another, and a failed run with a retry policy may be retried. The worker
+    cannot learn whether the server retries a failed run, so a backend does not close the stream for
+    either, even when the retries are exhausted. The native server knows, and closes the stream of a
+    failed run whose retries are exhausted.
     """
 
     close: StreamClose
