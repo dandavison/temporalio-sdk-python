@@ -2094,6 +2094,7 @@ class PollActivityTaskQueueResponse(google.protobuf.message.Message):
     ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
     POLLER_GROUP_INFOS_FIELD_NUMBER: builtins.int
     POLLER_GROUPS_INFO_FIELD_NUMBER: builtins.int
+    ATTEMPT_STAMP_FIELD_NUMBER: builtins.int
     task_token: builtins.bytes
     """A unique identifier for this task"""
     workflow_namespace: builtins.str
@@ -2199,6 +2200,12 @@ class PollActivityTaskQueueResponse(google.protobuf.message.Message):
           3. If every group has some pending polls, assign the next poll to a group randomly
             according to the weights.
         """
+    attempt_stamp: builtins.int
+    """Identifies this attempt among all attempts of the activity. It is 0 for the first attempt and
+    increases each time the server schedules another attempt, including after a reset, which sets
+    `attempt` back to 1. It never decreases, so a worker can use it to tell a superseded attempt
+    from the current one.
+    """
     def __init__(
         self,
         *,
@@ -2231,6 +2238,7 @@ class PollActivityTaskQueueResponse(google.protobuf.message.Message):
         | None = ...,
         poller_groups_info: temporalio.api.taskqueue.v1.message_pb2.PollerGroupsInfo
         | None = ...,
+        attempt_stamp: builtins.int = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -2280,6 +2288,8 @@ class PollActivityTaskQueueResponse(google.protobuf.message.Message):
             b"activity_type",
             "attempt",
             b"attempt",
+            "attempt_stamp",
+            b"attempt_stamp",
             "current_attempt_scheduled_time",
             b"current_attempt_scheduled_time",
             "header",

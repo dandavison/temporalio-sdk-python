@@ -160,6 +160,7 @@ class Start(google.protobuf.message.Message):
     PRIORITY_FIELD_NUMBER: builtins.int
     IS_LOCAL_FIELD_NUMBER: builtins.int
     RUN_ID_FIELD_NUMBER: builtins.int
+    ATTEMPT_STAMP_FIELD_NUMBER: builtins.int
     workflow_namespace: builtins.str
     """The namespace the workflow lives in"""
     workflow_type: builtins.str
@@ -227,6 +228,10 @@ class Start(google.protobuf.message.Message):
     """
     run_id: builtins.str
     """Run ID of this activity execution. Only set for standalone activities."""
+    attempt_stamp: builtins.int
+    """Identifies this attempt among all attempts of the activity. Unlike `attempt`, it never goes
+    back, so it tells a superseded attempt from the current one. Zero for local activities.
+    """
     def __init__(
         self,
         *,
@@ -258,6 +263,7 @@ class Start(google.protobuf.message.Message):
         priority: temporalio.api.common.v1.message_pb2.Priority | None = ...,
         is_local: builtins.bool = ...,
         run_id: builtins.str = ...,
+        attempt_stamp: builtins.int = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -291,6 +297,8 @@ class Start(google.protobuf.message.Message):
             b"activity_type",
             "attempt",
             b"attempt",
+            "attempt_stamp",
+            b"attempt_stamp",
             "current_attempt_scheduled_time",
             b"current_attempt_scheduled_time",
             "header_fields",

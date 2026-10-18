@@ -95,6 +95,7 @@ class WorkflowActivation(google.protobuf.message.Message):
     LAST_SDK_VERSION_FIELD_NUMBER: builtins.int
     SUGGEST_CONTINUE_AS_NEW_REASONS_FIELD_NUMBER: builtins.int
     TARGET_WORKER_DEPLOYMENT_VERSION_CHANGED_FIELD_NUMBER: builtins.int
+    WORKFLOW_TASK_FIELD_NUMBER: builtins.int
     run_id: builtins.str
     """The id of the currently active run of the workflow. Also used as a cache key. There may
     only ever be one active workflow task (and hence activation) of a run at one time.
@@ -156,6 +157,11 @@ class WorkflowActivation(google.protobuf.message.Message):
     the workflow is Pinned.
     Experimental.
     """
+    @property
+    def workflow_task(self) -> global___WorkflowTaskIdentity:
+        """The workflow task this activation belongs to. Unset if there is no outstanding workflow task,
+        e.g. for an eviction.
+        """
     def __init__(
         self,
         *,
@@ -175,6 +181,7 @@ class WorkflowActivation(google.protobuf.message.Message):
         ]
         | None = ...,
         target_worker_deployment_version_changed: builtins.bool = ...,
+        workflow_task: global___WorkflowTaskIdentity | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -183,6 +190,8 @@ class WorkflowActivation(google.protobuf.message.Message):
             b"deployment_version_for_current_task",
             "timestamp",
             b"timestamp",
+            "workflow_task",
+            b"workflow_task",
         ],
     ) -> builtins.bool: ...
     def ClearField(
@@ -212,10 +221,43 @@ class WorkflowActivation(google.protobuf.message.Message):
             b"target_worker_deployment_version_changed",
             "timestamp",
             b"timestamp",
+            "workflow_task",
+            b"workflow_task",
         ],
     ) -> None: ...
 
 global___WorkflowActivation = WorkflowActivation
+
+class WorkflowTaskIdentity(google.protobuf.message.Message):
+    """Identifies a workflow task attempt. Every attempt of one task has the same
+    `previous_started_event_id`, and it increases with each completed task of the run.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    PREVIOUS_STARTED_EVENT_ID_FIELD_NUMBER: builtins.int
+    ATTEMPT_FIELD_NUMBER: builtins.int
+    previous_started_event_id: builtins.int
+    """The started event ID of the run's last completed workflow task."""
+    attempt: builtins.int
+    """The attempt of this workflow task, starting at 1."""
+    def __init__(
+        self,
+        *,
+        previous_started_event_id: builtins.int = ...,
+        attempt: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "attempt",
+            b"attempt",
+            "previous_started_event_id",
+            b"previous_started_event_id",
+        ],
+    ) -> None: ...
+
+global___WorkflowTaskIdentity = WorkflowTaskIdentity
 
 class WorkflowActivationJob(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
