@@ -21,7 +21,6 @@ import redis.asyncio
 from temporalio import activity, workflow
 from temporalio.client import Client
 from temporalio.common import RetryPolicy
-from temporalio.contrib.redis_streams import RedisStreamBackend
 from temporalio.streams import (
     ClientProducer,
     CloseStatus,
@@ -32,6 +31,7 @@ from temporalio.streams import (
     decode,
     workflow_append,
 )
+from temporalio.streams.redis import RedisStreamBackend
 from temporalio.worker import Worker
 
 

@@ -68,10 +68,10 @@ class _StreamFailureTypeEnumTypeWrapper(
     STREAM_FAILURE_TYPE_NOT_OWNER: _StreamFailureType.ValueType  # 4
     STREAM_FAILURE_TYPE_CURSOR_MISMATCH: _StreamFailureType.ValueType  # 5
     """The cursor belongs to another stream."""
-    STREAM_FAILURE_TYPE_SEQ_CONFLICT: _StreamFailureType.ValueType  # 6
+    STREAM_FAILURE_TYPE_SEQ_DIVERGENT: _StreamFailureType.ValueType  # 6
     """The seq is already stored with different content."""
-    STREAM_FAILURE_TYPE_SEQ_SUPERSEDED: _StreamFailureType.ValueType  # 7
-    """The seq is lower than the producer's latest."""
+    STREAM_FAILURE_TYPE_SEQ_STALE: _StreamFailureType.ValueType  # 7
+    """The seq is lower than the producer's latest: a stale sequence."""
     STREAM_FAILURE_TYPE_EPOCH_FENCED: _StreamFailureType.ValueType  # 8
     """The producer's epoch is lower than one already seen, or is not the current attempt."""
     STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: _StreamFailureType.ValueType  # 9
@@ -88,10 +88,10 @@ STREAM_FAILURE_TYPE_EXPIRED: StreamFailureType.ValueType  # 3
 STREAM_FAILURE_TYPE_NOT_OWNER: StreamFailureType.ValueType  # 4
 STREAM_FAILURE_TYPE_CURSOR_MISMATCH: StreamFailureType.ValueType  # 5
 """The cursor belongs to another stream."""
-STREAM_FAILURE_TYPE_SEQ_CONFLICT: StreamFailureType.ValueType  # 6
+STREAM_FAILURE_TYPE_SEQ_DIVERGENT: StreamFailureType.ValueType  # 6
 """The seq is already stored with different content."""
-STREAM_FAILURE_TYPE_SEQ_SUPERSEDED: StreamFailureType.ValueType  # 7
-"""The seq is lower than the producer's latest."""
+STREAM_FAILURE_TYPE_SEQ_STALE: StreamFailureType.ValueType  # 7
+"""The seq is lower than the producer's latest: a stale sequence."""
 STREAM_FAILURE_TYPE_EPOCH_FENCED: StreamFailureType.ValueType  # 8
 """The producer's epoch is lower than one already seen, or is not the current attempt."""
 STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: StreamFailureType.ValueType  # 9
@@ -291,7 +291,7 @@ class ProducerIdentity(google.protobuf.message.Message):
 
 global___ProducerIdentity = ProducerIdentity
 
-class RecordInput(google.protobuf.message.Message):
+class AppendRecord(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     TOPIC_FIELD_NUMBER: builtins.int
@@ -313,7 +313,7 @@ class RecordInput(google.protobuf.message.Message):
         field_name: typing_extensions.Literal["payload", b"payload", "topic", b"topic"],
     ) -> None: ...
 
-global___RecordInput = RecordInput
+global___AppendRecord = AppendRecord
 
 class WorkflowTaskCommit(google.protobuf.message.Message):
     """Records which attempt of a workflow task committed."""
@@ -460,7 +460,7 @@ class AppendRequest(google.protobuf.message.Message):
     def records(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        global___RecordInput
+        global___AppendRecord
     ]: ...
     finish: builtins.bool
     """Records that the producer will write no more. It does not close the stream."""
@@ -470,7 +470,7 @@ class AppendRequest(google.protobuf.message.Message):
         stream: global___StreamRef | None = ...,
         producer: global___Producer | None = ...,
         seq: builtins.int = ...,
-        records: collections.abc.Iterable[global___RecordInput] | None = ...,
+        records: collections.abc.Iterable[global___AppendRecord] | None = ...,
         finish: builtins.bool = ...,
     ) -> None: ...
     def HasField(
@@ -524,15 +524,18 @@ class ReadRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     STREAM_FIELD_NUMBER: builtins.int
-    CURSOR_FIELD_NUMBER: builtins.int
+    AFTER_FIELD_NUMBER: builtins.int
     TOPICS_FIELD_NUMBER: builtins.int
     MAX_RECORDS_FIELD_NUMBER: builtins.int
     WAIT_FIELD_NUMBER: builtins.int
     LAST_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
-    cursor: builtins.bytes
-    """Reads the records after this cursor. Empty means from the beginning."""
+    after: builtins.bytes
+    """Reads the records after this cursor. Empty means from the beginning.
+    (-- api-linter: core::0140::prepositions=disabled
+        aip.dev/not-precedent: a read starts AFTER(cursor), the boundary after the last record the reader has seen. --)
+    """
     @property
     def topics(
         self,
@@ -548,7 +551,7 @@ class ReadRequest(google.protobuf.message.Message):
         self,
         *,
         stream: global___StreamRef | None = ...,
-        cursor: builtins.bytes = ...,
+        after: builtins.bytes = ...,
         topics: collections.abc.Iterable[builtins.str] | None = ...,
         max_records: builtins.int = ...,
         wait: google.protobuf.duration_pb2.Duration | None = ...,
@@ -561,8 +564,8 @@ class ReadRequest(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "cursor",
-            b"cursor",
+            "after",
+            b"after",
             "last",
             b"last",
             "max_records",

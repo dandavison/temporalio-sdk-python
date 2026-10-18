@@ -36,6 +36,7 @@ import temporalio.api.common.v1
 import temporalio.api.failure.v1
 from temporalio.streams import (
     ActivityProducer,
+    AppendRecord,
     ClientProducer,
     CloseStatus,
     EpochFencedError,
@@ -43,9 +44,8 @@ from temporalio.streams import (
     ProducerIdentity,
     ReadResponse,
     Record,
-    RecordInput,
-    SeqConflictError,
-    SeqSupersededError,
+    SeqDivergentError,
+    SeqStaleError,
     StreamBackend,
     StreamClose,
     StreamClosedError,
@@ -59,11 +59,11 @@ from temporalio.streams import (
 )
 
 # KEYS: meta, log, producers.
-# ARGV: producer, workflow task, epoch, seq, content hash, closing ("1" or "0"), entry count, then
+# ARGV: producer, workflow task, epoch, seq, digest, closing ("1" or "0"), entry count, then
 # for each entry a field count followed by that many field/value pairs.
 _APPEND_SCRIPT = """
 local meta, log, producers = KEYS[1], KEYS[2], KEYS[3]
-local producer, wt, epoch, seq, hash = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), ARGV[5]
+local producer, wt, epoch, seq, digest = ARGV[1], tonumber(ARGV[2]), tonumber(ARGV[3]), tonumber(ARGV[4]), ARGV[5]
 local closing = ARGV[6] == '1'
 if redis.call('HGET', meta, 'deleted') == '1' then
   return redis.error_reply('EXPIRED')
@@ -76,13 +76,13 @@ if raw then
   end
   if wt == st.wt and epoch == st.epoch then
     if seq == st.seq then
-      if hash == st.hash then
+      if digest == st.digest then
         return st.ids
       end
-      return redis.error_reply('SEQ_CONFLICT')
+      return redis.error_reply('SEQ_DIVERGENT')
     end
     if seq < st.seq then
-      return redis.error_reply('SEQ_SUPERSEDED')
+      return redis.error_reply('SEQ_STALE')
     end
   end
 end
@@ -104,7 +104,7 @@ for _ = 1, tonumber(ARGV[7]) do
   i = i + 2 * nfields
   ids[#ids + 1] = redis.call(unpack(args))
 end
-redis.call('HSET', producers, producer, cjson.encode({wt = wt, epoch = epoch, seq = seq, hash = hash, ids = ids}))
+redis.call('HSET', producers, producer, cjson.encode({wt = wt, epoch = epoch, seq = seq, digest = digest, ids = ids}))
 redis.call('HSET', meta, 'exists', '1')
 if closing then
   redis.call('HSET', meta, 'closed', '1')
@@ -115,8 +115,8 @@ return ids
 _ERRORS: dict[str, type[StreamError]] = {
     "EXPIRED": StreamExpiredError,
     "FENCED": EpochFencedError,
-    "SEQ_CONFLICT": SeqConflictError,
-    "SEQ_SUPERSEDED": SeqSupersededError,
+    "SEQ_DIVERGENT": SeqDivergentError,
+    "SEQ_STALE": SeqStaleError,
     "CLOSED": StreamClosedError,
 }
 
@@ -139,7 +139,7 @@ class RedisStreamBackend(StreamBackend):
         ref: StreamRef,
         producer: Producer,
         seq: int,
-        records: Sequence[RecordInput],
+        records: Sequence[AppendRecord],
         *,
         finish: bool = False,
     ) -> Sequence[bytes]:
@@ -244,7 +244,7 @@ class RedisStreamBackend(StreamBackend):
             workflow_task,
             epoch,
             seq,
-            _content_hash(entries),
+            _append_digest(entries),
             "1" if closing else "0",
             len(entries),
         ]
@@ -365,7 +365,7 @@ def _record(
     )
 
 
-def _content_hash(entries: list[_Entry]) -> str:
+def _append_digest(entries: list[_Entry]) -> str:
     """Identify an append's content, so that a retry with different content is detected."""
     h = hashlib.sha256()
     for entry in entries:

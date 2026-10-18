@@ -22,6 +22,9 @@ import temporalio.api.failure.v1
 import temporalio.api.workflowservice.v1
 import temporalio.client
 from temporalio.api.nexusservices.streamservice.v1 import (
+    AppendRecord as AppendRecordProto,
+)
+from temporalio.api.nexusservices.streamservice.v1 import (
     AppendRequest,
     AppendResponse,
     CloseRequest,
@@ -42,9 +45,6 @@ from temporalio.api.nexusservices.streamservice.v1 import (
     Record as RecordProto,
 )
 from temporalio.api.nexusservices.streamservice.v1 import (
-    RecordInput as RecordInputProto,
-)
-from temporalio.api.nexusservices.streamservice.v1 import (
     StreamClose as StreamCloseProto,
 )
 from temporalio.api.nexusservices.streamservice.v1 import (
@@ -55,6 +55,7 @@ from temporalio.api.nexusservices.streamservice.v1 import (
 )
 from temporalio.streams import (
     ActivityProducer,
+    AppendRecord,
     ClientProducer,
     CloseStatus,
     EpochFencedError,
@@ -62,9 +63,8 @@ from temporalio.streams import (
     ProducerIdentity,
     ReadResponse,
     Record,
-    RecordInput,
-    SeqConflictError,
-    SeqSupersededError,
+    SeqDivergentError,
+    SeqStaleError,
     SpeculativeWorkflowTaskError,
     StreamBackend,
     StreamClose,
@@ -88,8 +88,8 @@ _ERRORS: dict[int, type[StreamError]] = {
     StreamFailureType.STREAM_FAILURE_TYPE_EXPIRED: StreamExpiredError,
     StreamFailureType.STREAM_FAILURE_TYPE_NOT_OWNER: StreamNotOwnerError,
     StreamFailureType.STREAM_FAILURE_TYPE_CURSOR_MISMATCH: StreamCursorError,
-    StreamFailureType.STREAM_FAILURE_TYPE_SEQ_CONFLICT: SeqConflictError,
-    StreamFailureType.STREAM_FAILURE_TYPE_SEQ_SUPERSEDED: SeqSupersededError,
+    StreamFailureType.STREAM_FAILURE_TYPE_SEQ_DIVERGENT: SeqDivergentError,
+    StreamFailureType.STREAM_FAILURE_TYPE_SEQ_STALE: SeqStaleError,
     StreamFailureType.STREAM_FAILURE_TYPE_EPOCH_FENCED: EpochFencedError,
     StreamFailureType.STREAM_FAILURE_TYPE_SPECULATIVE_WORKFLOW_TASK: SpeculativeWorkflowTaskError,
 }
@@ -109,7 +109,7 @@ class NativeStreamBackend(StreamBackend):
         ref: StreamRef,
         producer: Producer,
         seq: int,
-        records: Sequence[RecordInput],
+        records: Sequence[AppendRecord],
         *,
         finish: bool = False,
     ) -> Sequence[bytes]:
@@ -119,7 +119,7 @@ class NativeStreamBackend(StreamBackend):
             producer=_producer(producer),
             seq=seq,
             records=[
-                RecordInputProto(topic=r.topic, payload=r.payload) for r in records
+                AppendRecordProto(topic=r.topic, payload=r.payload) for r in records
             ],
             finish=finish,
         )
@@ -157,7 +157,7 @@ class NativeStreamBackend(StreamBackend):
         """See :py:meth:`StreamBackend.read`."""
         req = ReadRequest(
             stream=_ref(ref),
-            cursor=after or b"",
+            after=after or b"",
             topics=topics,
             max_records=max_records,
             last=last,

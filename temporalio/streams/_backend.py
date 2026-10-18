@@ -1,0 +1,89 @@
+"""The interface a stream store implements."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import timedelta
+from enum import IntEnum
+
+import temporalio.api.failure.v1
+from temporalio.streams._record import AppendRecord, Producer, Record, WorkflowProducer
+from temporalio.streams._ref import StreamRef
+
+
+class CloseStatus(IntEnum):
+    """How a stream was closed."""
+
+    COMPLETED = 1
+    FAILED = 2
+    CANCELED = 3
+    TERMINATED = 4
+    TIMED_OUT = 5
+
+
+@dataclass(frozen=True)
+class StreamClose:
+    """The close of a stream, written by its owner."""
+
+    status: CloseStatus
+    failure: temporalio.api.failure.v1.Failure | None = None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ReadResponse:
+    """The result of a read.
+
+    ``cursor`` is where the next read resumes, past records a topic filter skipped. ``close`` is
+    set once the stream is closed and the reader has every record.
+    """
+
+    records: Sequence[Record]
+    cursor: bytes | None
+    close: StreamClose | None
+
+
+class StreamBackend(ABC):
+    """Stores streams. A producer must not have more than one append in flight within an epoch."""
+
+    @abstractmethod
+    async def append(
+        self,
+        ref: StreamRef,
+        producer: Producer,
+        seq: int,
+        records: Sequence[AppendRecord],
+        *,
+        finish: bool = False,
+    ) -> Sequence[bytes]:
+        """Append records as one atomic, contiguous batch, returning their cursors.
+
+        The first append creates the stream. A retry of the producer's latest seq with the same
+        content stores nothing and returns the original cursors. ``finish`` records that the
+        producer will write no more; it does not close the stream.
+        """
+
+    @abstractmethod
+    async def close(
+        self, ref: StreamRef, owner: WorkflowProducer, seq: int, close: StreamClose
+    ) -> None:
+        """Close the stream. Only the stream's owner may close it."""
+
+    @abstractmethod
+    async def read(
+        self,
+        ref: StreamRef,
+        *,
+        after: bytes | None = None,
+        topics: Sequence[str] = (),
+        max_records: int = 0,
+        wait: timedelta = timedelta(0),
+        last: int = 0,
+    ) -> ReadResponse:
+        """Read records after a cursor, or from the beginning.
+
+        ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
+        matching record. ``last``, if positive, reads the last N matching records instead.
+        """

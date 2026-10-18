@@ -582,7 +582,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 producer,
                 workflow.next_stream_seq(producer),
                 [
-                    temporalio.streams.RecordInput(topic, payload)
+                    temporalio.streams.AppendRecord(topic, payload)
                     for (topic, _), payload in zip(appends, payloads)
                 ],
             )

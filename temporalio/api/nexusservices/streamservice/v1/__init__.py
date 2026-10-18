@@ -1,4 +1,5 @@
 from .request_response_pb2 import (
+    AppendRecord,
     AppendRequest,
     AppendResponse,
     ClientProducer,
@@ -10,7 +11,6 @@ from .request_response_pb2 import (
     ReadRequest,
     ReadResponse,
     Record,
-    RecordInput,
     StreamClose,
     StreamFailureType,
     StreamRef,
@@ -19,6 +19,7 @@ from .request_response_pb2 import (
 )
 
 __all__ = [
+    "AppendRecord",
     "AppendRequest",
     "AppendResponse",
     "ClientProducer",
@@ -30,7 +31,6 @@ __all__ = [
     "ReadRequest",
     "ReadResponse",
     "Record",
-    "RecordInput",
     "StreamClose",
     "StreamFailureType",
     "StreamRef",
