@@ -763,3 +763,76 @@ async def wait_for_workflow_task_failure(
                 return event.workflow_task_failed_event_attributes
         await asyncio.sleep(0.1)
     raise AssertionError("no workflow task failed")
+
+
+class ToolActivities:
+    """A tool call that owns its stream, as a Standalone Activity, and a workflow activity that
+    starts it.
+    """
+
+    def __init__(self, client: Client, backend: StreamBackend, task_queue: str) -> None:
+        self._client = client
+        self._backend = backend
+        self._task_queue = task_queue
+
+    @activity.defn
+    async def tool(self) -> str:
+        writer = StreamWriter.for_activity(self._backend, StreamRef.for_activity())
+        await writer.append("tool started", topic="progress")
+        await writer.append("tool output")
+        return "done"
+
+    @activity.defn
+    async def start_tool(self, tool_id: str) -> None:
+        await self._client.start_activity(
+            "tool",
+            id=tool_id,
+            task_queue=self._task_queue,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+@workflow.defn
+class StartToolWorkflow:
+    @workflow.run
+    async def run(self, tool_id: str) -> None:
+        await workflow.execute_activity_method(
+            ToolActivities.start_tool,
+            tool_id,
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
+
+async def test_client_reads_the_stream_of_a_standalone_activity_a_workflow_started(
+    client: Client, backend: StreamBackend
+):
+    """A tool call owns its stream: a workflow starts a Standalone Activity, which appends to its own
+    stream, and a client that names the stream before the activity starts reads it. On native the
+    stream closes with the activity's outcome.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    tool_id = f"tool-{uuid.uuid4()}"
+    tools = ToolActivities(client, backend, task_queue)
+    ref = StreamRef(activity_id=tool_id)
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[StartToolWorkflow],
+        activities=[tools.tool, tools.start_tool],
+    ):
+        first = await backend.read(ref, wait=timedelta(seconds=1))
+        assert not first.records
+        await client.execute_workflow(
+            StartToolWorkflow.run,
+            tool_id,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+        assert await client.get_activity_handle(tool_id).result() == "done"
+
+    records = await read_all(backend, ref)
+    assert await values(records) == ["tool started", "tool output"]
+    assert records[0].producer.producer == records[1].producer.producer
+    if isinstance(backend, NativeStreamBackend):
+        end = await backend.read(ref, after=records[-1].cursor)
+        assert end.close is not None and end.close.status == CloseStatus.COMPLETED

@@ -136,17 +136,20 @@ class CrateStreamBackend(StreamBackend):
         return list((await self._call("Append", req, AppendResponse)).cursors)
 
     async def close(
-        self, ref: StreamRef, owner: WorkflowProducer, seq: int, close: StreamClose
+        self,
+        ref: StreamRef,
+        owner: WorkflowProducer | ActivityProducer,
+        seq: int,
+        close: StreamClose,
     ) -> None:
         """See :py:meth:`StreamBackend.close`."""
-        if owner.workflow_id != ref.workflow_id:
+        req = CloseRequest(stream=_ref(ref), seq=seq, close=_close_proto(close))
+        if isinstance(owner, ActivityProducer):
+            req.activity_owner.CopyFrom(_activity_producer(owner).activity)
+        elif owner.workflow_id == ref.workflow_id:
+            req.owner.CopyFrom(_workflow_producer(owner))
+        else:
             raise StreamNotOwnerError("only the stream's owner may close it")
-        req = CloseRequest(
-            stream=_ref(ref),
-            owner=_workflow_producer(owner),
-            seq=seq,
-            close=_close_proto(close),
-        )
         await self._call("Close", req, CloseResponse)
 
     async def read(
@@ -217,7 +220,12 @@ class CrateStreamBackend(StreamBackend):
 
 
 def _ref(ref: StreamRef) -> StreamRefProto:
-    return StreamRefProto(workflow_id=ref.workflow_id, first_run_id=ref.first_run_id)
+    return StreamRefProto(
+        workflow_id=ref.workflow_id,
+        first_run_id=ref.first_run_id,
+        activity_id=ref.activity_id,
+        activity_run_id=ref.activity_run_id,
+    )
 
 
 def _records(records: Sequence[AppendRecord]) -> list[AppendRecordProto]:

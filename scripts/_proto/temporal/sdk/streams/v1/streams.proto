@@ -8,11 +8,15 @@ import "google/protobuf/duration.proto";
 import "temporal/api/protocol/v1/message.proto";
 import "temporal/api/nexusservices/streamservice/v1/request_response.proto";
 
-// A stream owned by a workflow run chain. On Redis, appends and closes need first_run_id; a read
-// without it reads the workflow ID's latest chain.
+// A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
+// Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
+// activity_id is set. On Redis, appends and closes need the owner's run ID; a read without it reads
+// the owner ID's latest run.
 message StreamRef {
     string workflow_id = 1;
     string first_run_id = 2;
+    string activity_id = 3;
+    string activity_run_id = 4;
 }
 
 message ClientProducer {
@@ -69,12 +73,14 @@ message AppendResponse {
     repeated bytes cursors = 1;
 }
 
-// "Close". Only the stream's owner closes the stream.
+// "Close". Only the stream's owner closes the stream: a workflow task of the owning run (owner), or
+// an attempt of the owning Standalone Activity (activity_owner).
 message CloseRequest {
     StreamRef stream = 1;
     WorkflowProducer owner = 2;
     int64 seq = 3;
     temporal.api.nexusservices.streamservice.v1.StreamClose close = 4;
+    ActivityProducer activity_owner = 5;
 }
 
 message CloseResponse {

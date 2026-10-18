@@ -10,7 +10,13 @@ from enum import IntEnum
 
 import temporalio.api.failure.v1
 import temporalio.api.protocol.v1
-from temporalio.streams._record import AppendRecord, Producer, Record, WorkflowProducer
+from temporalio.streams._record import (
+    ActivityProducer,
+    AppendRecord,
+    Producer,
+    Record,
+    WorkflowProducer,
+)
 from temporalio.streams._ref import StreamRef
 
 
@@ -94,9 +100,15 @@ class StreamBackend(ABC):
 
     @abstractmethod
     async def close(
-        self, ref: StreamRef, owner: WorkflowProducer, seq: int, close: StreamClose
+        self,
+        ref: StreamRef,
+        owner: WorkflowProducer | ActivityProducer,
+        seq: int,
+        close: StreamClose,
     ) -> None:
-        """Close the stream. Only the stream's owner may close it."""
+        """Close the stream. Only the stream's owner may close it: a workflow task of the owning
+        run, or an attempt of the owning Standalone Activity.
+        """
 
     @abstractmethod
     async def read(

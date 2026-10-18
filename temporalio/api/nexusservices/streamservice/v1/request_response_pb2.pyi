@@ -156,11 +156,13 @@ class StreamRef(google.protobuf.message.Message):
     """(--
     Prototype. Operations of the "temporalio.api.nexusservices.streamservice.v1.StreamService" service on
     the System Nexus Endpoint: "Append", "Read" and "Close". They operate on the stream owned by a
-    workflow run chain. A failed operation returns an operation failure whose ApplicationFailureInfo
-    type is the name of a StreamFailureType value.
+    workflow run chain or a Standalone Activity execution. A failed operation returns an operation
+    failure whose ApplicationFailureInfo type is the name of a StreamFailureType value.
     --)
 
-    A stream owned by a workflow run chain.
+    A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
+    Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
+    activity_id is set.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -168,21 +170,32 @@ class StreamRef(google.protobuf.message.Message):
     WORKFLOW_ID_FIELD_NUMBER: builtins.int
     FIRST_RUN_ID_FIELD_NUMBER: builtins.int
     NAMESPACE_FIELD_NUMBER: builtins.int
+    ACTIVITY_ID_FIELD_NUMBER: builtins.int
+    ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     first_run_id: builtins.str
     """Pins the run chain. Empty means the workflow ID's current chain."""
     namespace: builtins.str
     """The caller's namespace. The server sets it when empty."""
+    activity_id: builtins.str
+    activity_run_id: builtins.str
+    """Pins the activity execution. Empty means the activity ID's current execution."""
     def __init__(
         self,
         *,
         workflow_id: builtins.str = ...,
         first_run_id: builtins.str = ...,
         namespace: builtins.str = ...,
+        activity_id: builtins.str = ...,
+        activity_run_id: builtins.str = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
+            "activity_id",
+            b"activity_id",
+            "activity_run_id",
+            b"activity_run_id",
             "first_run_id",
             b"first_run_id",
             "namespace",
@@ -850,6 +863,9 @@ global___ReadResponse = ReadResponse
 class CloseRequest(google.protobuf.message.Message):
     """Input of the "Close" operation. Only the stream's owner, a workflow task of the owning workflow,
     may close the stream.
+    Only the stream's owner closes it: for a workflow-owned stream, a workflow task attempt of the
+    run (owner); for an activity-owned stream, the activity's current attempt, by its task token
+    (activity_task_token).
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -858,6 +874,7 @@ class CloseRequest(google.protobuf.message.Message):
     OWNER_FIELD_NUMBER: builtins.int
     SEQ_FIELD_NUMBER: builtins.int
     CLOSE_FIELD_NUMBER: builtins.int
+    ACTIVITY_TASK_TOKEN_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
     @property
@@ -865,6 +882,7 @@ class CloseRequest(google.protobuf.message.Message):
     seq: builtins.int
     @property
     def close(self) -> global___StreamClose: ...
+    activity_task_token: builtins.bytes
     def __init__(
         self,
         *,
@@ -872,6 +890,7 @@ class CloseRequest(google.protobuf.message.Message):
         owner: global___WorkflowTaskProducer | None = ...,
         seq: builtins.int = ...,
         close: global___StreamClose | None = ...,
+        activity_task_token: builtins.bytes = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -882,7 +901,16 @@ class CloseRequest(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "close", b"close", "owner", b"owner", "seq", b"seq", "stream", b"stream"
+            "activity_task_token",
+            b"activity_task_token",
+            "close",
+            b"close",
+            "owner",
+            b"owner",
+            "seq",
+            b"seq",
+            "stream",
+            b"stream",
         ],
     ) -> None: ...
 

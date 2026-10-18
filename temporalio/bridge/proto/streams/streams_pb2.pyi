@@ -25,26 +25,41 @@ else:
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class StreamRef(google.protobuf.message.Message):
-    """A stream owned by a workflow run chain. On Redis, appends and closes need first_run_id; a read
-    without it reads the workflow ID's latest chain.
+    """A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
+    Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
+    activity_id is set. On Redis, appends and closes need the owner's run ID; a read without it reads
+    the owner ID's latest run.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     WORKFLOW_ID_FIELD_NUMBER: builtins.int
     FIRST_RUN_ID_FIELD_NUMBER: builtins.int
+    ACTIVITY_ID_FIELD_NUMBER: builtins.int
+    ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     first_run_id: builtins.str
+    activity_id: builtins.str
+    activity_run_id: builtins.str
     def __init__(
         self,
         *,
         workflow_id: builtins.str = ...,
         first_run_id: builtins.str = ...,
+        activity_id: builtins.str = ...,
+        activity_run_id: builtins.str = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "first_run_id", b"first_run_id", "workflow_id", b"workflow_id"
+            "activity_id",
+            b"activity_id",
+            "activity_run_id",
+            b"activity_run_id",
+            "first_run_id",
+            b"first_run_id",
+            "workflow_id",
+            b"workflow_id",
         ],
     ) -> None: ...
 
@@ -329,7 +344,9 @@ class AppendResponse(google.protobuf.message.Message):
 global___AppendResponse = AppendResponse
 
 class CloseRequest(google.protobuf.message.Message):
-    """ "Close". Only the stream's owner closes the stream."""
+    """ "Close". Only the stream's owner closes the stream: a workflow task of the owning run (owner), or
+    an attempt of the owning Standalone Activity (activity_owner).
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -337,6 +354,7 @@ class CloseRequest(google.protobuf.message.Message):
     OWNER_FIELD_NUMBER: builtins.int
     SEQ_FIELD_NUMBER: builtins.int
     CLOSE_FIELD_NUMBER: builtins.int
+    ACTIVITY_OWNER_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
     @property
@@ -348,6 +366,8 @@ class CloseRequest(google.protobuf.message.Message):
     ) -> (
         temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
     ): ...
+    @property
+    def activity_owner(self) -> global___ActivityProducer: ...
     def __init__(
         self,
         *,
@@ -356,17 +376,34 @@ class CloseRequest(google.protobuf.message.Message):
         seq: builtins.int = ...,
         close: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
         | None = ...,
+        activity_owner: global___ActivityProducer | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing_extensions.Literal[
-            "close", b"close", "owner", b"owner", "stream", b"stream"
+            "activity_owner",
+            b"activity_owner",
+            "close",
+            b"close",
+            "owner",
+            b"owner",
+            "stream",
+            b"stream",
         ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "close", b"close", "owner", b"owner", "seq", b"seq", "stream", b"stream"
+            "activity_owner",
+            b"activity_owner",
+            "close",
+            b"close",
+            "owner",
+            b"owner",
+            "seq",
+            b"seq",
+            "stream",
+            b"stream",
         ],
     ) -> None: ...
 
