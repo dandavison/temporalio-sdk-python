@@ -5,8 +5,9 @@ These need redis-server on PATH, and the prototype's server with retry stamps an
 calls enabled, as the superproject's dev-server runs it: pass ``--workflow-environment
 localhost:7233``.
 
-The two tests of a run chain that continues (a failed run with a retry policy, and a cron run) fail
-on native, because the native stream is not moved to the next run of the chain.
+The three tests of a run chain that continues (a failed run with a retry policy, and a cron run that
+completes or fails) fail on native, because the native stream is not moved to the next run of the
+chain.
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from temporalio.streams import (
     CloseStatus,
     Record,
     StreamBackend,
+    StreamClosedError,
     StreamRef,
     StreamWriter,
     WorkflowAppendMode,
@@ -628,6 +630,78 @@ async def test_completed_cron_run_does_not_close_stream(
         assert await values(list(second.records)) == ["cron run"]
         assert first.close is None and second.close is None
         await handle.terminate()
+
+
+@workflow.defn
+class FailingCronWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        workflow_append("cron run")
+        raise ApplicationError("fail the cron run")
+
+
+async def test_failed_cron_run_does_not_close_stream(
+    client: Client, backend: StreamBackend
+):
+    """Every backend: a failed cron run does not close the stream, because the next cron run follows
+    it, and the next run appends to it. Fails on native, because the stream is not moved to the
+    next run.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[FailingCronWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            FailingCronWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+            cron_schedule="@every 1s",
+        )
+        ref = StreamRef.for_handle(handle)
+        first = await backend.read(ref, wait=timedelta(seconds=10))
+        assert await values(list(first.records)) == ["cron run"]
+        # Wait until a later run has appended, so the first run's end has been processed.
+        second = await backend.read(ref, after=first.cursor, wait=timedelta(seconds=10))
+        assert await values(list(second.records)) == ["cron run"]
+        assert first.close is None and second.close is None
+        await handle.terminate()
+
+
+@workflow.defn
+class NoAppendWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        pass
+
+
+async def test_append_after_workflow_ended_without_appending_fails_as_closed(
+    client: Client, backend: StreamBackend
+):
+    """Every backend: an append to the stream of a workflow that completed without appending fails
+    as closed. Native creates the stream closed; on Redis the worker wrote the close when the
+    workflow completed.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[NoAppendWorkflow],
+        stream_backend=backend,
+    ):
+        handle = await client.start_workflow(
+            NoAppendWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await handle.result()
+        ref = StreamRef.for_handle(handle)
+        # On Redis, wait for the close, which the worker writes after the run's eviction.
+        await backend.read(ref, wait=timedelta(seconds=5))
+
+    writer = StreamWriter(backend, ref, ClientProducer("restaurant", 1))
+    with pytest.raises(StreamClosedError):
+        await writer.append("late")
 
 
 @workflow.defn
