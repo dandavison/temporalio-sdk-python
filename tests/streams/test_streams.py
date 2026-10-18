@@ -717,6 +717,33 @@ async def test_commit_mode_records_are_visible_when_the_task_commits(
     assert end.close is not None and end.close.status == CloseStatus.COMPLETED
 
 
+async def test_commit_mode_records_are_not_sent_again_on_replay(
+    client: Client, commit_mode_backend: StreamBackend
+):
+    """With no cache, every workflow task replays the workflow from the start; the records of
+    earlier tasks are not sent again.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[WaitForSignalWorkflow],
+        stream_backend=commit_mode_backend,
+        max_cached_workflows=0,
+    ):
+        handle = await client.start_workflow(
+            WaitForSignalWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        await commit_mode_backend.read(
+            StreamRef.for_handle(handle), wait=timedelta(seconds=10)
+        )
+        await handle.signal(WaitForSignalWorkflow.finish)
+        await handle.result()
+
+    records = await read_all(commit_mode_backend, StreamRef.for_handle(handle))
+    assert await values(records) == ["first", "second"]
+
+
 async def test_workers_that_disagree_on_append_mode_fail_the_workflow_task(
     client: Client, commit_mode_backend: StreamBackend
 ):
@@ -748,8 +775,9 @@ async def test_workers_that_disagree_on_append_mode_fail_the_workflow_task(
 
     assert (
         failure.cause
-        == WorkflowTaskFailedCause.WORKFLOW_TASK_FAILED_CAUSE_BAD_STREAM_APPEND
+        == WorkflowTaskFailedCause.WORKFLOW_TASK_FAILED_CAUSE_WORKFLOW_WORKER_UNHANDLED_FAILURE
     )
+    assert failure.failure.application_failure_info.type == "BAD_STREAM_APPEND"
     assert "WORKFLOW_APPEND_MODE_SINK" in failure.failure.message
     assert "WORKFLOW_APPEND_MODE_COMMIT" in failure.failure.message
 
