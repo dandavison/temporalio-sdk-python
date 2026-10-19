@@ -13,12 +13,13 @@ chain.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import socket
 import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -1446,3 +1447,62 @@ async def test_client_reads_the_stream_of_a_standalone_activity_a_workflow_start
     if is_native(stream_client):
         end = await read_to_end(stream)
         assert end.close is not None and end.close.status == CloseStatus.COMPLETED
+
+
+@workflow.defn
+class GetOtherStreamsWorkflow:
+    @workflow.run
+    async def run(self, other_id: str) -> list[str]:
+        streams = [
+            workflow.get_stream_handle(workflow_id=other_id),
+            workflow.get_stream_handle(activity_id=other_id),
+            workflow.get_external_workflow_handle(other_id).stream(),
+        ]
+        observed: list[str] = []
+        for stream in streams:
+            writable = hasattr(stream, "publish") or hasattr(stream, "close")
+            observed.append(
+                f"{type(stream).__name__}, writable={writable}, "
+                + await reads_not_implemented(stream)
+            )
+        try:
+            workflow.get_stream_handle()
+        except ValueError:
+            observed.append("no owner refused")
+        return observed
+
+
+async def reads_not_implemented(stream: Any) -> str:
+    reads: list[Callable[[], Any]] = [
+        stream.fetch_records,
+        lambda: stream.fetch_last_records(1),
+        stream.topic("t", type=str).fetch_records,
+    ]
+    for read in reads:
+        try:
+            result = read()
+            if inspect.isawaitable(result):
+                await result
+            return "read did not raise"
+        except NotImplementedError:
+            pass
+    return "reads not implemented"
+
+
+async def test_workflow_gets_a_read_only_handle_to_another_stream(client: Client):
+    """Any backend: workflow code gets a read-only handle to another owner's stream, by owner ID
+    or from an external workflow handle. Reads in workflow code are not implemented yet.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client, task_queue=task_queue, workflows=[GetOtherStreamsWorkflow]
+    ):
+        observed = await client.execute_workflow(
+            GetOtherStreamsWorkflow.run,
+            "other",
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+    assert observed == [
+        "ExternalStreamHandle, writable=False, reads not implemented"
+    ] * 3 + ["no owner refused"]
