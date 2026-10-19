@@ -15,6 +15,7 @@ from datetime import timezone
 from types import TracebackType
 
 import temporalio.api.common.v1
+import temporalio.api.enums.v1
 import temporalio.bridge.proto.common
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
@@ -24,6 +25,7 @@ import temporalio.common
 import temporalio.converter
 import temporalio.converter._extstore
 import temporalio.exceptions
+import temporalio.streams._workflow_reads
 import temporalio.streams.backend
 import temporalio.workflow
 from temporalio.bridge.worker import PollShutdownError
@@ -163,6 +165,11 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             **_WorkflowExternFunctions(  # type: ignore
                 __temporal_get_metric_meter=lambda: metric_meter,
                 __temporal_assert_local_activity_valid=assert_local_activity_valid,
+                # A replayer has no backend; its default is native.
+                __temporal_stream_backend_native=lambda: (
+                    stream_backend is None
+                    or isinstance(stream_backend, NativeStreamBackend)
+                ),
             )
         )
 
@@ -177,6 +184,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             max_workflow_task_external_storage_concurrency
         )
         self._stream_backend = stream_backend
+        self._read_budgets = temporalio.streams._workflow_reads.ReadBudgets()
         self._throw_after_activation: Exception | None = None
 
         # If debug mode is enabled, disable deadlock detection
@@ -402,6 +410,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 decode_headers=self._encode_headers,
                 storage_concurrency_limit=self._max_workflow_task_external_storage_concurrency,
             )
+            await temporalio.streams._workflow_reads.resolve_reads(
+                act, self._stream_backend, data_converter
+            )
             if not workflow:
                 assert init_job
                 workflow = _RunningWorkflow(
@@ -479,6 +490,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                     )
             else:
                 completion.failed.failure.SetInParent()
+                if isinstance(err, temporalio.workflow.NondeterminismError):
+                    completion.failed.force_cause = temporalio.api.enums.v1.WorkflowTaskFailedCause.WORKFLOW_TASK_FAILED_CAUSE_NON_DETERMINISTIC_ERROR
                 try:
                     data_converter.failure_converter.to_failure(
                         err,
@@ -547,6 +560,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                     "Failed writing stream of workflow with run ID %s", act.run_id
                 )
                 completion.failed.failure.message = f"Failed writing stream: {err}"
+        self._read_budgets.spend(act, completion)
 
         # Send off completion
         if LOG_PROTOS:
@@ -578,14 +592,23 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         assert self._stream_backend
         appends, workflow_close = workflow.instance.take_stream_writes()
         close = _stream_close(completion)
-        if not appends and not close and not workflow_close:
+        info = workflow.get_info()
+        defn = self._workflows.get(info.workflow_type, self._dynamic_workflow)
+        commit_mode = bool(defn and defn.stream_commit_mode)
+        # A commit-mode run declares its mode in its first workflow task, while not replaying,
+        # since lang must send no protocol messages then.
+        declare_mode = (
+            commit_mode
+            and not act.is_replaying
+            and act.HasField("workflow_task")
+            and act.workflow_task.previous_started_event_id == 0
+        )
+        if not appends and not close and not workflow_close and not declare_mode:
             return
         if not act.HasField("workflow_task"):
             raise RuntimeError(
                 "Workflow appended to its stream outside a workflow task"
             )
-        info = workflow.get_info()
-        defn = self._workflows.get(info.workflow_type, self._dynamic_workflow)
         # The workflow converted each value to a payload; only the codec remains.
         payloads = await data_converter._encode_payload_sequence(
             [p for _, p in appends]
@@ -614,8 +637,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 )
                 if close
                 else None,
-                commit_mode=bool(defn and defn.stream_commit_mode),
+                commit_mode=commit_mode,
                 close=workflow_close,
+                declare_mode=declare_mode,
             )
         )
         completion.successful.protocol_messages.extend(messages)
@@ -719,6 +743,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             if seen_fail:
                 self._could_not_evict_count -= 1
 
+        temporalio.streams._workflow_reads.forget_run(act.run_id)
+        self._read_budgets.forget(act.run_id)
         if self._stream_backend:
             try:
                 await self._stream_backend.workflow_evicted(

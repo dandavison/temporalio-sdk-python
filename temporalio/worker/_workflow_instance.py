@@ -1752,7 +1752,12 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         headers: Mapping[str, str] | None,
         summary: str | None,
     ) -> temporalio.workflow.NexusOperationHandle[OutputT]:
-        if temporalio.nexus.system.is_system_endpoint(endpoint):
+        # The stream service's operations are not in the generated System Nexus API; the streams
+        # prototype calls them directly.
+        if (
+            temporalio.nexus.system.is_system_endpoint(endpoint)
+            and service != _STREAM_SERVICE
+        ):
             return await _start_system_nexus_operation(
                 self._outbound,
                 StartNexusOperationInput(
@@ -1976,6 +1981,11 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._stream_appends.append(
             (topic, self._workflow_context_payload_converter.to_payload(value))
         )
+
+    def workflow_stream_backend_native(self) -> bool:
+        return cast(_WorkflowExternFunctions, self._extern_functions)[
+            "__temporal_stream_backend_native"
+        ]()
 
     def workflow_stream_close(self, failure: BaseException | None, reason: str) -> None:
         self._assert_not_read_only("close a stream")
@@ -3888,9 +3898,13 @@ def _encode_search_attributes(
             )
 
 
+_STREAM_SERVICE = "temporal.api.nexusservices.streamservice.v1.StreamService"
+
+
 class _WorkflowExternFunctions(TypedDict):
     __temporal_get_metric_meter: Callable[[], temporalio.common.MetricMeter]
     __temporal_assert_local_activity_valid: Callable[[str], None]
+    __temporal_stream_backend_native: Callable[[], bool]
 
 
 class _ReplaySafeMetricMeter(temporalio.common.MetricMeter):

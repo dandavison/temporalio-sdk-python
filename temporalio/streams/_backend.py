@@ -5,11 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import IntEnum
 
 import temporalio.api.failure.v1
 import temporalio.api.protocol.v1
+from temporalio.bridge.proto.streams import WorkflowReadRequest, WorkflowReadResponse
 from temporalio.streams._record import (
     ActivityProducer,
     AppendRecord,
@@ -30,6 +31,21 @@ class CloseStatus(IntEnum):
     TIMED_OUT = 5
 
 
+class StreamMode(IntEnum):
+    """How a stream's owner appends its own records, which decides how workflows read it."""
+
+    UNKNOWN = 0
+    """Not yet known: the owner is a workflow whose first workflow task has not completed, or no
+    read has told the mode yet."""
+    SINK = 1
+    """The owner's records are appended as it runs, so a failed workflow task attempt's records
+    can be read, and are then withdrawn. Always the mode of a Standalone Activity's stream, and of
+    every stream on a backend other than native."""
+    COMMIT = 2
+    """The owning workflow's records become visible when its workflow task commits. Workflows
+    read the stream with recorded Read operations."""
+
+
 @dataclass(frozen=True)
 class StreamClose:
     """The close of a stream: written by its owner, or by the native server when the owner ends."""
@@ -44,12 +60,18 @@ class ReadResponse:
     """The result of a read.
 
     ``cursor`` is where the next read resumes, past records a topic filter skipped. ``close`` is
-    set once the stream is closed and the reader has every record.
+    set once the stream is closed and the reader has every record. ``mode`` is the stream's mode
+    for the owner's current run. On native, ``owner_close_time`` is set once the owner has closed,
+    and ``retention`` is then the namespace's retention, after which the stream is removed; on
+    Redis ``retention`` is the backend's, which applies from the stream's last write.
     """
 
     records: Sequence[Record]
     cursor: bytes | None
     close: StreamClose | None
+    mode: StreamMode = StreamMode.UNKNOWN
+    owner_close_time: datetime | None = None
+    retention: timedelta | None = None
 
 
 @dataclass(frozen=True)
@@ -72,9 +94,11 @@ class WorkflowEnding:
 class WorkflowActivationCompleted:
     """The records a successful activation appended to its workflow's own stream.
 
-    ``commit_mode`` is set when the workflow's definition declares commit mode. ``close`` is set
-    when the workflow closed its own stream in the activation, after the records. ``ending`` is set
-    when the activation's completion ends the run.
+    ``commit_mode`` is set when the workflow's definition declares commit mode, and
+    ``declare_mode`` for the activations of the run's first workflow task while not replaying, in
+    which a commit-mode run declares its mode. ``close`` is set when the workflow closed its own
+    stream in the activation, after the records. ``ending`` is set when the activation's completion
+    ends the run.
     """
 
     ref: StreamRef
@@ -83,6 +107,7 @@ class WorkflowActivationCompleted:
     ending: WorkflowEnding | None
     commit_mode: bool = False
     close: StreamClose | None = None
+    declare_mode: bool = False
 
 
 class StreamBackend(ABC):
@@ -137,6 +162,8 @@ class StreamBackend(ABC):
         max_records: int = 0,
         wait: timedelta = timedelta(0),
         last: int = 0,
+        until: bytes | None = None,
+        max_bytes: int = 0,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ReadResponse:
@@ -144,11 +171,22 @@ class StreamBackend(ABC):
 
         ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
         matching record. ``last``, if positive, reads the last N matching records instead. Markers
-        match every topic filter, and count towards ``max_records`` and ``last``. A backend that
-        makes RPCs uses ``rpc_metadata`` and ``rpc_timeout`` for each; others ignore them.
+        match every topic filter, and count towards ``max_records`` and ``last``. ``until`` stops
+        the read after the record at that cursor. ``max_bytes``, if positive, stops the read before
+        the record that would take its payloads past it; a record that alone exceeds it raises
+        :py:class:`temporalio.streams.StreamTooLargeError`. A backend that makes RPCs uses
+        ``rpc_metadata`` and ``rpc_timeout`` for each; others ignore them.
 
         A read from the beginning of a stream that does not exist yet waits, and returns no
         records when ``wait`` passes. A read after a cursor of a stream that does not exist fails.
+        """
+
+    @abstractmethod
+    async def workflow_read(self, request: WorkflowReadRequest) -> WorkflowReadResponse:
+        """A workflow's read, made by the SDK's read local activity and again by replay: a read
+        that does not wait, with the SHA-256 digest of its records. On a backend whose readers wait
+        on the owner's notifier, with ``request.notifier`` set, a read that finds nothing reads the
+        notifier's position and then reads again. The messages are the temporalio-streams crate's.
         """
 
     @abstractmethod

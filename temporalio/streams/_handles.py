@@ -13,6 +13,7 @@ import temporalio.client
 import temporalio.converter
 from temporalio.streams._backend import CloseStatus, StreamClose
 from temporalio.streams._iterator import (
+    ClientRecordIterator,
     StreamCursor,
     StreamRecord,
     StreamRecordAsyncIterator,
@@ -22,6 +23,7 @@ from temporalio.streams._publisher import Publisher, claim_producer
 from temporalio.streams._record import ActivityProducer, ClientProducer
 from temporalio.streams._ref import StreamRef
 from temporalio.streams.backend import client_backend
+from temporalio.streams.native import NativeStreamBackend
 
 T = TypeVar("T")
 
@@ -40,6 +42,8 @@ class StreamReader(Protocol):
         topics: Sequence[str] | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
+        hold_provisional: bool | None = None,
+        hold_timeout: timedelta = timedelta(minutes=5),
         type_hint: type | None = None,
     ) -> StreamRecordAsyncIterator[Any]:
         """Iterate over the stream's records after ``after``, or from the beginning.
@@ -50,6 +54,12 @@ class StreamReader(Protocol):
             page_size: The most records each read returns, markers included.
             wait_new_records: Wait for new records at the stream's end, and end only at its close.
                 Otherwise the iteration ends at the stream's current end.
+            hold_provisional: Yield records in stream order, holding back the first provisional
+                record, and every later one, until its workflow task commits or ``hold_timeout``
+                passes (see :py:class:`StreamRecordAsyncIterator`). Native only: raises
+                ``ValueError`` on another backend, which writes no commit records. Unset means
+                true in workflow code on native, and false otherwise.
+            hold_timeout: How long a record may be held.
             type_hint: The type to decode values as. Without it, values decode as the payload
                 converter's default.
         """
@@ -85,14 +95,16 @@ class TopicReader(Generic[T]):
         after: StreamCursor | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
+        **kwargs: Any,
     ) -> StreamRecordAsyncIterator[T]:
-        """See :py:meth:`StreamReader.fetch_records`."""
+        """See the stream handle's ``fetch_records``, whose other options it takes."""
         return self._reader.fetch_records(
             after=after,
             topics=[self._name],
             page_size=page_size,
             wait_new_records=wait_new_records,
             type_hint=self._type,
+            **kwargs,
         )
 
 
@@ -141,21 +153,31 @@ class StreamHandle:
         topics: Sequence[str] | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
+        hold_provisional: bool | None = None,
+        hold_timeout: timedelta = timedelta(minutes=5),
         type_hint: type | None = None,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> StreamRecordAsyncIterator[Any]:
         """See :py:meth:`StreamReader.fetch_records`. ``rpc_metadata`` and ``rpc_timeout`` apply to
-        each read's RPCs on native; other backends ignore them.
+        each read's RPCs on native; other backends ignore them. A client waits for a held record's
+        commit by long-polling.
         """
-        return StreamRecordAsyncIterator(
-            client_backend(self._client),
+        backend = client_backend(self._client)
+        if hold_provisional and not isinstance(backend, NativeStreamBackend):
+            raise ValueError(
+                "hold_provisional needs the native backend, which writes commit records"
+            )
+        return ClientRecordIterator(
+            backend,
             self._ref,
             self._client.data_converter,
             after=after,
             topics=topics,
             page_size=page_size,
             wait_new_records=wait_new_records,
+            hold_provisional=bool(hold_provisional),
+            hold_timeout=hold_timeout,
             type_hint=type_hint,
             rpc_metadata=rpc_metadata,
             rpc_timeout=rpc_timeout,
@@ -359,6 +381,8 @@ class ActivityStreamHandle:
         topics: Sequence[str] | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
+        hold_provisional: bool | None = None,
+        hold_timeout: timedelta = timedelta(minutes=5),
         type_hint: type | None = None,
     ) -> StreamRecordAsyncIterator[Any]:
         """See :py:meth:`StreamReader.fetch_records`."""
@@ -367,6 +391,8 @@ class ActivityStreamHandle:
             topics=topics,
             page_size=page_size,
             wait_new_records=wait_new_records,
+            hold_provisional=hold_provisional,
+            hold_timeout=hold_timeout,
             type_hint=type_hint,
         )
 

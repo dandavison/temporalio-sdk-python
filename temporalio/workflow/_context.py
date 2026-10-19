@@ -510,6 +510,9 @@ class _Runtime(ABC):
     def workflow_stream_append(self, topic: str, value: Any) -> None: ...
 
     @abstractmethod
+    def workflow_stream_backend_native(self) -> bool: ...
+
+    @abstractmethod
     def workflow_stream_close(
         self, failure: BaseException | None, reason: str
     ) -> None: ...

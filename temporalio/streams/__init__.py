@@ -12,8 +12,8 @@ Handles by context:
 * Workflow code gets its own stream's :py:class:`WorkflowStreamHandle` from
   :py:func:`temporalio.workflow.stream`, and a read-only :py:class:`ExternalStreamHandle` to
   another owner's stream from :py:func:`temporalio.workflow.get_stream_handle` or
-  :py:meth:`temporalio.workflow.ExternalWorkflowHandle.stream`. Reading in workflow code is not
-  implemented yet.
+  :py:meth:`temporalio.workflow.ExternalWorkflowHandle.stream`. Workflow code reads and waits as
+  the read iterator describes (see :py:class:`StreamRecordAsyncIterator`).
 * Activity code gets an :py:class:`ActivityStreamHandle` from :py:func:`temporalio.activity.stream`:
   its workflow's stream for a workflow or local activity, and its own for a Standalone Activity.
 
@@ -36,6 +36,7 @@ from __future__ import annotations
 from temporalio.streams._backend import (
     CloseStatus,
     StreamClose,
+    StreamMode,
 )
 from temporalio.streams._errors import (
     EpochFencedError,
@@ -47,6 +48,7 @@ from temporalio.streams._errors import (
     StreamCursorError,
     StreamError,
     StreamExpiredError,
+    StreamModeUnknownError,
     StreamNotFoundError,
     StreamNotOwnerError,
     StreamTooLargeError,
@@ -64,7 +66,6 @@ from temporalio.streams._handles import (
 from temporalio.streams._iterator import (
     RecordStatus,
     StreamCursor,
-    StreamMode,
     StreamRecord,
     StreamRecordAsyncIterator,
     Withdrawal,
@@ -98,6 +99,7 @@ __all__ = [
     "StreamExpiredError",
     "StreamHandle",
     "StreamMode",
+    "StreamModeUnknownError",
     "StreamNotFoundError",
     "StreamNotOwnerError",
     "StreamProducer",

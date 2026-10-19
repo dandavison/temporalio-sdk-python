@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -9,9 +11,15 @@ from datetime import timedelta
 from enum import IntEnum
 from typing import Any, Generic, NewType, TypeVar
 
+import temporalio.api.common.v1
 import temporalio.converter
-from temporalio.streams._backend import CloseStatus, StreamBackend, StreamClose
-from temporalio.streams._record import ProducerIdentity, Record, WorkflowAppendMode
+from temporalio.streams._backend import (
+    CloseStatus,
+    StreamBackend,
+    StreamClose,
+    StreamMode,
+)
+from temporalio.streams._record import ProducerIdentity, Record
 from temporalio.streams._ref import StreamRef
 
 T = TypeVar("T")
@@ -35,18 +43,6 @@ class RecordStatus(IntEnum):
 
     FINAL = 1
     PROVISIONAL = 2
-
-
-class StreamMode(IntEnum):
-    """How the stream's owner appends its own records."""
-
-    UNKNOWN = 0
-    """No read has told the mode yet."""
-    SINK = 1
-    """The owner's records are appended as it runs, so a failed workflow task attempt's records
-    can be read, and are then withdrawn."""
-    COMMIT = 2
-    """The owning workflow's records become visible when its workflow task commits."""
 
 
 @dataclass(frozen=True)
@@ -73,13 +69,14 @@ class Withdrawal:
     producer: ProducerIdentity
 
 
-class StreamRecordAsyncIterator(Generic[T]):
+class StreamRecordAsyncIterator(ABC, Generic[T]):
     """Asynchronous iterator over a stream's records, in stream order, and notices of records it
     yielded earlier that are withdrawn.
 
     It makes no request until the first iteration. Without ``wait_new_records`` it ends at the
-    stream's current end; with it, it waits for new records and ends only at the stream's close.
-    Markers and producers' finish records are never yielded.
+    stream's current end; with it, it waits for new records and ends only at the stream's close,
+    or, in workflow code, when continue-as-new is suggested or the owner ended without closing the
+    stream. Markers and producers' finish records are never yielded.
 
     Each record is yielded with its status as the iterator knows it: records it has read but not
     yet yielded count, so a reader that trails the writers usually receives committed records as
@@ -88,38 +85,22 @@ class StreamRecordAsyncIterator(Generic[T]):
     cursor of every record it yielded at each producer's current epoch, and of every provisional
     record until its workflow task commits, so its memory grows with the records it reads.
 
+    With ``hold_provisional`` (native only), it yields records in stream order but stops at the
+    first provisional record until its workflow task's commit record arrives, so a held record
+    holds back every later record, and :py:attr:`cursor` never passes it. A task that keeps failing
+    never commits, so the hold lasts at most ``hold_timeout``; then the held record is yielded as
+    provisional, and a :py:class:`Withdrawal` follows if it is withdrawn later. At the stream's
+    close every held record is yielded as provisional.
+
     Only native writes the commit records that make workflow records final, so on another backend
     every workflow and local activity record is provisional, and a failed workflow task attempt's
     record is withdrawn only if the attempt that completes the task appends in it.
     """
 
-    def __init__(
-        self,
-        backend: StreamBackend,
-        ref: StreamRef,
-        data_converter: temporalio.converter.DataConverter,
-        *,
-        after: StreamCursor | None,
-        topics: Sequence[str] | None,
-        page_size: int | None,
-        wait_new_records: bool,
-        type_hint: type | None,
-        rpc_metadata: Mapping[str, str | bytes],
-        rpc_timeout: timedelta | None,
-    ) -> None:
+    def __init__(self, *, after: StreamCursor | None, hold_provisional: bool) -> None:
         """Create an iterator. Use ``fetch_records`` on a stream handle instead."""
-        self._backend = backend
-        self._ref = ref
-        self._data_converter = data_converter
-        self._read_after = after
-        self._topics = topics or ()
-        self._page_size = page_size or 0
-        self._wait_new_records = wait_new_records
-        self._type_hint = type_hint
-        self._rpc_metadata = rpc_metadata
-        self._rpc_timeout = rpc_timeout
         self._items: deque[StreamRecord[T] | Withdrawal] = deque()
-        self._rule = _FailedAttemptRule()
+        self._rule = _FailedAttemptRule(hold_provisional)
         self._ended = False
         self.cursor: StreamCursor | None = after
         """Where to resume so that no record is lost: the cursor of the last record yielded, or
@@ -127,12 +108,15 @@ class StreamRecordAsyncIterator(Generic[T]):
         self.close: StreamClose | None = None
         """Set when the iteration ended at the stream's close."""
         self.owner_end: CloseStatus | None = None
-        """Not set yet: reserved for an owner that ended without its stream reporting a close."""
-        self.mode = StreamMode.SINK if ref.activity_id else StreamMode.UNKNOWN
-        """The owner's mode: sink for a Standalone Activity, and for a workflow the mode its run's
-        append mode record gave, if the iterator has read one. The read response does not report
-        the mode, so a read that starts after that record, or of a backend that writes none, leaves
-        it unknown."""
+        """Set, in workflow code, when the iteration ended because the owner ended and no close
+        arrived within ``close_wait``. Only a backend whose closes the owner's worker writes, such
+        as Redis, has owners that end without closing their stream."""
+        self.mode = StreamMode.UNKNOWN
+        """The stream's mode, from the latest read."""
+        self.continue_as_new_suggested = False
+        """Set, in workflow code, when the iteration ended because continue-as-new is suggested:
+        by the server, or because this iterator's reads made it advisable (see
+        :py:class:`temporalio.streams.ExternalStreamHandle`)."""
 
     def __aiter__(self) -> StreamRecordAsyncIterator[T]:
         """Return self."""
@@ -149,37 +133,77 @@ class StreamRecordAsyncIterator(Generic[T]):
             self.cursor = item.cursor
         return item
 
+    @abstractmethod
+    async def _read(self) -> None:
+        """Read once, adding what it yields to the items, or end the iteration."""
+
+
+class ClientRecordIterator(StreamRecordAsyncIterator[T]):
+    """The iterator of clients and activities, which long-poll."""
+
+    def __init__(
+        self,
+        backend: StreamBackend,
+        ref: StreamRef,
+        data_converter: temporalio.converter.DataConverter,
+        *,
+        after: StreamCursor | None,
+        topics: Sequence[str] | None,
+        page_size: int | None,
+        wait_new_records: bool,
+        hold_provisional: bool,
+        hold_timeout: timedelta,
+        type_hint: type | None,
+        rpc_metadata: Mapping[str, str | bytes],
+        rpc_timeout: timedelta | None,
+    ) -> None:
+        """Create an iterator. Use ``fetch_records`` on a stream handle instead."""
+        super().__init__(after=after, hold_provisional=hold_provisional)
+        self._backend = backend
+        self._ref = ref
+        self._data_converter = data_converter
+        self._read_after = after
+        self._topics = topics or ()
+        self._page_size = page_size or 0
+        self._wait_new_records = wait_new_records
+        self._hold_timeout = hold_timeout.total_seconds()
+        self._hold_deadline: tuple[tuple[str, int], float] | None = None
+        self._type_hint = type_hint
+        self._rpc_metadata = rpc_metadata
+        self._rpc_timeout = rpc_timeout
+
     async def _read(self) -> None:
         resp = await self._backend.read(
             self._ref,
             after=self._read_after,
             topics=self._topics,
             max_records=self._page_size,
-            wait=_READ_WAIT if self._wait_new_records else timedelta(0),
+            wait=_READ_WAIT
+            if self._wait_new_records or self._rule.held()
+            else timedelta(0),
             rpc_metadata=self._rpc_metadata,
             rpc_timeout=self._rpc_timeout,
         )
         self._read_after = (
             StreamCursor(resp.cursor) if resp.cursor else self._read_after
         )
-        for r in resp.records:
-            if r.workflow_append_mode:
-                self.mode = (
-                    StreamMode.COMMIT
-                    if r.workflow_append_mode.mode == WorkflowAppendMode.COMMIT
-                    else StreamMode.SINK
-                )
-        self._items.extend(
-            await _decode(
-                self._data_converter,
-                list(self._rule.judge(resp.records)),
-                self._type_hint,
-            )
-        )
+        self.mode = resp.mode
+        judged = list(self._rule.judge(resp.records))
+        held = self._rule.held()
+        if held and (not self._hold_deadline or self._hold_deadline[0] != held):
+            self._hold_deadline = (held, time.monotonic() + self._hold_timeout)
+        if resp.close:
+            while self._rule.held():
+                judged.extend(self._rule.release_held())
+        elif (
+            held and self._hold_deadline and time.monotonic() >= self._hold_deadline[1]
+        ):
+            judged.extend(self._rule.release_held())
+        self._items.extend(await _decode(self._data_converter, judged, self._type_hint))
         if resp.close:
             self.close = resp.close
             self._ended = True
-        elif not resp.records and not self._wait_new_records:
+        elif not resp.records and not self._wait_new_records and not self._rule.held():
             self._ended = True
 
 
@@ -221,21 +245,49 @@ async def _decode(
     judged: list[tuple[Record, RecordStatus] | Withdrawal],
     type_hint: type | None,
 ) -> list[StreamRecord[Any] | Withdrawal]:
-    payloads = [
-        j[0].payload
-        for j in judged
-        if isinstance(j, tuple) and j[0].payload is not None
-    ]
-    values = iter(
+    payloads = _payloads(judged)
+    values = (
         await data_converter.decode(
             payloads, [type_hint] * len(payloads) if type_hint else None
         )
         if payloads
         else []
     )
+    return _with_values(judged, values)
+
+
+def decode_decoded(
+    payload_converter: temporalio.converter.PayloadConverter,
+    judged: list[tuple[Record, RecordStatus] | Withdrawal],
+    type_hint: type | None,
+) -> list[StreamRecord[Any] | Withdrawal]:
+    """The records with their values, from payloads that the codec has already decoded, as in
+    workflow code.
+    """
+    payloads = _payloads(judged)
+    values = (
+        payload_converter.from_payloads(
+            payloads, [type_hint] * len(payloads) if type_hint else None
+        )
+        if payloads
+        else []
+    )
+    return _with_values(judged, values)
+
+
+def _payloads(
+    judged: list[tuple[Record, RecordStatus] | Withdrawal],
+) -> list[temporalio.api.common.v1.Payload]:
+    return [j[0].payload for j in judged if isinstance(j, tuple) and j[0].payload]
+
+
+def _with_values(
+    judged: list[tuple[Record, RecordStatus] | Withdrawal], values: Sequence[Any]
+) -> list[StreamRecord[Any] | Withdrawal]:
+    it = iter(values)
     return [
         StreamRecord(
-            value=next(values),
+            value=next(it),
             topic=j[0].topic,
             cursor=StreamCursor(j[0].cursor),
             producer=j[0].producer,
@@ -264,36 +316,60 @@ class _FailedAttemptRule:
     record's next workflow task, and provisional otherwise. A record of any producer is withdrawn
     when a record of the same producer at a higher epoch follows. A workflow producer's epoch is
     compared only within one workflow task, since every task starts again at attempt 1.
+
+    With ``hold``, records are released in stream order, and the first provisional record holds
+    back every later one until it is final or withdrawn, or until :py:meth:`release_held`.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, hold: bool = False) -> None:
+        self._hold = hold
         self._commits: dict[tuple[str, int], int] = {}
         self._created: dict[str, int] = {}
         self._epochs: dict[tuple[str, int], _Yielded] = {}
+        self._seen: dict[tuple[str, int], tuple[int, ...]] = {}
         self._provisional: dict[tuple[str, int], list[Record]] = {}
+        self._queue: deque[Record] = deque()
+        self._released: set[tuple[str, int]] = set()
 
     def judge(
         self, records: Sequence[Record]
     ) -> Iterator[tuple[Record, RecordStatus] | Withdrawal]:
-        """Yield each data record of a page with its status, leaving out withdrawn records, and
-        a withdrawal notice for each record yielded from an earlier page that this page withdraws.
+        """Yield each data record of a page that is released, with its status, leaving out
+        withdrawn records, and a withdrawal notice for each record yielded earlier that this page
+        withdraws.
         """
-        page_epochs: dict[tuple[str, int], tuple[int, ...]] = {}
         for r in records:
             if c := r.workflow_task_commit:
                 self._commits[c.workflow_run_id, c.workflow_task] = c.attempt
+                yield from self._resolve(c.workflow_run_id, c.workflow_task, c.attempt)
             elif s := r.stream_created:
                 self._created[s.workflow_run_id] = s.next_workflow_task
             elif not r.is_marker:
                 key, epoch = _epoch(r)
-                page_epochs[key] = max(epoch, page_epochs.get(key, epoch))
-        for r in records:
-            if c := r.workflow_task_commit:
-                yield from self._resolve(c.workflow_run_id, c.workflow_task, c.attempt)
-                continue
-            if r.is_marker:
-                continue
+                self._seen[key] = max(epoch, self._seen.get(key, epoch))
+                self._queue.append(r)
+        yield from self._release()
+
+    def held(self) -> tuple[str, int] | None:
+        """The workflow task (run ID, task) of the record that holds back the rest, if any."""
+        if not self._queue:
+            return None
+        p = self._queue[0].producer
+        return p.workflow_run_id, p.workflow_task
+
+    def release_held(self) -> Iterator[tuple[Record, RecordStatus] | Withdrawal]:
+        """Stop holding the records of the held workflow task, releasing them as they are."""
+        if held := self.held():
+            self._released.add(held)
+            yield from self._release()
+
+    def _release(self) -> Iterator[tuple[Record, RecordStatus] | Withdrawal]:
+        while self._queue:
+            r = self._queue[0]
             key, epoch = _epoch(r)
+            if epoch < self._seen[key]:
+                self._queue.popleft()
+                continue
             yielded = self._epochs.get(key)
             if not yielded or epoch > yielded.epoch:
                 if yielded:
@@ -303,14 +379,19 @@ class _FailedAttemptRule:
                     )
                 yielded = self._epochs[key] = _Yielded(epoch)
                 self._forget_earlier_tasks(r)
-            if r.finish or epoch < yielded.epoch or epoch < page_epochs[key]:
-                continue
-            status = self._status(r)
+            status = None if r.finish else self._status(r)
+            p = r.producer
+            if (
+                status == RecordStatus.PROVISIONAL
+                and self._hold
+                and (p.workflow_run_id, p.workflow_task) not in self._released
+            ):
+                return
+            self._queue.popleft()
             if status is None:
                 continue
             yielded.records.append(r)
             if status == RecordStatus.PROVISIONAL:
-                p = r.producer
                 self._provisional.setdefault(
                     (p.workflow_run_id, p.workflow_task), []
                 ).append(r)
@@ -350,6 +431,7 @@ class _FailedAttemptRule:
             k for k in self._epochs if k[0] == p.producer and k[1] < p.workflow_task
         ]:
             del self._epochs[key]
+            self._seen.pop(key, None)
 
 
 def _epoch(r: Record) -> tuple[tuple[str, int], tuple[int, ...]]:

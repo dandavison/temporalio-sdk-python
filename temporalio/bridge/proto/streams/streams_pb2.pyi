@@ -577,6 +577,51 @@ class WorkflowReadRequest(google.protobuf.message.Message):
 
 global___WorkflowReadRequest = WorkflowReadRequest
 
+class WorkflowReadMarker(google.protobuf.message.Message):
+    """What a workflow's History holds for one read of a sink-mode stream, as the result of the SDK's
+    read local activity: the request, and the response without its records. Replay reads the range
+    (request.read.after, response.read.cursor] again, and checks it against response.digest. When the
+    response's mode is commit or unknown, the read keeps no records and does not advance the cursor.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    REQUEST_FIELD_NUMBER: builtins.int
+    RESPONSE_FIELD_NUMBER: builtins.int
+    RECORD_COUNT_FIELD_NUMBER: builtins.int
+    @property
+    def request(self) -> global___WorkflowReadRequest: ...
+    @property
+    def response(self) -> global___WorkflowReadResponse: ...
+    record_count: builtins.int
+    """How many records the read returned."""
+    def __init__(
+        self,
+        *,
+        request: global___WorkflowReadRequest | None = ...,
+        response: global___WorkflowReadResponse | None = ...,
+        record_count: builtins.int = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "request", b"request", "response", b"response"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "record_count",
+            b"record_count",
+            "request",
+            b"request",
+            "response",
+            b"response",
+        ],
+    ) -> None: ...
+
+global___WorkflowReadMarker = WorkflowReadMarker
+
 class WorkflowReadResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -660,6 +705,7 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     ENDING_FIELD_NUMBER: builtins.int
     COMMIT_MODE_FIELD_NUMBER: builtins.int
     CLOSE_FIELD_NUMBER: builtins.int
+    DECLARE_MODE_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     run_id: builtins.str
     first_run_id: builtins.str
@@ -691,6 +737,12 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
         then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
         failing.
         """
+    declare_mode: builtins.bool
+    """Set for each activation of the run's first workflow task, while not replaying. In commit mode
+    the crate then returns a StreamModeDeclaration message, once per task attempt, before the
+    records' messages, so the server learns the run's mode from its first completion, with or
+    without records.
+    """
     def __init__(
         self,
         *,
@@ -707,6 +759,7 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
         commit_mode: builtins.bool = ...,
         close: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
         | None = ...,
+        declare_mode: builtins.bool = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -721,6 +774,8 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
             b"close",
             "commit_mode",
             b"commit_mode",
+            "declare_mode",
+            b"declare_mode",
             "ending",
             b"ending",
             "first_run_id",

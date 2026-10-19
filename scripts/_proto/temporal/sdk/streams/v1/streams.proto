@@ -129,6 +129,17 @@ message WorkflowReadRequest {
     bool notifier = 2;
 }
 
+// What a workflow's History holds for one read of a sink-mode stream, as the result of the SDK's
+// read local activity: the request, and the response without its records. Replay reads the range
+// (request.read.after, response.read.cursor] again, and checks it against response.digest. When the
+// response's mode is commit or unknown, the read keeps no records and does not advance the cursor.
+message WorkflowReadMarker {
+    WorkflowReadRequest request = 1;
+    WorkflowReadResponse response = 2;
+    // How many records the read returned.
+    int32 record_count = 3;
+}
+
 message WorkflowReadResponse {
     temporal.api.nexusservices.streamservice.v1.ReadResponse read = 1;
     // SHA-256 over the records as returned: each record's cursor, producer identity, topic, finish,
@@ -171,6 +182,11 @@ message WorkflowActivationCompletedRequest {
     // then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
     // failing.
     temporal.api.nexusservices.streamservice.v1.StreamClose close = 9;
+    // Set for each activation of the run's first workflow task, while not replaying. In commit mode
+    // the crate then returns a StreamModeDeclaration message, once per task attempt, before the
+    // records' messages, so the server learns the run's mode from its first completion, with or
+    // without records.
+    bool declare_mode = 10;
 }
 
 // How a run ends, from the terminal command of its completion.
