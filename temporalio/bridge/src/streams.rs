@@ -26,17 +26,24 @@ pub fn new_native_streams(client: &client::ClientRef, options: &[u8]) -> PyResul
     })
 }
 
+/// A Redis backend, which calls the server through the client's connection for the owners'
+/// notifiers.
 pub fn new_redis_streams<'a>(
     py: Python<'a>,
-    runtime_ref: &runtime::RuntimeRef,
+    client: &client::ClientRef,
     options: &[u8],
 ) -> PyResult<Bound<'a, PyAny>> {
     let options =
         RedisOptions::decode(options).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let runtime = runtime_ref.runtime.clone();
-    runtime_ref.runtime.future_into_py(py, async move {
+    let runtime = client.runtime.clone();
+    let connection = client.connection.clone();
+    client.runtime.future_into_py(py, async move {
         Ok(StreamsRef {
-            streams: Arc::new(Streams::redis(options).await.map_err(stream_error)?),
+            streams: Arc::new(
+                Streams::redis(options, Some(connection))
+                    .await
+                    .map_err(stream_error)?,
+            ),
             runtime,
         })
     })

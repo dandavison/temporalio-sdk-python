@@ -113,6 +113,7 @@ class Success(google.protobuf.message.Message):
     USED_INTERNAL_FLAGS_FIELD_NUMBER: builtins.int
     VERSIONING_BEHAVIOR_FIELD_NUMBER: builtins.int
     PROTOCOL_MESSAGES_FIELD_NUMBER: builtins.int
+    FORCE_NEW_WORKFLOW_TASK_FIELD_NUMBER: builtins.int
     @property
     def commands(
         self,
@@ -141,6 +142,12 @@ class Success(google.protobuf.message.Message):
         because of nondeterminism. They are dropped if the task fails. Core queues them also while
         replaying, so lang must not send them then.
         """
+    force_new_workflow_task: builtins.bool
+    """Lang asks Core to complete the workflow task now, with force_create_new_workflow_task, while
+    the local activities it scheduled keep running; their results arrive in the next task, as
+    after Core's local activity heartbeat. Ignored when no local activity is outstanding, and
+    while replaying. Prototype: needs SDK-team approval.
+    """
     def __init__(
         self,
         *,
@@ -154,12 +161,15 @@ class Success(google.protobuf.message.Message):
             temporalio.api.protocol.v1.message_pb2.Message
         ]
         | None = ...,
+        force_new_workflow_task: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "commands",
             b"commands",
+            "force_new_workflow_task",
+            b"force_new_workflow_task",
             "protocol_messages",
             b"protocol_messages",
             "used_internal_flags",

@@ -119,10 +119,10 @@ fn new_native_streams(client: &client::ClientRef, options: &[u8]) -> PyResult<st
 #[pyfunction]
 fn new_redis_streams<'a>(
     py: Python<'a>,
-    runtime_ref: &runtime::RuntimeRef,
+    client: &client::ClientRef,
     options: &[u8],
 ) -> PyResult<Bound<'a, PyAny>> {
-    streams::new_redis_streams(py, runtime_ref, options)
+    streams::new_redis_streams(py, client, options)
 }
 
 #[pyfunction]

@@ -63,7 +63,10 @@ message Producer {
     }
 }
 
-// "Append". Appends the records as one atomic, contiguous batch.
+// "Append". Appends the records as one atomic, contiguous batch. On Redis, a stored append or close
+// is followed by a Notify of the stream's owner, coalesced per stream to at most one every 100 ms and
+// always one after the stream's last write. A failed Notify, after 30 s of retries, fails nothing:
+// it is logged, and the next write sends another.
 message AppendRequest {
     StreamRef stream = 1;
     Producer producer = 2;
@@ -92,7 +95,9 @@ message CloseRequest {
 message CloseResponse {
 }
 
-// "Read". The response is a temporal.api.nexusservices.streamservice.v1.ReadResponse.
+// "Read". The response is a temporal.api.nexusservices.streamservice.v1.ReadResponse. On Redis its
+// mode is always sink, owner_close_time is never set, and retention is the backend's retention,
+// which applies from the stream's last write.
 message ReadRequest {
     StreamRef stream = 1;
     // Empty means from the beginning.
@@ -106,12 +111,45 @@ message ReadRequest {
     // "-bin" is binary metadata; other values must be ASCII. Redis ignores both.
     map<string, bytes> rpc_metadata = 7;
     google.protobuf.Duration rpc_timeout = 8;
+    // If set, reads no record after the one at this cursor: XRANGE (after, until] on Redis.
+    bytes until = 9;
+    // If positive, the read stops before the first record whose payload would take the records'
+    // payloads past this many bytes, and a record that alone exceeds it fails as TOO_LARGE.
+    int64 max_bytes = 10;
+}
+
+// "WorkflowRead". A workflow's read of a stream, which the SDK's read local activity makes, and
+// which replay makes again for the recorded range. It reads as Read does, but does not wait. The
+// response is a WorkflowReadResponse.
+message WorkflowReadRequest {
+    ReadRequest read = 1;
+    // When the read returns no records and no close, read the owner's notifier state and then read
+    // again, so that a Wait at that position misses no Notify. Redis only: a native Wait checks the
+    // stream itself.
+    bool notifier = 2;
+}
+
+message WorkflowReadResponse {
+    temporal.api.nexusservices.streamservice.v1.ReadResponse read = 1;
+    // SHA-256 over the records as returned: each record's cursor, producer identity, topic, finish,
+    // markers, and payload (metadata in key order, then data, after the codec). Replay re-reads the
+    // range and compares it.
+    bytes digest = 2;
+    // Set when notifier was set and the second read also returned nothing.
+    temporal.api.nexusservices.streamservice.v1.NotifierStateResponse notifier = 3;
+    // The owner's run that the notifier position belongs to: a workflow's first run ID, or the
+    // activity's run ID. Set with notifier.
+    string owner_run_id = 4;
+    // Set, instead of notifier, when the owner does not exist.
+    bool owner_not_found = 5;
 }
 
 // "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
 // activation's completion is sent. Appends the activation's records, splitting them into appends
 // that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-// appends of the activation stay stored. Then writes close, if set.
+// appends of the activation stay stored. Then writes close, if set. On Redis, if it wrote anything,
+// it then sends one Notify of the owner, without retries; a failed Notify fails nothing and is
+// logged, and the run's next write sends another.
 message WorkflowActivationCompletedRequest {
     string workflow_id = 1;
     string run_id = 2;
@@ -161,10 +199,12 @@ message WorkflowEvictedRequest {
 message WorkflowEvictedResponse {
 }
 
+// The Redis backend also calls the Temporal server, through the connection it is given: Notify
+// after appends, and NotifierState and owner lookups for workflow reads.
 message RedisOptions {
     string url = 1;
-    // Part of every key, so that namespaces sharing a Redis do not share streams. Not checked
-    // against the Temporal namespace.
+    // Part of every key, so that namespaces sharing a Redis do not share streams, and the Temporal
+    // namespace of the owners' notifiers.
     string namespace = 2;
     // How long a stream's data is kept after its last write; reads do not extend it. Required.
     google.protobuf.Duration retention = 3;

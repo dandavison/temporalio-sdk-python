@@ -13,6 +13,7 @@ import google.protobuf.duration_pb2
 import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
+import google.protobuf.timestamp_pb2
 
 import temporalio.api.common.v1.message_pb2
 import temporalio.api.failure.v1.message_pb2
@@ -213,12 +214,95 @@ records from a task attempt that does not complete are never delivered. Native o
 """
 global___WorkflowAppendMode = WorkflowAppendMode
 
+class _StreamMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _StreamModeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_StreamMode.ValueType],
+    builtins.type,
+):  # noqa: F821
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    STREAM_MODE_UNSPECIFIED: _StreamMode.ValueType  # 0
+    """Not yet known: the owner is a workflow whose first workflow task has not completed. A
+    workflow does not read the stream until the mode is known; it waits.
+    """
+    STREAM_MODE_SINK: _StreamMode.ValueType  # 1
+    """The default, and always for a Standalone Activity owner. A workflow reads with a local
+    activity, and records only the range and a digest.
+    """
+    STREAM_MODE_COMMIT: _StreamMode.ValueType  # 2
+    """Declared by a workflow owner. Its own records are appended at workflow task commit, and a
+    workflow reads with synchronous Read operations, whose results, Records included, are in its
+    History.
+    """
+
+class StreamMode(_StreamMode, metaclass=_StreamModeEnumTypeWrapper):
+    """A stream's mode, which its owner declares, and which decides how workflows read it."""
+
+STREAM_MODE_UNSPECIFIED: StreamMode.ValueType  # 0
+"""Not yet known: the owner is a workflow whose first workflow task has not completed. A
+workflow does not read the stream until the mode is known; it waits.
+"""
+STREAM_MODE_SINK: StreamMode.ValueType  # 1
+"""The default, and always for a Standalone Activity owner. A workflow reads with a local
+activity, and records only the range and a digest.
+"""
+STREAM_MODE_COMMIT: StreamMode.ValueType  # 2
+"""Declared by a workflow owner. Its own records are appended at workflow task commit, and a
+workflow reads with synchronous Read operations, whose results, Records included, are in its
+History.
+"""
+global___StreamMode = StreamMode
+
+class _WakeReason:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _WakeReasonEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_WakeReason.ValueType],
+    builtins.type,
+):  # noqa: F821
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    WAKE_REASON_UNSPECIFIED: _WakeReason.ValueType  # 0
+    WAKE_REASON_APPENDED: _WakeReason.ValueType  # 1
+    """A matching record was appended, or Notify was called."""
+    WAKE_REASON_CLOSED: _WakeReason.ValueType  # 2
+    """The stream closed."""
+    WAKE_REASON_OWNER_ENDED: _WakeReason.ValueType  # 3
+    """The owner ended without closing the stream (external stores), or continued as new."""
+    WAKE_REASON_OWNER_NOT_FOUND: _WakeReason.ValueType  # 4
+    """The owner does not exist."""
+    WAKE_REASON_MODE_KNOWN: _WakeReason.ValueType  # 5
+    """The stream's mode became known."""
+    WAKE_REASON_EXPIRED: _WakeReason.ValueType  # 6
+    """The subscription expired."""
+
+class WakeReason(_WakeReason, metaclass=_WakeReasonEnumTypeWrapper):
+    """Why a Wait completed. Every wake may be spurious: the reader reads again."""
+
+WAKE_REASON_UNSPECIFIED: WakeReason.ValueType  # 0
+WAKE_REASON_APPENDED: WakeReason.ValueType  # 1
+"""A matching record was appended, or Notify was called."""
+WAKE_REASON_CLOSED: WakeReason.ValueType  # 2
+"""The stream closed."""
+WAKE_REASON_OWNER_ENDED: WakeReason.ValueType  # 3
+"""The owner ended without closing the stream (external stores), or continued as new."""
+WAKE_REASON_OWNER_NOT_FOUND: WakeReason.ValueType  # 4
+"""The owner does not exist."""
+WAKE_REASON_MODE_KNOWN: WakeReason.ValueType  # 5
+"""The stream's mode became known."""
+WAKE_REASON_EXPIRED: WakeReason.ValueType  # 6
+"""The subscription expired."""
+global___WakeReason = WakeReason
+
 class StreamRef(google.protobuf.message.Message):
     """(--
     Prototype. Operations of the "temporalio.api.nexusservices.streamservice.v1.StreamService" service on
-    the System Nexus Endpoint: "Append", "Read" and "Close". Callers make them as synchronous direct
-    Nexus calls (StartNexusOperation), which the server accepts only when CHASM and
-    frontend.enableDirectNexusCalls are enabled. They operate on the stream owned by a workflow run
+    the System Nexus Endpoint: "Append", "Read", "Close", "NotifierState" and "Notify", which callers
+    make as synchronous direct Nexus calls (StartNexusOperation), accepted only when CHASM and
+    frontend.enableDirectNexusCalls are enabled; and "Wait", an asynchronous operation that workflows
+    call as an ordinary Nexus operation. They operate on the stream owned by a workflow run
     chain or a Standalone Activity execution. The server stores the stream embedded in its owner, so
     the stream exists only while its owner does. A failed operation returns an operation failure whose
     ApplicationFailureInfo type is the name of a StreamFailureType value; a malformed request fails
@@ -928,6 +1012,8 @@ class ReadRequest(google.protobuf.message.Message):
     MAX_RECORDS_FIELD_NUMBER: builtins.int
     WAIT_FIELD_NUMBER: builtins.int
     LAST_FIELD_NUMBER: builtins.int
+    UNTIL_FIELD_NUMBER: builtins.int
+    MAX_BYTES_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
     after: builtins.bytes
@@ -956,6 +1042,15 @@ class ReadRequest(google.protobuf.message.Message):
     """If positive, reads the last N matching records instead, ignoring the cursor's position and
     wait. The response cursor is then the stream's end.
     """
+    until: builtins.bytes
+    """If set, reads no record after the one at this cursor, which must be of the same stream. A
+    workflow's replay re-reads a recorded range with it.
+    """
+    max_bytes: builtins.int
+    """If positive, the records' payloads total at most this many bytes: the read stops before the
+    first record that would exceed it, and the response cursor resumes at that record. A record
+    that alone exceeds it fails the read as TOO_LARGE.
+    """
     def __init__(
         self,
         *,
@@ -965,6 +1060,8 @@ class ReadRequest(google.protobuf.message.Message):
         max_records: builtins.int = ...,
         wait: google.protobuf.duration_pb2.Duration | None = ...,
         last: builtins.int = ...,
+        until: builtins.bytes = ...,
+        max_bytes: builtins.int = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -977,12 +1074,16 @@ class ReadRequest(google.protobuf.message.Message):
             b"after",
             "last",
             b"last",
+            "max_bytes",
+            b"max_bytes",
             "max_records",
             b"max_records",
             "stream",
             b"stream",
             "topics",
             b"topics",
+            "until",
+            b"until",
             "wait",
             b"wait",
         ],
@@ -996,6 +1097,9 @@ class ReadResponse(google.protobuf.message.Message):
     RECORDS_FIELD_NUMBER: builtins.int
     CURSOR_FIELD_NUMBER: builtins.int
     CLOSE_FIELD_NUMBER: builtins.int
+    MODE_FIELD_NUMBER: builtins.int
+    OWNER_CLOSE_TIME_FIELD_NUMBER: builtins.int
+    RETENTION_FIELD_NUMBER: builtins.int
     @property
     def records(
         self,
@@ -1011,24 +1115,286 @@ class ReadResponse(google.protobuf.message.Message):
         """Set once the stream is closed and the reader has every record. A read of the last N records
         sets it whenever the stream is closed.
         """
+    mode: global___StreamMode.ValueType
+    """The stream's mode for the owner's current run."""
+    @property
+    def owner_close_time(self) -> google.protobuf.timestamp_pb2.Timestamp:
+        """Set once the owner has closed. With retention, when the stream will be removed."""
+    @property
+    def retention(self) -> google.protobuf.duration_pb2.Duration:
+        """The namespace's retention, which applies from owner_close_time."""
     def __init__(
         self,
         *,
         records: collections.abc.Iterable[global___Record] | None = ...,
         cursor: builtins.bytes = ...,
         close: global___StreamClose | None = ...,
+        mode: global___StreamMode.ValueType = ...,
+        owner_close_time: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        retention: google.protobuf.duration_pb2.Duration | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing_extensions.Literal["close", b"close"]
+        self,
+        field_name: typing_extensions.Literal[
+            "close",
+            b"close",
+            "owner_close_time",
+            b"owner_close_time",
+            "retention",
+            b"retention",
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "close", b"close", "cursor", b"cursor", "records", b"records"
+            "close",
+            b"close",
+            "cursor",
+            b"cursor",
+            "mode",
+            b"mode",
+            "owner_close_time",
+            b"owner_close_time",
+            "records",
+            b"records",
+            "retention",
+            b"retention",
         ],
     ) -> None: ...
 
 global___ReadResponse = ReadResponse
+
+class StreamModeDeclaration(google.protobuf.message.Message):
+    """A workflow owner's declaration of its stream's mode, sent as the body of a protocol message in
+    the completion of each run's first workflow task. Only a workflow that declares commit mode sends
+    it; a run that does not send it has a sink-mode stream.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    MODE_FIELD_NUMBER: builtins.int
+    mode: global___StreamMode.ValueType
+    def __init__(
+        self,
+        *,
+        mode: global___StreamMode.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["mode", b"mode"]
+    ) -> None: ...
+
+global___StreamModeDeclaration = StreamModeDeclaration
+
+class WaitRequest(google.protobuf.message.Message):
+    """Input of the asynchronous "Wait" operation, which a workflow calls, as an ordinary Nexus
+    operation, after a read returned nothing. It completes at once if what it waits for is already
+    there; otherwise it stores a subscription, which the stream completes once, and removes.
+
+    For a native stream, set after and topics: the next matching append, or the close, completes it.
+    For a stream in an external store, set notifier: the next Notify of the owner completes it.
+
+    It also completes when the owner continues as new or closes, when the owner does not exist, when
+    the stream's mode becomes known, and when the subscription expires. A stream holds at most 2,000
+    unfired subscriptions; beyond that Wait fails with ResourceExhausted.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STREAM_FIELD_NUMBER: builtins.int
+    AFTER_FIELD_NUMBER: builtins.int
+    TOPICS_FIELD_NUMBER: builtins.int
+    NOTIFIER_FIELD_NUMBER: builtins.int
+    LIFETIME_FIELD_NUMBER: builtins.int
+    @property
+    def stream(self) -> global___StreamRef: ...
+    after: builtins.bytes
+    """A native stream: wait for a matching record after this cursor.
+    (-- api-linter: core::0140::prepositions=disabled
+        aip.dev/not-precedent: as ReadRequest.after. --)
+    """
+    @property
+    def topics(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[
+        builtins.str
+    ]: ...
+    @property
+    def notifier(self) -> global___NotifierPosition:
+        """A stream in an external store: wait for a Notify after this position."""
+    @property
+    def lifetime(self) -> google.protobuf.duration_pb2.Duration:
+        """How long the subscription lives before it expires. Zero means 7 days, the most."""
+    def __init__(
+        self,
+        *,
+        stream: global___StreamRef | None = ...,
+        after: builtins.bytes = ...,
+        topics: collections.abc.Iterable[builtins.str] | None = ...,
+        notifier: global___NotifierPosition | None = ...,
+        lifetime: google.protobuf.duration_pb2.Duration | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "lifetime", b"lifetime", "notifier", b"notifier", "stream", b"stream"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "after",
+            b"after",
+            "lifetime",
+            b"lifetime",
+            "notifier",
+            b"notifier",
+            "stream",
+            b"stream",
+            "topics",
+            b"topics",
+        ],
+    ) -> None: ...
+
+global___WaitRequest = WaitRequest
+
+class NotifierPosition(google.protobuf.message.Message):
+    """The state of an owner's notifier, for a stream in an external store: a counter that each Notify
+    increments, kept in memory on the owner's History host, and a generation that changes whenever
+    the counter is lost. Wait completes at once if either differs from the current one.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    GENERATION_FIELD_NUMBER: builtins.int
+    COUNTER_FIELD_NUMBER: builtins.int
+    generation: builtins.int
+    counter: builtins.int
+    def __init__(
+        self,
+        *,
+        generation: builtins.int = ...,
+        counter: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "counter", b"counter", "generation", b"generation"
+        ],
+    ) -> None: ...
+
+global___NotifierPosition = NotifierPosition
+
+class WaitResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    REASON_FIELD_NUMBER: builtins.int
+    OWNER_END_FIELD_NUMBER: builtins.int
+    MODE_FIELD_NUMBER: builtins.int
+    reason: global___WakeReason.ValueType
+    owner_end: global___CloseState.ValueType
+    """Set when reason is OWNER_ENDED: the state the owner ended in."""
+    mode: global___StreamMode.ValueType
+    """The stream's mode, as in ReadResponse."""
+    def __init__(
+        self,
+        *,
+        reason: global___WakeReason.ValueType = ...,
+        owner_end: global___CloseState.ValueType = ...,
+        mode: global___StreamMode.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "mode", b"mode", "owner_end", b"owner_end", "reason", b"reason"
+        ],
+    ) -> None: ...
+
+global___WaitResponse = WaitResponse
+
+class NotifierStateRequest(google.protobuf.message.Message):
+    """Input of the "NotifierState" operation: reads the owner's notifier position, for a stream in an
+    external store.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STREAM_FIELD_NUMBER: builtins.int
+    @property
+    def stream(self) -> global___StreamRef: ...
+    def __init__(
+        self,
+        *,
+        stream: global___StreamRef | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["stream", b"stream"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["stream", b"stream"]
+    ) -> None: ...
+
+global___NotifierStateRequest = NotifierStateRequest
+
+class NotifierStateResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    POSITION_FIELD_NUMBER: builtins.int
+    OWNER_END_FIELD_NUMBER: builtins.int
+    @property
+    def position(self) -> global___NotifierPosition: ...
+    owner_end: global___CloseState.ValueType
+    """Set when the owner has ended: the state it ended in."""
+    def __init__(
+        self,
+        *,
+        position: global___NotifierPosition | None = ...,
+        owner_end: global___CloseState.ValueType = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["position", b"position"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "owner_end", b"owner_end", "position", b"position"
+        ],
+    ) -> None: ...
+
+global___NotifierStateResponse = NotifierStateResponse
+
+class NotifyRequest(google.protobuf.message.Message):
+    """Input of the "Notify" operation: a producer to a stream in an external store calls it after
+    appending. It fires the owner's subscriptions, and writes nothing when there are none. A Notify to
+    an owner that does not exist succeeds and does nothing.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STREAM_FIELD_NUMBER: builtins.int
+    @property
+    def stream(self) -> global___StreamRef: ...
+    def __init__(
+        self,
+        *,
+        stream: global___StreamRef | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["stream", b"stream"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["stream", b"stream"]
+    ) -> None: ...
+
+global___NotifyRequest = NotifyRequest
+
+class NotifyResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+global___NotifyResponse = NotifyResponse
 
 class CloseRequest(google.protobuf.message.Message):
     """Input of the "Close" operation. Only the stream's owner may close the stream: for a

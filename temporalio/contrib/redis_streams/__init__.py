@@ -14,7 +14,12 @@ in Redis, instead of in Temporal:
     )
 
 The calls are made by the temporalio-streams crate, through the bridge; the server never talks to
-Redis. A stream is keyed by the client's namespace and its owner's kind and ID and its run: a
+Redis. Workflow readers of a stream wait on its owner's notifier in the server, which producers
+wake: after an activity's or a client's appends, the backend sends a Notify through the client's
+connection, at most one per stream every 100 ms and always one after the last append; after a
+workflow's activation appends, the worker sends one before completing the activation. A failed
+Notify fails nothing: it is logged, and the next append sends another. A reader is not woken if a
+producer stops between an append and its Notify. A stream is keyed by the client's namespace and its owner's kind and ID and its run: a
 workflow's first run ID, or a Standalone Activity's run ID, which an append needs. Every append and
 close goes through one Lua script, which checks and writes in one step. Producers that XADD to the
 log directly are not supported. Every write refreshes the keys' time-to-live, the retention.
@@ -57,7 +62,6 @@ from datetime import timedelta
 
 import temporalio.bridge.temporal_sdk_bridge
 import temporalio.client
-import temporalio.runtime
 import temporalio.service
 from temporalio.bridge.proto.streams import RedisOptions
 from temporalio.streams._crate import CrateStreamBackend
@@ -83,9 +87,9 @@ class RedisStreamsPlugin(temporalio.client.Plugin):
         """Set the client's stream backend, keyed by the client's namespace."""
         config["stream_backend"] = RedisStreamBackend(
             self._url,
+            config["service_client"],
             config["namespace"],
             retention=self._retention,
-            runtime=config["service_client"].config.runtime,
         )
         return config
 
@@ -109,17 +113,18 @@ class RedisStreamBackend(CrateStreamBackend):
     def __init__(
         self,
         url: str,
+        service_client: temporalio.service.ServiceClient,
         namespace: str,
         *,
         retention: timedelta = timedelta(days=7),
-        runtime: temporalio.runtime.Runtime | None = None,
     ) -> None:
-        """Store streams in the Redis at ``url``, keyed by ``namespace``. It connects on first use,
-        and that call fails if the deployment could lose stream data silently.
+        """Store streams in the Redis at ``url``, keyed by ``namespace``, calling the server in
+        that namespace through ``service_client``. It connects on first use, and that call fails if
+        the deployment could lose stream data silently.
         """
         self._options = RedisOptions(url=url, namespace=namespace)
         self._options.retention.FromTimedelta(retention)
-        self._runtime = runtime
+        self._service_client = service_client
         self._ref: temporalio.bridge.temporal_sdk_bridge.StreamsRef | None = None
         self._connecting: asyncio.Lock | None = None
 
@@ -128,10 +133,18 @@ class RedisStreamBackend(CrateStreamBackend):
             self._connecting = self._connecting or asyncio.Lock()
             async with self._connecting:
                 if not self._ref:
-                    runtime = self._runtime or temporalio.runtime.Runtime.default()
+                    from temporalio.worker._worker import (
+                        _extract_bridge_client_for_worker,
+                    )
+
+                    bridge_client = await _extract_bridge_client_for_worker(
+                        temporalio.client.Client(
+                            self._service_client, namespace=self._options.namespace
+                        )
+                    )._connected_client()
                     self._ref = (
                         await temporalio.bridge.temporal_sdk_bridge.new_redis_streams(
-                            runtime._core_runtime._ref,
+                            bridge_client._ref,
                             self._options.SerializeToString(),
                         )
                     )

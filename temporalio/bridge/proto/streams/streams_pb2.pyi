@@ -269,7 +269,11 @@ class Producer(google.protobuf.message.Message):
 global___Producer = Producer
 
 class AppendRequest(google.protobuf.message.Message):
-    """ "Append". Appends the records as one atomic, contiguous batch."""
+    """ "Append". Appends the records as one atomic, contiguous batch. On Redis, a stored append or close
+    is followed by a Notify of the stream's owner, coalesced per stream to at most one every 100 ms and
+    always one after the stream's last write. A failed Notify, after 30 s of retries, fails nothing:
+    it is logged, and the next write sends another.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -426,7 +430,10 @@ class CloseResponse(google.protobuf.message.Message):
 global___CloseResponse = CloseResponse
 
 class ReadRequest(google.protobuf.message.Message):
-    """ "Read". The response is a temporalio.api.nexusservices.streamservice.v1.ReadResponse."""
+    """ "Read". The response is a temporalio.api.nexusservices.streamservice.v1.ReadResponse. On Redis its
+    mode is always sink, owner_close_time is never set, and retention is the backend's retention,
+    which applies from the stream's last write.
+    """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -456,6 +463,8 @@ class ReadRequest(google.protobuf.message.Message):
     LAST_FIELD_NUMBER: builtins.int
     RPC_METADATA_FIELD_NUMBER: builtins.int
     RPC_TIMEOUT_FIELD_NUMBER: builtins.int
+    UNTIL_FIELD_NUMBER: builtins.int
+    MAX_BYTES_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
     after: builtins.bytes
@@ -480,6 +489,12 @@ class ReadRequest(google.protobuf.message.Message):
         """
     @property
     def rpc_timeout(self) -> google.protobuf.duration_pb2.Duration: ...
+    until: builtins.bytes
+    """If set, reads no record after the one at this cursor: XRANGE (after, until] on Redis."""
+    max_bytes: builtins.int
+    """If positive, the read stops before the first record whose payload would take the records'
+    payloads past this many bytes, and a record that alone exceeds it fails as TOO_LARGE.
+    """
     def __init__(
         self,
         *,
@@ -492,6 +507,8 @@ class ReadRequest(google.protobuf.message.Message):
         rpc_metadata: collections.abc.Mapping[builtins.str, builtins.bytes]
         | None = ...,
         rpc_timeout: google.protobuf.duration_pb2.Duration | None = ...,
+        until: builtins.bytes = ...,
+        max_bytes: builtins.int = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -506,6 +523,8 @@ class ReadRequest(google.protobuf.message.Message):
             b"after",
             "last",
             b"last",
+            "max_bytes",
+            b"max_bytes",
             "max_records",
             b"max_records",
             "rpc_metadata",
@@ -516,6 +535,8 @@ class ReadRequest(google.protobuf.message.Message):
             b"stream",
             "topics",
             b"topics",
+            "until",
+            b"until",
             "wait",
             b"wait",
         ],
@@ -523,11 +544,109 @@ class ReadRequest(google.protobuf.message.Message):
 
 global___ReadRequest = ReadRequest
 
+class WorkflowReadRequest(google.protobuf.message.Message):
+    """ "WorkflowRead". A workflow's read of a stream, which the SDK's read local activity makes, and
+    which replay makes again for the recorded range. It reads as Read does, but does not wait. The
+    response is a WorkflowReadResponse.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    READ_FIELD_NUMBER: builtins.int
+    NOTIFIER_FIELD_NUMBER: builtins.int
+    @property
+    def read(self) -> global___ReadRequest: ...
+    notifier: builtins.bool
+    """When the read returns no records and no close, read the owner's notifier state and then read
+    again, so that a Wait at that position misses no Notify. Redis only: a native Wait checks the
+    stream itself.
+    """
+    def __init__(
+        self,
+        *,
+        read: global___ReadRequest | None = ...,
+        notifier: builtins.bool = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["read", b"read"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal["notifier", b"notifier", "read", b"read"],
+    ) -> None: ...
+
+global___WorkflowReadRequest = WorkflowReadRequest
+
+class WorkflowReadResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    READ_FIELD_NUMBER: builtins.int
+    DIGEST_FIELD_NUMBER: builtins.int
+    NOTIFIER_FIELD_NUMBER: builtins.int
+    OWNER_RUN_ID_FIELD_NUMBER: builtins.int
+    OWNER_NOT_FOUND_FIELD_NUMBER: builtins.int
+    @property
+    def read(
+        self,
+    ) -> (
+        temporalio.api.nexusservices.streamservice.v1.request_response_pb2.ReadResponse
+    ): ...
+    digest: builtins.bytes
+    """SHA-256 over the records as returned: each record's cursor, producer identity, topic, finish,
+    markers, and payload (metadata in key order, then data, after the codec). Replay re-reads the
+    range and compares it.
+    """
+    @property
+    def notifier(
+        self,
+    ) -> temporalio.api.nexusservices.streamservice.v1.request_response_pb2.NotifierStateResponse:
+        """Set when notifier was set and the second read also returned nothing."""
+    owner_run_id: builtins.str
+    """The owner's run that the notifier position belongs to: a workflow's first run ID, or the
+    activity's run ID. Set with notifier.
+    """
+    owner_not_found: builtins.bool
+    """Set, instead of notifier, when the owner does not exist."""
+    def __init__(
+        self,
+        *,
+        read: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.ReadResponse
+        | None = ...,
+        digest: builtins.bytes = ...,
+        notifier: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.NotifierStateResponse
+        | None = ...,
+        owner_run_id: builtins.str = ...,
+        owner_not_found: builtins.bool = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal["notifier", b"notifier", "read", b"read"],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "digest",
+            b"digest",
+            "notifier",
+            b"notifier",
+            "owner_not_found",
+            b"owner_not_found",
+            "owner_run_id",
+            b"owner_run_id",
+            "read",
+            b"read",
+        ],
+    ) -> None: ...
+
+global___WorkflowReadResponse = WorkflowReadResponse
+
 class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     """ "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
     activation's completion is sent. Appends the activation's records, splitting them into appends
     that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-    appends of the activation stay stored. Then writes close, if set.
+    appends of the activation stay stored. Then writes close, if set. On Redis, if it wrote anything,
+    it then sends one Notify of the owner, without retries; a failed Notify fails nothing and is
+    logged, and the run's next write sends another.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -724,6 +843,10 @@ class WorkflowEvictedResponse(google.protobuf.message.Message):
 global___WorkflowEvictedResponse = WorkflowEvictedResponse
 
 class RedisOptions(google.protobuf.message.Message):
+    """The Redis backend also calls the Temporal server, through the connection it is given: Notify
+    after appends, and NotifierState and owner lookups for workflow reads.
+    """
+
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     URL_FIELD_NUMBER: builtins.int
@@ -731,8 +854,8 @@ class RedisOptions(google.protobuf.message.Message):
     RETENTION_FIELD_NUMBER: builtins.int
     url: builtins.str
     namespace: builtins.str
-    """Part of every key, so that namespaces sharing a Redis do not share streams. Not checked
-    against the Temporal namespace.
+    """Part of every key, so that namespaces sharing a Redis do not share streams, and the Temporal
+    namespace of the owners' notifiers.
     """
     @property
     def retention(self) -> google.protobuf.duration_pb2.Duration:

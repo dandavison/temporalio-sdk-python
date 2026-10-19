@@ -650,3 +650,13 @@ class PayloadVisitor:
         self, fs: VisitorFunctions, o: Any
     ) -> None:
         pass
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_ReadRequest(
+        self, fs: VisitorFunctions, o: Any
+    ) -> None:
+        pass
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_WaitRequest(
+        self, fs: VisitorFunctions, o: Any
+    ) -> None:
+        pass
