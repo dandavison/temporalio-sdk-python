@@ -1,20 +1,30 @@
 """Streams owned by a workflow run chain or a Standalone Activity: ordered records that workflows,
-activities and clients append, and that readers read from a cursor.
+activities and clients publish, and that readers read from a cursor.
 
 .. warning::
     This API is a prototype and will change.
 
-A workflow appends to its own stream with :py:func:`workflow_append`. By default the worker
-appends the records at the end of each activation, before sending its completion, using the
-worker's ``stream_backend``; a failed workflow task attempt may already have delivered records.
-With the native backend's commit mode, the records travel in the workflow task completion instead,
-and only the committed attempt's records are delivered. In both modes the append is not a command
-and adds nothing to history, and replay does not send the records again.
+Handles by context:
 
-Every record carries the (producer, epoch, seq) of its append. A reader may receive records from a
-lower epoch of a producer before records from a higher one, for example from a failed activity
-attempt and then from its retry; the epoch tells the reader which to discard. A final failed
-activity attempt has no successor, so its records are never superseded; a reader learns of it from
+* A client gets a :py:class:`StreamHandle` from ``stream()`` on a workflow or activity handle, or
+  from :py:meth:`temporalio.client.Client.get_stream_handle`. It reads, and publishes through
+  named producers (:py:meth:`StreamHandle.producer`).
+* Workflow code gets its own stream's :py:class:`WorkflowStreamHandle` from
+  :py:func:`temporalio.workflow.stream`. Reading in workflow code is not implemented yet.
+* Activity code gets an :py:class:`ActivityStreamHandle` from :py:func:`temporalio.activity.stream`:
+  its workflow's stream for a workflow or local activity, and its own for a Standalone Activity.
+
+Handles carry no type. A value's type is given per topic, with ``topic(name, type=T)``, or per
+read, with ``type_hint=``; otherwise values decode as the payload converter's default.
+
+A client and its workers store streams in Temporal (native) unless a plugin, such as
+:py:class:`temporalio.contrib.redis_streams.RedisStreamsPlugin`, gives the client another backend.
+
+Every record carries the producer and epoch of its append. A failed workflow task attempt, or an
+activity attempt or client incarnation superseded by a higher epoch, may already have delivered
+records. A reader receives each record with its status, and a :py:class:`Withdrawal` notice if a
+record it received is withdrawn later (see :py:class:`StreamRecordAsyncIterator`). A final failed
+activity attempt has no successor, so its records are never withdrawn; a reader learns of it from
 the activity's outcome.
 """
 
@@ -22,14 +32,7 @@ from __future__ import annotations
 
 from temporalio.streams._backend import (
     CloseStatus,
-    ReadResponse,
-    StreamBackend,
     StreamClose,
-    WorkflowActivationCompleted,
-    WorkflowEnding,
-)
-from temporalio.streams._body import (
-    decode,
 )
 from temporalio.streams._errors import (
     EpochFencedError,
@@ -48,62 +51,59 @@ from temporalio.streams._errors import (
     WorkflowAppendModeMismatchError,
 )
 from temporalio.streams._handles import (
-    StreamWriter,
+    ActivityStreamHandle,
+    PublishingTopicHandle,
+    StreamHandle,
+    StreamProducer,
+    StreamReader,
+    TopicReader,
+)
+from temporalio.streams._iterator import (
+    RecordStatus,
+    StreamCursor,
+    StreamMode,
+    StreamRecord,
+    StreamRecordAsyncIterator,
+    Withdrawal,
 )
 from temporalio.streams._record import (
-    ActivityProducer,
-    AppendRecord,
-    ClientProducer,
-    Producer,
     ProducerIdentity,
-    Record,
-    StreamCreated,
-    WorkflowAppendMode,
-    WorkflowAppendModeFixed,
-    WorkflowProducer,
-    WorkflowTaskCommit,
-)
-from temporalio.streams._ref import (
-    StreamRef,
 )
 from temporalio.streams._workflow import (
-    workflow_append,
+    WorkflowStreamHandle,
+    WorkflowTopicHandle,
 )
 
 __all__ = [
-    "WorkflowAppendModeMismatchError",
-    "WorkflowAppendModeFixed",
-    "WorkflowAppendMode",
-    "StreamCreated",
-    "WorkflowEnding",
-    "WorkflowActivationCompleted",
-    "StreamUnavailableError",
-    "StreamTooLargeError",
-    "SeqGapError",
-    "ActivityProducer",
-    "AppendRecord",
-    "ClientProducer",
+    "ActivityStreamHandle",
     "CloseStatus",
     "EpochFencedError",
-    "Producer",
     "ProducerIdentity",
-    "ReadResponse",
-    "Record",
+    "PublishingTopicHandle",
+    "RecordStatus",
     "SeqDivergentError",
+    "SeqGapError",
     "SeqStaleError",
     "SpeculativeWorkflowTaskError",
-    "StreamBackend",
     "StreamClose",
     "StreamClosedError",
+    "StreamCursor",
     "StreamCursorError",
     "StreamError",
     "StreamExpiredError",
+    "StreamHandle",
+    "StreamMode",
     "StreamNotFoundError",
     "StreamNotOwnerError",
-    "StreamRef",
-    "StreamWriter",
-    "WorkflowProducer",
-    "WorkflowTaskCommit",
-    "decode",
-    "workflow_append",
+    "StreamProducer",
+    "StreamReader",
+    "StreamRecord",
+    "StreamRecordAsyncIterator",
+    "StreamTooLargeError",
+    "StreamUnavailableError",
+    "TopicReader",
+    "Withdrawal",
+    "WorkflowAppendModeMismatchError",
+    "WorkflowStreamHandle",
+    "WorkflowTopicHandle",
 ]

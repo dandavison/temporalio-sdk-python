@@ -12,6 +12,7 @@ import temporalio.api.common.v1
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.converter
+import temporalio.streams
 import temporalio.worker._workflow_instance
 import temporalio.workflow
 from temporalio.converter._extstore import StorageDriverStoreContext
@@ -84,11 +85,14 @@ class InSandbox:
         """Send activation to this instance."""
         return self.instance.activate(act)
 
-    def take_stream_appends(
+    def take_stream_writes(
         self,
-    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
-        """Take the records the workflow appended to its stream."""
-        return self.instance.take_stream_appends()
+    ) -> tuple[
+        list[tuple[str, temporalio.api.common.v1.Payload]],
+        temporalio.streams.StreamClose | None,
+    ]:
+        """Take the records the workflow appended to its stream, and its close."""
+        return self.instance.take_stream_writes()
 
     def get_serialization_context(
         self,

@@ -17,6 +17,7 @@ import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.common
 import temporalio.converter
+import temporalio.streams
 import temporalio.workflow
 from temporalio.converter._extstore import StorageDriverStoreContext
 from temporalio.worker import _command_aware_visitor
@@ -192,17 +193,20 @@ class _Instance(WorkflowInstance):
     def get_info(self) -> temporalio.workflow.Info:
         return self.instance_details.info
 
-    def take_stream_appends(
+    def take_stream_writes(
         self,
-    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
+    ) -> tuple[
+        list[tuple[str, temporalio.api.common.v1.Payload]],
+        temporalio.streams.StreamClose | None,
+    ]:
         self.importer.restriction_context.is_runtime = True
         try:
             self._run_code(
                 "with __temporal_importer.applied():\n"
-                "  __temporal_stream_appends = __temporal_in_sandbox.take_stream_appends()\n",
+                "  __temporal_stream_writes = __temporal_in_sandbox.take_stream_writes()\n",
                 __temporal_importer=self.importer,
             )
-            return self.globals_and_locals.pop("__temporal_stream_appends")  # type: ignore
+            return self.globals_and_locals.pop("__temporal_stream_writes")  # type: ignore
         finally:
             self.importer.restriction_context.is_runtime = False
 

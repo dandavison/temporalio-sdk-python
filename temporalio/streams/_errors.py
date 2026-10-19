@@ -61,7 +61,7 @@ class StreamUnavailableError(StreamError):
 
 class WorkflowAppendModeMismatchError(StreamError):
     """A sink-mode workflow append to a run whose first workflow append fixed commit mode: the
-    run's workers disagree on the append mode.
+    run's workers have definitions of its workflow that disagree on commit mode.
 
     A commit-mode completion in the wrong mode does not raise it: the server fails the workflow
     task with an application failure of type ``BAD_STREAM_APPEND``, and the task is retried.

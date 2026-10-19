@@ -46,6 +46,7 @@ from typing_extensions import Self, TypedDict, TypeVarTuple, Unpack
 import temporalio.activity
 import temporalio.api.common.v1
 import temporalio.api.enums.v1
+import temporalio.api.failure.v1
 import temporalio.api.sdk.v1
 import temporalio.bridge.proto.activity_result
 import temporalio.bridge.proto.child_workflow
@@ -58,6 +59,7 @@ import temporalio.common
 import temporalio.converter
 import temporalio.exceptions
 import temporalio.nexus.system
+import temporalio.streams
 import temporalio.workflow
 from temporalio.converter import StorageDriverStoreContext, StorageDriverWorkflowInfo
 from temporalio.nexus.system.workflow_service._system_nexus_interceptor import (
@@ -244,13 +246,16 @@ class WorkflowInstance(ABC):
         """
         return None
 
-    def take_stream_appends(
+    def take_stream_writes(
         self,
-    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
-        """Return and clear the (topic, payload) records the workflow appended to its stream
-        since the last call.
+    ) -> tuple[
+        list[tuple[str, temporalio.api.common.v1.Payload]],
+        temporalio.streams.StreamClose | None,
+    ]:
+        """Return and clear the (topic, payload) records the workflow appended to its stream since
+        the last call, and the close it made since then, if any.
         """
-        return []
+        return [], None
 
 
 class UnsandboxedWorkflowRunner(WorkflowRunner):
@@ -415,6 +420,8 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         # metadata query
         self._current_details = ""
         self._stream_appends: list[tuple[str, temporalio.api.common.v1.Payload]] = []
+        self._stream_close: temporalio.streams.StreamClose | None = None
+        self._stream_closed = False
 
         self._last_completion_result = det.last_completion_result
         self._last_failure = det.last_failure
@@ -1960,6 +1967,8 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
 
     def workflow_stream_append(self, topic: str, value: Any) -> None:
         self._assert_not_read_only("append to a stream")
+        if self._stream_closed:
+            raise RuntimeError("The workflow closed its stream")
         # Replay runs only code of completed workflow tasks, whose records were appended, or in
         # commit mode sent in the completion, when the code first ran.
         if self._is_replaying:
@@ -1968,11 +1977,39 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
             (topic, self._workflow_context_payload_converter.to_payload(value))
         )
 
-    def take_stream_appends(
+    def workflow_stream_close(self, failure: BaseException | None, reason: str) -> None:
+        self._assert_not_read_only("close a stream")
+        if self._defn.stream_commit_mode:
+            raise NotImplementedError(
+                "A workflow that declares stream commit mode cannot close its own stream yet"
+            )
+        if self._stream_closed:
+            raise RuntimeError("The workflow closed its stream")
+        self._stream_closed = True
+        if self._is_replaying:
+            return
+        close = temporalio.streams.StreamClose(
+            temporalio.streams.CloseStatus.COMPLETED, reason=reason
+        )
+        if failure:
+            proto = temporalio.api.failure.v1.Failure()
+            self._workflow_context_failure_converter.to_failure(
+                failure, self._workflow_context_payload_converter, proto
+            )
+            close = temporalio.streams.StreamClose(
+                temporalio.streams.CloseStatus.FAILED, proto, reason
+            )
+        self._stream_close = close
+
+    def take_stream_writes(
         self,
-    ) -> list[tuple[str, temporalio.api.common.v1.Payload]]:
-        appends, self._stream_appends = self._stream_appends, []
-        return appends
+    ) -> tuple[
+        list[tuple[str, temporalio.api.common.v1.Payload]],
+        temporalio.streams.StreamClose | None,
+    ]:
+        writes = (self._stream_appends, self._stream_close)
+        self._stream_appends, self._stream_close = [], None
+        return writes
 
     def workflow_set_current_details(self, details: str):
         self._assert_not_read_only("set current details")

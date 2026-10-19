@@ -102,12 +102,16 @@ message ReadRequest {
     // Native caps it at 20 s; Redis does not cap it.
     google.protobuf.Duration wait = 5;
     int32 last = 6;
+    // gRPC metadata and deadline for each call that native makes for this read. A key ending in
+    // "-bin" is binary metadata; other values must be ASCII. Redis ignores both.
+    map<string, bytes> rpc_metadata = 7;
+    google.protobuf.Duration rpc_timeout = 8;
 }
 
 // "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
 // activation's completion is sent. Appends the activation's records, splitting them into appends
 // that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-// appends of the activation stay stored.
+// appends of the activation stay stored. Then writes close, if set.
 message WorkflowActivationCompletedRequest {
     string workflow_id = 1;
     string run_id = 2;
@@ -118,6 +122,17 @@ message WorkflowActivationCompletedRequest {
     repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 6;
     // Set when the completion ends the run.
     WorkflowEnding ending = 7;
+    // The run's workflow declares commit mode. Only native supports it; other backends fail the
+    // call. The server fixes a run's mode at its first workflow append, so a run whose workers
+    // disagree fails the workflow tasks of the workers in the other mode.
+    bool commit_mode = 8;
+    // The workflow closed its own stream in this activation. The crate closes the stream after
+    // appending the records, as the activation's workflow task, and then writes no close when the
+    // run ends. Not supported in commit mode: the close would precede the records, which travel in
+    // the task completion. The close is written before the task completes, so if the task attempt
+    // then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
+    // failing.
+    temporal.api.nexusservices.streamservice.v1.StreamClose close = 9;
 }
 
 // How a run ends, from the terminal command of its completion.
@@ -157,9 +172,5 @@ message RedisOptions {
 
 message NativeOptions {
     string namespace = 1;
-    // Workflows' own records travel in the workflow task completion and become visible when it
-    // commits, instead of being appended at the end of each activation. A run's first workflow
-    // append fixes its mode, so a worker whose setting differs from the one that fixed a run's mode
-    // fails that run's workflow tasks.
-    bool commit_mode = 2;
+    reserved 2;
 }

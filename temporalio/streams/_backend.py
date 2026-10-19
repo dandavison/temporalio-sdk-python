@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from enum import IntEnum
@@ -72,13 +72,17 @@ class WorkflowEnding:
 class WorkflowActivationCompleted:
     """The records a successful activation appended to its workflow's own stream.
 
-    ``ending`` is set when the activation's completion ends the run.
+    ``commit_mode`` is set when the workflow's definition declares commit mode. ``close`` is set
+    when the workflow closed its own stream in the activation, after the records. ``ending`` is set
+    when the activation's completion ends the run.
     """
 
     ref: StreamRef
     producer: WorkflowProducer
     records: Sequence[AppendRecord]
     ending: WorkflowEnding | None
+    commit_mode: bool = False
+    close: StreamClose | None = None
 
 
 class StreamBackend(ABC):
@@ -133,12 +137,15 @@ class StreamBackend(ABC):
         max_records: int = 0,
         wait: timedelta = timedelta(0),
         last: int = 0,
+        rpc_metadata: Mapping[str, str | bytes] = {},
+        rpc_timeout: timedelta | None = None,
     ) -> ReadResponse:
         """Read records after a cursor, or from the beginning.
 
         ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
         matching record. ``last``, if positive, reads the last N matching records instead. Markers
-        match every topic filter, and count towards ``max_records`` and ``last``.
+        match every topic filter, and count towards ``max_records`` and ``last``. A backend that
+        makes RPCs uses ``rpc_metadata`` and ``rpc_timeout`` for each; others ignore them.
 
         A read from the beginning of a stream that does not exist yet waits, and returns no
         records when ``wait`` passes. A read after a cursor of a stream that does not exist fails.
@@ -148,17 +155,17 @@ class StreamBackend(ABC):
     async def workflow_activation_completed(
         self, completed: WorkflowActivationCompleted
     ) -> Sequence[temporalio.api.protocol.v1.Message]:
-        """Append an activation's records. Called by the worker after each successful activation,
-        before its completion is sent.
+        """Append an activation's records, then write the workflow's own close if it made one.
+        Called by the worker after each successful activation, before its completion is sent.
 
         The worker does not call it for a failed activation: the retried workflow task appends
         those records again.
 
         In commit mode, returns the records as protocol messages instead, which the worker sends in
-        the activation's completion. If the completion ends the run, a backend that the server
-        cannot write to keeps the close until :py:meth:`workflow_evicted` says the server accepted
-        the completion, and keeps none for a completed cron run or a failed run with a retry
-        policy.
+        the activation's completion; a backend other than native raises. If the completion ends the
+        run and the workflow has not closed its stream, a backend that the server cannot write to
+        keeps the close until :py:meth:`workflow_evicted` says the server accepted the completion,
+        and keeps none for a completed cron run or a failed run with a retry policy.
         """
 
     @abstractmethod

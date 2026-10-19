@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import temporalio.activity
-import temporalio.client
-import temporalio.workflow
-
 
 @dataclass(frozen=True)
 class StreamRef:
@@ -30,30 +26,3 @@ class StreamRef:
             raise ValueError(
                 "a stream is named by exactly one of a workflow ID and an activity ID"
             )
-
-    @staticmethod
-    def for_handle(
-        handle: temporalio.client.WorkflowHandle | temporalio.client.ActivityHandle,
-    ) -> StreamRef:
-        """The stream of the workflow run chain or Standalone Activity a handle from starting it
-        belongs to.
-        """
-        if isinstance(handle, temporalio.client.ActivityHandle):
-            return StreamRef(activity_id=handle.id, activity_run_id=handle.run_id or "")
-        return StreamRef(handle.id, handle.first_execution_run_id or "")
-
-    @staticmethod
-    def for_workflow() -> StreamRef:
-        """The stream of the calling workflow's run chain. Must be called from workflow code."""
-        info = temporalio.workflow.info()
-        return StreamRef(info.workflow_id, info.first_execution_run_id)
-
-    @staticmethod
-    def for_activity() -> StreamRef:
-        """The stream of the calling Standalone Activity. Must be called from activity code."""
-        info = temporalio.activity.info()
-        if info.activity_run_id is None:
-            raise RuntimeError("only a Standalone Activity owns a stream")
-        return StreamRef(
-            activity_id=info.activity_id, activity_run_id=info.activity_run_id
-        )

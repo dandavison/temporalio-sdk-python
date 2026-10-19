@@ -110,6 +110,9 @@ from ._workflow import (
 )
 
 if TYPE_CHECKING:
+    import temporalio.streams
+    import temporalio.streams.backend
+
     from ._interceptor import Interceptor
     from ._plugin import Plugin
 
@@ -269,10 +272,13 @@ class Client:
         default_workflow_query_reject_condition: None
         | (temporalio.common.QueryRejectCondition) = None,
         header_codec_behavior: HeaderCodecBehavior = HeaderCodecBehavior.NO_CODEC,
+        stream_backend: temporalio.streams.backend.StreamBackend | None = None,
     ):
         """Create a Temporal client from a service client.
 
-        See :py:meth:`connect` for details on the parameters.
+        See :py:meth:`connect` for details on the parameters. ``stream_backend`` is the backend of
+        the client's streams, and its workers'; it is usually set by a plugin, and unset means
+        native. WARNING: Streams are a prototype.
         """
         # Store the config for tracking
         config = ClientConfig(
@@ -283,6 +289,7 @@ class Client:
             interceptors=interceptors,
             default_workflow_query_reject_condition=default_workflow_query_reject_condition,
             header_codec_behavior=header_codec_behavior,
+            stream_backend=stream_backend,
         )
         self._initial_config = config.copy()
 
@@ -2557,6 +2564,36 @@ class Client:
             result_type=result_type,
         )
 
+    def get_stream_handle(
+        self,
+        *,
+        workflow_id: str | None = None,
+        first_execution_run_id: str | None = None,
+        activity_id: str | None = None,
+        activity_run_id: str | None = None,
+    ) -> temporalio.streams.StreamHandle:
+        """Get a handle to the stream of a workflow run chain or a Standalone Activity.
+
+        Exactly one of ``workflow_id`` and ``activity_id`` must be set. Without a run ID, reads
+        read the owner ID's latest chain or execution; a Redis-backed stream needs the run ID for
+        appends.
+
+        .. warning::
+            Streams are a prototype and will change.
+        """
+        from temporalio.streams import StreamHandle
+        from temporalio.streams.backend import StreamRef
+
+        return StreamHandle(
+            self,
+            StreamRef(
+                workflow_id=workflow_id or "",
+                first_run_id=first_execution_run_id or "",
+                activity_id=activity_id or "",
+                activity_run_id=activity_run_id or "",
+            ),
+        )
+
     @overload
     def get_async_activity_handle(
         self, *, activity_id: str, run_id: str | None = None
@@ -3032,3 +3069,7 @@ class ClientConfig(TypedDict, total=False):
         temporalio.common.QueryRejectCondition | None
     ]
     header_codec_behavior: Required[HeaderCodecBehavior]
+    stream_backend: temporalio.streams.backend.StreamBackend | None
+    """The backend of the client's streams, and its workers'. Set by plugins; unset means native.
+
+    WARNING: Streams are a prototype."""

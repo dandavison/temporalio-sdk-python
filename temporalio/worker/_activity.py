@@ -654,23 +654,22 @@ class _ActivityWorker:
 
         # Set the context early so the logging adapter works and
         # interceptors have it
-        temporalio.activity._Context.set(
-            temporalio.activity._Context(
-                info=lambda: info,
-                heartbeat=None,
-                cancelled_event=running_activity.cancelled_event,
-                worker_shutdown_event=self._worker_shutdown_event,
-                shield_thread_cancel_exception=(
-                    None
-                    if not running_activity.cancel_thread_raiser
-                    else running_activity.cancel_thread_raiser.shielded
-                ),
-                payload_converter_class_or_instance=data_converter.payload_converter,
-                runtime_metric_meter=None if sync_non_threaded else self._metric_meter,
-                client=self._client if not running_activity.sync else None,
-                cancellation_details=running_activity.cancellation_details,
-            )
+        context = temporalio.activity._Context(
+            info=lambda: info,
+            heartbeat=None,
+            cancelled_event=running_activity.cancelled_event,
+            worker_shutdown_event=self._worker_shutdown_event,
+            shield_thread_cancel_exception=(
+                None
+                if not running_activity.cancel_thread_raiser
+                else running_activity.cancel_thread_raiser.shielded
+            ),
+            payload_converter_class_or_instance=data_converter.payload_converter,
+            runtime_metric_meter=None if sync_non_threaded else self._metric_meter,
+            client=self._client if not running_activity.sync else None,
+            cancellation_details=running_activity.cancellation_details,
         )
+        temporalio.activity._Context.set(context)
         temporalio.activity.logger.debug("Starting activity")
 
         # Build the interceptors chaining in reverse. We build a context right
@@ -681,7 +680,13 @@ class _ActivityWorker:
             impl = interceptor.intercept_activity(impl)
 
         impl.init(_ActivityOutboundImpl(self, running_activity.info))
-        return await impl.execute_activity(input)
+        try:
+            result = await impl.execute_activity(input)
+        except BaseException:
+            await _flush_stream(context, raise_failure=False)
+            raise
+        await _flush_stream(context, raise_failure=True)
+        return result
 
     def assert_activity_valid(self, activity: str) -> None:
         if self._dynamic_activity:
@@ -693,6 +698,24 @@ class _ActivityWorker:
                 f"Activity function {activity} "
                 f"is not registered on this worker, available activities: {activity_names}",
             )
+
+
+async def _flush_stream(
+    context: temporalio.activity._Context, *, raise_failure: bool
+) -> None:
+    """Flush what the activity published, before its attempt completes. A failure fails an attempt
+    that would otherwise succeed; an attempt that already fails keeps its own failure.
+    """
+    if not context.stream:
+        return
+    try:
+        await context.stream.flush()
+    except Exception:
+        if raise_failure:
+            raise
+        temporalio.activity.logger.warning(
+            "Failed flushing the stream of a failed activity attempt", exc_info=True
+        )
 
 
 @dataclass

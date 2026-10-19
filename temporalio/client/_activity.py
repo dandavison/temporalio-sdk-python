@@ -57,6 +57,8 @@ from ._interceptor import (
 )
 
 if TYPE_CHECKING:
+    import temporalio.streams
+
     from ._client import Client
     from ._interceptor import ListActivitiesInput
 
@@ -1002,6 +1004,16 @@ class ActivityHandle(Generic[ReturnType]):
     def run_id(self) -> str | None:
         """Run ID of the activity."""
         return self._run_id
+
+    def stream(self) -> temporalio.streams.StreamHandle:
+        """A handle to the stream this Standalone Activity owns.
+
+        .. warning::
+            Streams are a prototype and will change.
+        """
+        return self._client.get_stream_handle(
+            activity_id=self._id, activity_run_id=self._run_id
+        )
 
     async def result(
         self,

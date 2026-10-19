@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from abc import abstractmethod
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from typing import TypeVar
 
@@ -112,9 +113,9 @@ _M = TypeVar("_M", bound=Message)
 class CrateStreamBackend(StreamBackend):
     """A backend whose every call is made by the temporalio-streams crate."""
 
-    def __init__(self, ref: temporalio.bridge.temporal_sdk_bridge.StreamsRef) -> None:
-        """Wrap a bridge streams object."""
-        self._ref = ref
+    @abstractmethod
+    async def _streams(self) -> temporalio.bridge.temporal_sdk_bridge.StreamsRef:
+        """The bridge streams object, created on first use."""
 
     async def append(
         self,
@@ -162,6 +163,8 @@ class CrateStreamBackend(StreamBackend):
         max_records: int = 0,
         wait: timedelta = timedelta(0),
         last: int = 0,
+        rpc_metadata: Mapping[str, str | bytes] = {},
+        rpc_timeout: timedelta | None = None,
     ) -> ReadResponse:
         """See :py:meth:`StreamBackend.read`."""
         req = ReadRequest(
@@ -170,9 +173,15 @@ class CrateStreamBackend(StreamBackend):
             topics=topics,
             max_records=max_records,
             last=last,
+            rpc_metadata={
+                k: v.encode() if isinstance(v, str) else v
+                for k, v in rpc_metadata.items()
+            },
         )
         if wait > timedelta(0):
             req.wait.FromTimedelta(wait)
+        if rpc_timeout is not None:
+            req.rpc_timeout.FromTimedelta(rpc_timeout)
         resp = await self._call("Read", req, ReadResponseProto)
         return ReadResponse(
             records=[_record(r) for r in resp.records],
@@ -192,7 +201,10 @@ class CrateStreamBackend(StreamBackend):
             previous_started_event_id=p.previous_started_event_id,
             attempt=p.attempt,
             records=_records(completed.records),
+            commit_mode=completed.commit_mode,
         )
+        if completed.close:
+            req.close.CopyFrom(_close_proto(completed.close))
         if e := completed.ending:
             req.ending.CopyFrom(
                 WorkflowEndingProto(
@@ -213,7 +225,8 @@ class CrateStreamBackend(StreamBackend):
 
     async def _call(self, name: str, req: Message, response_type: type[_M]) -> _M:
         try:
-            data = await self._ref.call(name, req.SerializeToString())
+            streams = await self._streams()
+            data = await streams.call(name, req.SerializeToString())
         except temporalio.bridge.temporal_sdk_bridge.StreamError as err:
             type_name, message = err.args
             raise _ERRORS.get(type_name, StreamError)(message) from None
@@ -284,8 +297,8 @@ def _record(r: RecordProto) -> Record:
             workflow_task=r.producer.workflow_task,
             workflow_task_attempt=r.producer.workflow_task_attempt,
             epoch=r.producer.epoch,
-            seq=r.producer.seq,
         ),
+        seq=r.producer.seq,
         topic=r.topic,
         payload=r.payload if r.HasField("payload") else None,
         finish=r.finish,

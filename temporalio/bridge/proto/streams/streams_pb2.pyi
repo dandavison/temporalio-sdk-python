@@ -430,12 +430,32 @@ class ReadRequest(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
+    class RpcMetadataEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.bytes
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.bytes = ...,
+        ) -> None: ...
+        def ClearField(
+            self,
+            field_name: typing_extensions.Literal["key", b"key", "value", b"value"],
+        ) -> None: ...
+
     STREAM_FIELD_NUMBER: builtins.int
     AFTER_FIELD_NUMBER: builtins.int
     TOPICS_FIELD_NUMBER: builtins.int
     MAX_RECORDS_FIELD_NUMBER: builtins.int
     WAIT_FIELD_NUMBER: builtins.int
     LAST_FIELD_NUMBER: builtins.int
+    RPC_METADATA_FIELD_NUMBER: builtins.int
+    RPC_TIMEOUT_FIELD_NUMBER: builtins.int
     @property
     def stream(self) -> global___StreamRef: ...
     after: builtins.bytes
@@ -451,6 +471,15 @@ class ReadRequest(google.protobuf.message.Message):
     def wait(self) -> google.protobuf.duration_pb2.Duration:
         """Native caps it at 20 s; Redis does not cap it."""
     last: builtins.int
+    @property
+    def rpc_metadata(
+        self,
+    ) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.bytes]:
+        """gRPC metadata and deadline for each call that native makes for this read. A key ending in
+        "-bin" is binary metadata; other values must be ASCII. Redis ignores both.
+        """
+    @property
+    def rpc_timeout(self) -> google.protobuf.duration_pb2.Duration: ...
     def __init__(
         self,
         *,
@@ -460,10 +489,15 @@ class ReadRequest(google.protobuf.message.Message):
         max_records: builtins.int = ...,
         wait: google.protobuf.duration_pb2.Duration | None = ...,
         last: builtins.int = ...,
+        rpc_metadata: collections.abc.Mapping[builtins.str, builtins.bytes]
+        | None = ...,
+        rpc_timeout: google.protobuf.duration_pb2.Duration | None = ...,
     ) -> None: ...
     def HasField(
         self,
-        field_name: typing_extensions.Literal["stream", b"stream", "wait", b"wait"],
+        field_name: typing_extensions.Literal[
+            "rpc_timeout", b"rpc_timeout", "stream", b"stream", "wait", b"wait"
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
@@ -474,6 +508,10 @@ class ReadRequest(google.protobuf.message.Message):
             b"last",
             "max_records",
             b"max_records",
+            "rpc_metadata",
+            b"rpc_metadata",
+            "rpc_timeout",
+            b"rpc_timeout",
             "stream",
             b"stream",
             "topics",
@@ -489,7 +527,7 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     """ "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
     activation's completion is sent. Appends the activation's records, splitting them into appends
     that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-    appends of the activation stay stored.
+    appends of the activation stay stored. Then writes close, if set.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -501,6 +539,8 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     ATTEMPT_FIELD_NUMBER: builtins.int
     RECORDS_FIELD_NUMBER: builtins.int
     ENDING_FIELD_NUMBER: builtins.int
+    COMMIT_MODE_FIELD_NUMBER: builtins.int
+    CLOSE_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     run_id: builtins.str
     first_run_id: builtins.str
@@ -516,6 +556,22 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     @property
     def ending(self) -> global___WorkflowEnding:
         """Set when the completion ends the run."""
+    commit_mode: builtins.bool
+    """The run's workflow declares commit mode. Only native supports it; other backends fail the
+    call. The server fixes a run's mode at its first workflow append, so a run whose workers
+    disagree fails the workflow tasks of the workers in the other mode.
+    """
+    @property
+    def close(
+        self,
+    ) -> temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose:
+        """The workflow closed its own stream in this activation. The crate closes the stream after
+        appending the records, as the activation's workflow task, and then writes no close when the
+        run ends. Not supported in commit mode: the close would precede the records, which travel in
+        the task completion. The close is written before the task completes, so if the task attempt
+        then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
+        failing.
+        """
     def __init__(
         self,
         *,
@@ -529,15 +585,23 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
         ]
         | None = ...,
         ending: global___WorkflowEnding | None = ...,
+        commit_mode: builtins.bool = ...,
+        close: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
+        | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing_extensions.Literal["ending", b"ending"]
+        self,
+        field_name: typing_extensions.Literal["close", b"close", "ending", b"ending"],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "attempt",
             b"attempt",
+            "close",
+            b"close",
+            "commit_mode",
+            b"commit_mode",
             "ending",
             b"ending",
             "first_run_id",
@@ -696,25 +760,14 @@ class NativeOptions(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     NAMESPACE_FIELD_NUMBER: builtins.int
-    COMMIT_MODE_FIELD_NUMBER: builtins.int
     namespace: builtins.str
-    commit_mode: builtins.bool
-    """Workflows' own records travel in the workflow task completion and become visible when it
-    commits, instead of being appended at the end of each activation. A run's first workflow
-    append fixes its mode, so a worker whose setting differs from the one that fixed a run's mode
-    fails that run's workflow tasks.
-    """
     def __init__(
         self,
         *,
         namespace: builtins.str = ...,
-        commit_mode: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
-        self,
-        field_name: typing_extensions.Literal[
-            "commit_mode", b"commit_mode", "namespace", b"namespace"
-        ],
+        self, field_name: typing_extensions.Literal["namespace", b"namespace"]
     ) -> None: ...
 
 global___NativeOptions = NativeOptions

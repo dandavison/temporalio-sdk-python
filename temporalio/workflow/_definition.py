@@ -41,6 +41,7 @@ def defn(
     sandboxed: bool = True,
     failure_exception_types: Sequence[type[BaseException]] = [],
     versioning_behavior: temporalio.common.VersioningBehavior = temporalio.common.VersioningBehavior.UNSPECIFIED,
+    stream_commit_mode: bool = False,
 ) -> Callable[[ClassType], ClassType]: ...
 
 
@@ -50,6 +51,7 @@ def defn(
     sandboxed: bool = True,
     dynamic: bool = False,
     versioning_behavior: temporalio.common.VersioningBehavior = temporalio.common.VersioningBehavior.UNSPECIFIED,
+    stream_commit_mode: bool = False,
 ) -> Callable[[ClassType], ClassType]: ...
 
 
@@ -61,6 +63,7 @@ def defn(
     dynamic: bool = False,
     failure_exception_types: Sequence[type[BaseException]] = [],
     versioning_behavior: temporalio.common.VersioningBehavior = temporalio.common.VersioningBehavior.UNSPECIFIED,
+    stream_commit_mode: bool = False,
 ) -> Callable[[ClassType], ClassType]:
     """Decorator for workflow classes.
 
@@ -83,6 +86,15 @@ def defn(
             ``Exception`` is set, it effectively will fail a workflow/update in
             all user exception cases. WARNING: This setting is experimental.
         versioning_behavior: Specifies the versioning behavior to use for this workflow.
+        stream_commit_mode: Whether the workflow's own stream records travel in its workflow task
+            completions, becoming visible when each task commits, so that a failed task attempt's
+            records are never delivered. Only the native stream backend supports it: a worker
+            whose client uses another backend refuses to register the workflow. All of a task's
+            records go in its one completion, so it suits low-volume streams only. The server
+            fixes a run's mode at its first workflow append, so during a deploy that changes the
+            declaration, a run's workflow tasks fail on workers whose definition declares the
+            other mode. A workflow in commit mode cannot close its own stream yet. WARNING:
+            Streams are a prototype.
     """
 
     def decorator(cls: ClassType) -> ClassType:
@@ -93,6 +105,7 @@ def defn(
             sandboxed=sandboxed,
             failure_exception_types=failure_exception_types,
             versioning_behavior=versioning_behavior,
+            stream_commit_mode=stream_commit_mode,
         )
         return cls
 
@@ -216,6 +229,7 @@ class _Definition:
     ret_type: type | None = None
     versioning_behavior: temporalio.common.VersioningBehavior | None = None
     dynamic_config_fn: Callable[..., DynamicWorkflowConfig] | None = None
+    stream_commit_mode: bool = False
 
     @staticmethod
     def from_class(cls: type) -> _Definition | None:  # type: ignore[reportSelfClsParameterName]
@@ -271,6 +285,7 @@ class _Definition:
         sandboxed: bool,
         failure_exception_types: Sequence[type[BaseException]],
         versioning_behavior: temporalio.common.VersioningBehavior,
+        stream_commit_mode: bool = False,
     ) -> None:
         # Check it's not being doubly applied
         if _Definition.from_class(cls):
@@ -423,6 +438,7 @@ class _Definition:
             failure_exception_types=failure_exception_types,
             versioning_behavior=versioning_behavior,
             dynamic_config_fn=dynamic_config_fn,
+            stream_commit_mode=stream_commit_mode,
         )
         setattr(cls, "__temporal_workflow_definition", defn)
         setattr(run_fn, "__temporal_workflow_definition", defn)

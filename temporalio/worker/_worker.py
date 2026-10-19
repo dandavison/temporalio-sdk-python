@@ -24,7 +24,7 @@ import temporalio.client
 import temporalio.common
 import temporalio.runtime
 import temporalio.service
-import temporalio.streams
+import temporalio.streams.backend
 from temporalio.common import (
     HeaderCodecBehavior,
     VersioningBehavior,
@@ -153,7 +153,6 @@ class Worker:
         ),
         disable_payload_error_limit: bool = False,
         max_workflow_task_external_storage_concurrency: int = _DEFAULT_WORKFLOW_TASK_EXTERNAL_STORAGE_CONCURRENCY,
-        stream_backend: temporalio.streams.StreamBackend | None = None,
     ) -> None:
         """Create a worker to process workflows and/or activities.
 
@@ -346,16 +345,6 @@ class Worker:
                 Please report any issues you encounter with this setting or if you
                 feel the default should be changed.
                 WARNING: This setting is experimental.
-            stream_backend: Backend that stores the streams workflows append to with
-                :py:func:`temporalio.streams.workflow_append`. The worker appends a workflow's
-                records at the end of each successful activation, before sending its
-                completion, or in the native backend's commit mode sends them in the
-                completion. If the append fails, the workflow task fails. On a backend the
-                server cannot write to, the worker closes the stream once the server has
-                accepted a completion that completes, fails or cancels the workflow, except for
-                a completed cron run or a failed run with a retry policy; on native the server
-                closes it.
-                WARNING: This setting is a prototype.
 
         """
         config = WorkerConfig(
@@ -404,7 +393,6 @@ class Worker:
             nexus_task_poller_behavior=nexus_task_poller_behavior,
             disable_payload_error_limit=disable_payload_error_limit,
             max_workflow_task_external_storage_concurrency=max_workflow_task_external_storage_concurrency,
-            stream_backend=stream_backend,
         )
 
         plugins_from_client = cast(
@@ -578,7 +566,9 @@ class Worker:
                 encode_headers=client_config["header_codec_behavior"]
                 != HeaderCodecBehavior.NO_CODEC,
                 max_workflow_task_external_storage_concurrency=max_workflow_task_external_storage_concurrency,
-                stream_backend=config.get("stream_backend"),
+                stream_backend=temporalio.streams.backend.client_backend(
+                    config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
+                ),
             )
 
         tuner = config.get("tuner")
@@ -1034,7 +1024,6 @@ class WorkerConfig(TypedDict, total=False):
     nexus_task_poller_behavior: PollerBehavior
     disable_payload_error_limit: bool
     max_workflow_task_external_storage_concurrency: int
-    stream_backend: temporalio.streams.StreamBackend | None
 
 
 def _warn_if_activity_executor_max_workers_is_inconsistent(

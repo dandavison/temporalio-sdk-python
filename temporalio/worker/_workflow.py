@@ -24,10 +24,11 @@ import temporalio.common
 import temporalio.converter
 import temporalio.converter._extstore
 import temporalio.exceptions
-import temporalio.streams
+import temporalio.streams.backend
 import temporalio.workflow
 from temporalio.bridge.worker import PollShutdownError
 from temporalio.converter import StorageDriverStoreContext, StorageDriverWorkflowInfo
+from temporalio.streams.native import NativeStreamBackend
 from temporalio.worker.workflow_sandbox._runner import SandboxedWorkflowRunner
 
 from . import _command_aware_visitor
@@ -104,7 +105,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         assert_local_activity_valid: Callable[[str], None],
         encode_headers: bool,
         max_workflow_task_external_storage_concurrency: int,
-        stream_backend: temporalio.streams.StreamBackend | None,
+        stream_backend: temporalio.streams.backend.StreamBackend | None,
         default_workflow_logic_flags: frozenset[_WorkflowLogicFlag] | None = None,
     ) -> None:
         # Debug mode is enabled if specified or if the TEMPORAL_DEBUG env var is truthy
@@ -198,6 +199,16 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             # Confirm name unique
             if defn.name in self._workflows:
                 raise ValueError(f"More than one workflow named {defn.name}")
+            if (
+                defn.stream_commit_mode
+                and stream_backend
+                and not isinstance(stream_backend, NativeStreamBackend)
+            ):
+                raise ValueError(
+                    f"Workflow {defn.name} declares stream commit mode, which only the native "
+                    f"stream backend supports, but the client's stream backend is "
+                    f"{type(stream_backend).__name__}"
+                )
             if should_enforce_versioning_behavior:
                 if (
                     defn.versioning_behavior
@@ -555,7 +566,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
         data_converter: temporalio.converter.DataConverter,
     ) -> None:
-        """Pass the records the activation appended, and how the run ends if the completion ends
+        """Pass the records the activation appended, the workflow's close of its own stream if it
+        made one, the mode its definition declares, and how the run ends if the completion ends
         it, to the stream backend before the completion reaches the server. In commit mode the
         backend returns the records as protocol messages, which travel in the completion.
 
@@ -564,41 +576,46 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         again.
         """
         assert self._stream_backend
-        appends = workflow.instance.take_stream_appends()
+        appends, workflow_close = workflow.instance.take_stream_writes()
         close = _stream_close(completion)
-        if not appends and not close:
+        if not appends and not close and not workflow_close:
             return
         if not act.HasField("workflow_task"):
             raise RuntimeError(
                 "Workflow appended to its stream outside a workflow task"
             )
         info = workflow.get_info()
+        defn = self._workflows.get(info.workflow_type, self._dynamic_workflow)
         # The workflow converted each value to a payload; only the codec remains.
         payloads = await data_converter._encode_payload_sequence(
             [p for _, p in appends]
         )
+        if workflow_close and workflow_close.failure and data_converter.payload_codec:
+            await data_converter.payload_codec.encode_failure(workflow_close.failure)
         messages = await self._stream_backend.workflow_activation_completed(
-            temporalio.streams.WorkflowActivationCompleted(
-                ref=temporalio.streams.StreamRef(
+            temporalio.streams.backend.WorkflowActivationCompleted(
+                ref=temporalio.streams.backend.StreamRef(
                     info.workflow_id, info.first_execution_run_id
                 ),
-                producer=temporalio.streams.WorkflowProducer(
+                producer=temporalio.streams.backend.WorkflowProducer(
                     workflow_id=info.workflow_id,
                     run_id=act.run_id,
                     previous_started_event_id=act.workflow_task.previous_started_event_id,
                     attempt=act.workflow_task.attempt,
                 ),
                 records=[
-                    temporalio.streams.AppendRecord(topic, payload)
+                    temporalio.streams.backend.AppendRecord(topic, payload)
                     for (topic, _), payload in zip(appends, payloads)
                 ],
-                ending=temporalio.streams.WorkflowEnding(
+                ending=temporalio.streams.backend.WorkflowEnding(
                     close,
                     cron=bool(info.cron_schedule),
                     retry_policy=info.retry_policy is not None,
                 )
                 if close
                 else None,
+                commit_mode=bool(defn and defn.stream_commit_mode),
+                close=workflow_close,
             )
         )
         completion.successful.protocol_messages.extend(messages)
@@ -1060,20 +1077,20 @@ class _InterruptDeadlockError(BaseException):
 
 def _stream_close(
     completion: temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion,
-) -> temporalio.streams.StreamClose | None:
+) -> temporalio.streams.backend.StreamClose | None:
     # Continue-as-new does not close the stream: it belongs to the run chain.
     for command in completion.successful.commands:
         if command.HasField("complete_workflow_execution"):
-            return temporalio.streams.StreamClose(
-                temporalio.streams.CloseStatus.COMPLETED
+            return temporalio.streams.backend.StreamClose(
+                temporalio.streams.backend.CloseStatus.COMPLETED
             )
         if command.HasField("fail_workflow_execution"):
-            return temporalio.streams.StreamClose(
-                temporalio.streams.CloseStatus.FAILED,
+            return temporalio.streams.backend.StreamClose(
+                temporalio.streams.backend.CloseStatus.FAILED,
                 failure=command.fail_workflow_execution.failure,
             )
         if command.HasField("cancel_workflow_execution"):
-            return temporalio.streams.StreamClose(
-                temporalio.streams.CloseStatus.CANCELED
+            return temporalio.streams.backend.StreamClose(
+                temporalio.streams.backend.CloseStatus.CANCELED
             )
     return None

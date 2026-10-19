@@ -24,7 +24,7 @@ from temporalio.api.protocol.v1 import (
 )
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n%temporal/sdk/streams/v1/streams.proto\x12\x17temporal.sdk.streams.v1\x1a\x1egoogle/protobuf/duration.proto\x1a&temporal/api/protocol/v1/message.proto\x1a\x42temporal/api/nexusservices/streamservice/v1/request_response.proto"d\n\tStreamRef\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x02 \x01(\t\x12\x13\n\x0b\x61\x63tivity_id\x18\x03 \x01(\t\x12\x17\n\x0f\x61\x63tivity_run_id\x18\x04 \x01(\t"+\n\x0e\x43lientProducer\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x03"\x84\x01\n\x10\x41\x63tivityProducer\x12\x12\n\ntask_token\x18\x01 \x01(\x0c\x12\x17\n\x0fworkflow_run_id\x18\x02 \x01(\t\x12\x13\n\x0b\x61\x63tivity_id\x18\x03 \x01(\t\x12\x17\n\x0f\x61\x63tivity_run_id\x18\x04 \x01(\t\x12\x15\n\rattempt_stamp\x18\x05 \x01(\x05"V\n\x10WorkflowProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x05"\x8f\x01\n\x15LocalActivityProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x1d\n\x15workflow_task_attempt\x18\x03 \x01(\x05\x12\x13\n\x0b\x61\x63tivity_id\x18\x04 \x01(\t\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05"\x98\x02\n\x08Producer\x12\x39\n\x06\x63lient\x18\x01 \x01(\x0b\x32\'.temporal.sdk.streams.v1.ClientProducerH\x00\x12=\n\x08\x61\x63tivity\x18\x02 \x01(\x0b\x32).temporal.sdk.streams.v1.ActivityProducerH\x00\x12=\n\x08workflow\x18\x03 \x01(\x0b\x32).temporal.sdk.streams.v1.WorkflowProducerH\x00\x12H\n\x0elocal_activity\x18\x04 \x01(\x0b\x32..temporal.sdk.streams.v1.LocalActivityProducerH\x00\x42\t\n\x07variant"\xe1\x01\n\rAppendRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\x33\n\x08producer\x18\x02 \x01(\x0b\x32!.temporal.sdk.streams.v1.Producer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12J\n\x07records\x18\x04 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08"!\n\x0e\x41ppendResponse\x12\x0f\n\x07\x63ursors\x18\x01 \x03(\x0c"\x95\x02\n\x0c\x43loseRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\x38\n\x05owner\x18\x02 \x01(\x0b\x32).temporal.sdk.streams.v1.WorkflowProducer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12G\n\x05\x63lose\x18\x04 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose\x12\x41\n\x0e\x61\x63tivity_owner\x18\x05 \x01(\x0b\x32).temporal.sdk.streams.v1.ActivityProducer"\x0f\n\rCloseResponse"\xac\x01\n\x0bReadRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\r\n\x05\x61\x66ter\x18\x02 \x01(\x0c\x12\x0e\n\x06topics\x18\x03 \x03(\t\x12\x13\n\x0bmax_records\x18\x04 \x01(\x05\x12\'\n\x04wait\x18\x05 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0c\n\x04last\x18\x06 \x01(\x05"\x98\x02\n"WorkflowActivationCompletedRequest\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x0e\n\x06run_id\x18\x02 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x03 \x01(\t\x12!\n\x19previous_started_event_id\x18\x04 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05\x12J\n\x07records\x18\x06 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x37\n\x06\x65nding\x18\x07 \x01(\x0b\x32\'.temporal.sdk.streams.v1.WorkflowEnding"}\n\x0eWorkflowEnding\x12G\n\x05\x63lose\x18\x01 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose\x12\x0c\n\x04\x63ron\x18\x02 \x01(\x08\x12\x14\n\x0cretry_policy\x18\x03 \x01(\x08"c\n#WorkflowActivationCompletedResponse\x12<\n\x11protocol_messages\x18\x01 \x03(\x0b\x32!.temporal.api.protocol.v1.Message"B\n\x16WorkflowEvictedRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x18\n\x10\x65xecution_ending\x18\x02 \x01(\x08"\x19\n\x17WorkflowEvictedResponse"\\\n\x0cRedisOptions\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x11\n\tnamespace\x18\x02 \x01(\t\x12,\n\tretention\x18\x03 \x01(\x0b\x32\x19.google.protobuf.Duration"7\n\rNativeOptions\x12\x11\n\tnamespace\x18\x01 \x01(\t\x12\x13\n\x0b\x63ommit_mode\x18\x02 \x01(\x08\x62\x06proto3'
+    b'\n%temporal/sdk/streams/v1/streams.proto\x12\x17temporal.sdk.streams.v1\x1a\x1egoogle/protobuf/duration.proto\x1a&temporal/api/protocol/v1/message.proto\x1a\x42temporal/api/nexusservices/streamservice/v1/request_response.proto"d\n\tStreamRef\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x02 \x01(\t\x12\x13\n\x0b\x61\x63tivity_id\x18\x03 \x01(\t\x12\x17\n\x0f\x61\x63tivity_run_id\x18\x04 \x01(\t"+\n\x0e\x43lientProducer\x12\n\n\x02id\x18\x01 \x01(\t\x12\r\n\x05\x65poch\x18\x02 \x01(\x03"\x84\x01\n\x10\x41\x63tivityProducer\x12\x12\n\ntask_token\x18\x01 \x01(\x0c\x12\x17\n\x0fworkflow_run_id\x18\x02 \x01(\t\x12\x13\n\x0b\x61\x63tivity_id\x18\x03 \x01(\t\x12\x17\n\x0f\x61\x63tivity_run_id\x18\x04 \x01(\t\x12\x15\n\rattempt_stamp\x18\x05 \x01(\x05"V\n\x10WorkflowProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x03 \x01(\x05"\x8f\x01\n\x15LocalActivityProducer\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12!\n\x19previous_started_event_id\x18\x02 \x01(\x03\x12\x1d\n\x15workflow_task_attempt\x18\x03 \x01(\x05\x12\x13\n\x0b\x61\x63tivity_id\x18\x04 \x01(\t\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05"\x98\x02\n\x08Producer\x12\x39\n\x06\x63lient\x18\x01 \x01(\x0b\x32\'.temporal.sdk.streams.v1.ClientProducerH\x00\x12=\n\x08\x61\x63tivity\x18\x02 \x01(\x0b\x32).temporal.sdk.streams.v1.ActivityProducerH\x00\x12=\n\x08workflow\x18\x03 \x01(\x0b\x32).temporal.sdk.streams.v1.WorkflowProducerH\x00\x12H\n\x0elocal_activity\x18\x04 \x01(\x0b\x32..temporal.sdk.streams.v1.LocalActivityProducerH\x00\x42\t\n\x07variant"\xe1\x01\n\rAppendRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\x33\n\x08producer\x18\x02 \x01(\x0b\x32!.temporal.sdk.streams.v1.Producer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12J\n\x07records\x18\x04 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x0e\n\x06\x66inish\x18\x05 \x01(\x08"!\n\x0e\x41ppendResponse\x12\x0f\n\x07\x63ursors\x18\x01 \x03(\x0c"\x95\x02\n\x0c\x43loseRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\x38\n\x05owner\x18\x02 \x01(\x0b\x32).temporal.sdk.streams.v1.WorkflowProducer\x12\x0b\n\x03seq\x18\x03 \x01(\x03\x12G\n\x05\x63lose\x18\x04 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose\x12\x41\n\x0e\x61\x63tivity_owner\x18\x05 \x01(\x0b\x32).temporal.sdk.streams.v1.ActivityProducer"\x0f\n\rCloseResponse"\xdd\x02\n\x0bReadRequest\x12\x32\n\x06stream\x18\x01 \x01(\x0b\x32".temporal.sdk.streams.v1.StreamRef\x12\r\n\x05\x61\x66ter\x18\x02 \x01(\x0c\x12\x0e\n\x06topics\x18\x03 \x03(\t\x12\x13\n\x0bmax_records\x18\x04 \x01(\x05\x12\'\n\x04wait\x18\x05 \x01(\x0b\x32\x19.google.protobuf.Duration\x12\x0c\n\x04last\x18\x06 \x01(\x05\x12K\n\x0crpc_metadata\x18\x07 \x03(\x0b\x32\x35.temporal.sdk.streams.v1.ReadRequest.RpcMetadataEntry\x12.\n\x0brpc_timeout\x18\x08 \x01(\x0b\x32\x19.google.protobuf.Duration\x1a\x32\n\x10RpcMetadataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x0c:\x02\x38\x01"\xf6\x02\n"WorkflowActivationCompletedRequest\x12\x13\n\x0bworkflow_id\x18\x01 \x01(\t\x12\x0e\n\x06run_id\x18\x02 \x01(\t\x12\x14\n\x0c\x66irst_run_id\x18\x03 \x01(\t\x12!\n\x19previous_started_event_id\x18\x04 \x01(\x03\x12\x0f\n\x07\x61ttempt\x18\x05 \x01(\x05\x12J\n\x07records\x18\x06 \x03(\x0b\x32\x39.temporal.api.nexusservices.streamservice.v1.AppendRecord\x12\x37\n\x06\x65nding\x18\x07 \x01(\x0b\x32\'.temporal.sdk.streams.v1.WorkflowEnding\x12\x13\n\x0b\x63ommit_mode\x18\x08 \x01(\x08\x12G\n\x05\x63lose\x18\t \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose"}\n\x0eWorkflowEnding\x12G\n\x05\x63lose\x18\x01 \x01(\x0b\x32\x38.temporal.api.nexusservices.streamservice.v1.StreamClose\x12\x0c\n\x04\x63ron\x18\x02 \x01(\x08\x12\x14\n\x0cretry_policy\x18\x03 \x01(\x08"c\n#WorkflowActivationCompletedResponse\x12<\n\x11protocol_messages\x18\x01 \x03(\x0b\x32!.temporal.api.protocol.v1.Message"B\n\x16WorkflowEvictedRequest\x12\x0e\n\x06run_id\x18\x01 \x01(\t\x12\x18\n\x10\x65xecution_ending\x18\x02 \x01(\x08"\x19\n\x17WorkflowEvictedResponse"\\\n\x0cRedisOptions\x12\x0b\n\x03url\x18\x01 \x01(\t\x12\x11\n\tnamespace\x18\x02 \x01(\t\x12,\n\tretention\x18\x03 \x01(\x0b\x32\x19.google.protobuf.Duration"(\n\rNativeOptions\x12\x11\n\tnamespace\x18\x01 \x01(\tJ\x04\x08\x02\x10\x03\x62\x06proto3'
 )
 
 
@@ -39,6 +39,7 @@ _APPENDRESPONSE = DESCRIPTOR.message_types_by_name["AppendResponse"]
 _CLOSEREQUEST = DESCRIPTOR.message_types_by_name["CloseRequest"]
 _CLOSERESPONSE = DESCRIPTOR.message_types_by_name["CloseResponse"]
 _READREQUEST = DESCRIPTOR.message_types_by_name["ReadRequest"]
+_READREQUEST_RPCMETADATAENTRY = _READREQUEST.nested_types_by_name["RpcMetadataEntry"]
 _WORKFLOWACTIVATIONCOMPLETEDREQUEST = DESCRIPTOR.message_types_by_name[
     "WorkflowActivationCompletedRequest"
 ]
@@ -164,12 +165,22 @@ ReadRequest = _reflection.GeneratedProtocolMessageType(
     "ReadRequest",
     (_message.Message,),
     {
+        "RpcMetadataEntry": _reflection.GeneratedProtocolMessageType(
+            "RpcMetadataEntry",
+            (_message.Message,),
+            {
+                "DESCRIPTOR": _READREQUEST_RPCMETADATAENTRY,
+                "__module__": "temporal.sdk.streams.v1.streams_pb2",
+                # @@protoc_insertion_point(class_scope:temporal.sdk.streams.v1.ReadRequest.RpcMetadataEntry)
+            },
+        ),
         "DESCRIPTOR": _READREQUEST,
         "__module__": "temporal.sdk.streams.v1.streams_pb2",
         # @@protoc_insertion_point(class_scope:temporal.sdk.streams.v1.ReadRequest)
     },
 )
 _sym_db.RegisterMessage(ReadRequest)
+_sym_db.RegisterMessage(ReadRequest.RpcMetadataEntry)
 
 WorkflowActivationCompletedRequest = _reflection.GeneratedProtocolMessageType(
     "WorkflowActivationCompletedRequest",
@@ -250,6 +261,8 @@ _sym_db.RegisterMessage(NativeOptions)
 
 if _descriptor._USE_C_DESCRIPTORS == False:
     DESCRIPTOR._options = None
+    _READREQUEST_RPCMETADATAENTRY._options = None
+    _READREQUEST_RPCMETADATAENTRY._serialized_options = b"8\001"
     _STREAMREF._serialized_start = 206
     _STREAMREF._serialized_end = 306
     _CLIENTPRODUCER._serialized_start = 308
@@ -271,19 +284,21 @@ if _descriptor._USE_C_DESCRIPTORS == False:
     _CLOSERESPONSE._serialized_start = 1548
     _CLOSERESPONSE._serialized_end = 1563
     _READREQUEST._serialized_start = 1566
-    _READREQUEST._serialized_end = 1738
-    _WORKFLOWACTIVATIONCOMPLETEDREQUEST._serialized_start = 1741
-    _WORKFLOWACTIVATIONCOMPLETEDREQUEST._serialized_end = 2021
-    _WORKFLOWENDING._serialized_start = 2023
-    _WORKFLOWENDING._serialized_end = 2148
-    _WORKFLOWACTIVATIONCOMPLETEDRESPONSE._serialized_start = 2150
-    _WORKFLOWACTIVATIONCOMPLETEDRESPONSE._serialized_end = 2249
-    _WORKFLOWEVICTEDREQUEST._serialized_start = 2251
-    _WORKFLOWEVICTEDREQUEST._serialized_end = 2317
-    _WORKFLOWEVICTEDRESPONSE._serialized_start = 2319
-    _WORKFLOWEVICTEDRESPONSE._serialized_end = 2344
-    _REDISOPTIONS._serialized_start = 2346
-    _REDISOPTIONS._serialized_end = 2438
-    _NATIVEOPTIONS._serialized_start = 2440
-    _NATIVEOPTIONS._serialized_end = 2495
+    _READREQUEST._serialized_end = 1915
+    _READREQUEST_RPCMETADATAENTRY._serialized_start = 1865
+    _READREQUEST_RPCMETADATAENTRY._serialized_end = 1915
+    _WORKFLOWACTIVATIONCOMPLETEDREQUEST._serialized_start = 1918
+    _WORKFLOWACTIVATIONCOMPLETEDREQUEST._serialized_end = 2292
+    _WORKFLOWENDING._serialized_start = 2294
+    _WORKFLOWENDING._serialized_end = 2419
+    _WORKFLOWACTIVATIONCOMPLETEDRESPONSE._serialized_start = 2421
+    _WORKFLOWACTIVATIONCOMPLETEDRESPONSE._serialized_end = 2520
+    _WORKFLOWEVICTEDREQUEST._serialized_start = 2522
+    _WORKFLOWEVICTEDREQUEST._serialized_end = 2588
+    _WORKFLOWEVICTEDRESPONSE._serialized_start = 2590
+    _WORKFLOWEVICTEDRESPONSE._serialized_end = 2615
+    _REDISOPTIONS._serialized_start = 2617
+    _REDISOPTIONS._serialized_end = 2709
+    _NATIVEOPTIONS._serialized_start = 2711
+    _NATIVEOPTIONS._serialized_end = 2751
 # @@protoc_insertion_point(module_scope)

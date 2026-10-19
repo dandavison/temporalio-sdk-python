@@ -52,11 +52,15 @@ Producer = ClientProducer | ActivityProducer | WorkflowProducer
 
 @dataclass(frozen=True)
 class ProducerIdentity:
-    """The (producer, epoch, seq) stored with every record.
+    """The producer and epoch of the append that wrote a record.
 
-    The epoch is (``workflow_task``, ``workflow_task_attempt``, ``epoch``), compared in that order.
-    ``workflow_run_id`` and the workflow task fields are set only for workflow and local activity
-    producers. For a workflow producer ``epoch`` is the workflow task attempt.
+    ``producer`` is ``client/<id>``, ``activity/<workflow run ID>/<activity ID>``,
+    ``activity/<activity run ID>`` for a Standalone Activity, ``workflow/<run ID>``, or
+    ``local-activity/<run ID>/<activity ID>``. The epoch is (``workflow_task``,
+    ``workflow_task_attempt``, ``epoch``), compared in that order. ``workflow_run_id`` and the
+    workflow task fields are set only for workflow and local activity producers. ``epoch`` is the
+    client's epoch, the activity attempt's stamp, the workflow task attempt, or the local
+    activity's attempt.
     """
 
     producer: str
@@ -64,7 +68,6 @@ class ProducerIdentity:
     workflow_task: int
     workflow_task_attempt: int
     epoch: int
-    seq: int
 
 
 @dataclass(frozen=True)
@@ -125,7 +128,8 @@ class WorkflowAppendModeFixed:
 
 @dataclass(frozen=True)
 class Record:
-    """A stored record. ``cursor`` marks the boundary after it.
+    """A stored record. ``cursor`` marks the boundary after it, and ``seq`` numbers its producer's
+    appends within an epoch.
 
     A record is data, a producer's finish, or a marker: a workflow task commit, the stream's
     creation, or a run's append mode. Only the native backend writes markers.
@@ -139,6 +143,7 @@ class Record:
 
     cursor: bytes
     producer: ProducerIdentity
+    seq: int
     topic: str
     payload: temporalio.api.common.v1.Payload | None
     finish: bool

@@ -36,6 +36,7 @@ from temporalio.converter._payload_converter import (
 from .types import CallableType
 
 if TYPE_CHECKING:
+    import temporalio.streams
     from temporalio.client import Client
 
 
@@ -222,6 +223,7 @@ class _Context:
     runtime_metric_meter: temporalio.common.MetricMeter | None
     client: Client | None
     cancellation_details: _ActivityCancellationDetailsHolder
+    stream: temporalio.streams.ActivityStreamHandle | None = None
     _logger_details: Mapping[str, Any] | None = None
     _payload_converter: temporalio.converter.PayloadConverter | None = None
     _metric_meter: temporalio.common.MetricMeter | None = None
@@ -309,6 +311,31 @@ def client() -> Client:
             "client when creating ActivityEnvironment."
         )
     return client
+
+
+def stream() -> temporalio.streams.ActivityStreamHandle:
+    """Return a handle to the current activity's stream: its workflow's stream for a workflow or
+    local activity, and its own for a Standalone Activity. Values it publishes are appended as this
+    attempt, and the worker flushes them before completing the attempt.
+
+    Only available in ``async def`` activities.
+
+    .. warning::
+        Streams are a prototype and will change.
+    """
+    context = _Context.current()
+    if not context.stream:
+        if not context.client:
+            raise RuntimeError(
+                "The stream is only available in `async def` activities, and in tests only when "
+                "ActivityEnvironment has a client"
+            )
+        from temporalio.streams import ActivityStreamHandle
+
+        context.stream = ActivityStreamHandle(
+            context.client, context.info(), context.payload_converter
+        )
+    return context.stream
 
 
 def in_activity() -> bool:

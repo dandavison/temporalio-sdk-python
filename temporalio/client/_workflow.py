@@ -78,6 +78,8 @@ from ._interceptor import (
 )
 
 if TYPE_CHECKING:
+    import temporalio.streams
+
     from ._client import Client
     from ._interceptor import ListWorkflowsInput
 
@@ -182,6 +184,17 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
         :py:meth:`Client.get_workflow_handle` must be used instead.
         """
         return self._first_execution_run_id
+
+    def stream(self) -> temporalio.streams.StreamHandle:
+        """A handle to the stream this workflow's run chain owns: the chain of
+        :py:attr:`first_execution_run_id` if set, and otherwise the workflow ID's latest chain.
+
+        .. warning::
+            Streams are a prototype and will change.
+        """
+        return self._client.get_stream_handle(
+            workflow_id=self._id, first_execution_run_id=self._first_execution_run_id
+        )
 
     async def result(
         self,

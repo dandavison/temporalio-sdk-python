@@ -21,6 +21,8 @@ from ..types import AnyType, ParamType
 from ._exceptions import _NotInWorkflowEventLoopError
 
 if TYPE_CHECKING:
+    import temporalio.streams
+
     from ._activities import ActivityCancellationType, ActivityHandle
     from ._exceptions import ContinueAsNewVersioningBehavior, VersioningIntent
     from ._nexus import NexusOperationCancellationType, NexusOperationHandle
@@ -508,6 +510,11 @@ class _Runtime(ABC):
     def workflow_stream_append(self, topic: str, value: Any) -> None: ...
 
     @abstractmethod
+    def workflow_stream_close(
+        self, failure: BaseException | None, reason: str
+    ) -> None: ...
+
+    @abstractmethod
     def workflow_set_current_details(self, details: str): ...
 
     @abstractmethod
@@ -691,6 +698,17 @@ def upsert_memo(updates: Mapping[str, Any]) -> None:
     Memos with keys not included in ``updates`` remain unchanged.
     """
     return _Runtime.current().workflow_upsert_memo(updates)
+
+
+def stream() -> temporalio.streams.WorkflowStreamHandle:
+    """A handle to the stream this workflow's run chain owns.
+
+    .. warning::
+        Streams are a prototype and will change.
+    """
+    from temporalio.streams import WorkflowStreamHandle
+
+    return WorkflowStreamHandle()
 
 
 def get_current_details() -> str:
