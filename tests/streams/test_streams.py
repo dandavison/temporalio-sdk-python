@@ -13,18 +13,13 @@ chain.
 from __future__ import annotations
 
 import asyncio
-import inspect
-import socket
-import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Iterator
 from datetime import timedelta
 from typing import Any
 
 import pytest
-import pytest_asyncio
 
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import WorkflowTaskFailedCause
@@ -52,50 +47,7 @@ from temporalio.streams.backend import (
 )
 from temporalio.streams.native import NativeStreamBackend
 from temporalio.worker import Worker
-
-
-@pytest.fixture
-def redis_url() -> Iterator[str]:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    server = subprocess.Popen(
-        ["redis-server", "--port", str(port), "--save", "", "--appendonly", "no"],
-        stdout=subprocess.DEVNULL,
-    )
-    try:
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", port)).close()
-                break
-            except OSError:
-                time.sleep(0.05)
-        yield f"redis://127.0.0.1:{port}"
-    finally:
-        server.kill()
-        server.wait()
-
-
-def redis_client(client: Client, redis_url: str) -> Client:
-    return Client(
-        client.service_client,
-        namespace=client.namespace,
-        plugins=[RedisStreamsPlugin(redis_url)],
-    )
-
-
-@pytest_asyncio.fixture(params=["redis", "native"])  # type: ignore[reportUntypedFunctionDecorator]
-async def stream_client(request: pytest.FixtureRequest, client: Client) -> Client:
-    """A client, and so its workers, using each backend: Redis through the plugin, and native
-    with no setup.
-    """
-    if request.param == "redis":
-        return redis_client(client, request.getfixturevalue("redis_url"))
-    return client
-
-
-def is_native(client: Client) -> bool:
-    return isinstance(client_backend(client), NativeStreamBackend)
+from tests.streams.conftest import is_native, redis_client
 
 
 def stream_ref(handle: WorkflowHandle) -> StreamRef:
@@ -213,8 +165,8 @@ async def test_workflow_publish_is_visible_while_workflow_runs_and_closes_on_com
 ):
     """Every backend: a workflow's records are visible while it runs, a later workflow task's
     records carry a higher workflow task, and the stream closes as completed when the run completes:
-    on native the server closes it, on Redis the worker. Native only: the mode is known to be sink
-    from the run's append mode record.
+    on native the server closes it, on Redis the worker. Every read reports the stream's mode,
+    which is sink.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -243,9 +195,7 @@ async def test_workflow_publish_is_visible_while_workflow_runs_and_closes_on_com
     assert second.producer.workflow_task > first.producer.workflow_task
     end = await read_to_end(stream)
     assert end.close is not None and end.close.status == CloseStatus.COMPLETED
-    assert end.mode == (
-        StreamMode.SINK if is_native(stream_client) else StreamMode.UNKNOWN
-    )
+    assert end.mode == StreamMode.SINK
 
 
 async def test_workflow_publish_is_not_repeated_on_replay(stream_client: Client):
@@ -995,6 +945,53 @@ async def test_commit_mode_records_are_not_sent_again_on_replay(client: Client):
     assert await read_values(handle.stream()) == ["first", "second"]
 
 
+@workflow.defn(stream_commit_mode=True)
+class QuietCommitModeWorkflow:
+    def __init__(self) -> None:
+        self.done = False
+
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.wait_condition(lambda: self.done)
+
+    @workflow.signal
+    def finish(self) -> None:
+        self.done = True
+
+
+async def test_commit_mode_run_declares_its_mode_in_its_first_workflow_task(
+    client: Client,
+):
+    """Native only: a run of a workflow that declares commit mode declares it in its first workflow
+    task completion, with no records, so readers learn the stream's mode before the run appends.
+    """
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(
+        client, task_queue=task_queue, workflows=[QuietCommitModeWorkflow]
+    ):
+        handle = await client.start_workflow(
+            QuietCommitModeWorkflow.run,
+            id=f"wf-{uuid.uuid4()}",
+            task_queue=task_queue,
+        )
+
+        async def first_task_completed() -> bool:
+            return any(
+                e.HasField("workflow_task_completed_event_attributes")
+                for e in [e async for e in handle.fetch_history_events()]
+            )
+
+        while not await first_task_completed():
+            await asyncio.sleep(0.1)
+        end = await read_to_end(handle.stream())
+        assert end.mode == StreamMode.COMMIT
+        assert append_modes(await raw_records(client, stream_ref(handle))) == [
+            WorkflowAppendMode.COMMIT
+        ]
+        await handle.signal(QuietCommitModeWorkflow.finish)
+        await handle.result()
+
+
 @workflow.defn(name="RollingDeployWorkflow")
 class SinkModeRollingDeployWorkflow:
     def __init__(self) -> None:
@@ -1461,10 +1458,12 @@ class GetOtherStreamsWorkflow:
         observed: list[str] = []
         for stream in streams:
             writable = hasattr(stream, "publish") or hasattr(stream, "close")
-            observed.append(
-                f"{type(stream).__name__}, writable={writable}, "
-                + await reads_not_implemented(stream)
-            )
+            try:
+                await stream.fetch_last_records(1)
+                tail = "tail read did not raise"
+            except NotImplementedError:
+                tail = "tail reads not implemented"
+            observed.append(f"{type(stream).__name__}, writable={writable}, {tail}")
         try:
             workflow.get_stream_handle()
         except ValueError:
@@ -1472,26 +1471,9 @@ class GetOtherStreamsWorkflow:
         return observed
 
 
-async def reads_not_implemented(stream: Any) -> str:
-    reads: list[Callable[[], Any]] = [
-        stream.fetch_records,
-        lambda: stream.fetch_last_records(1),
-        stream.topic("t", type=str).fetch_records,
-    ]
-    for read in reads:
-        try:
-            result = read()
-            if inspect.isawaitable(result):
-                await result
-            return "read did not raise"
-        except NotImplementedError:
-            pass
-    return "reads not implemented"
-
-
 async def test_workflow_gets_a_read_only_handle_to_another_stream(client: Client):
     """Any backend: workflow code gets a read-only handle to another owner's stream, by owner ID
-    or from an external workflow handle. Reads in workflow code are not implemented yet.
+    or from an external workflow handle. Tail reads in workflow code are not implemented.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -1504,5 +1486,5 @@ async def test_workflow_gets_a_read_only_handle_to_another_stream(client: Client
             task_queue=task_queue,
         )
     assert observed == [
-        "ExternalStreamHandle, writable=False, reads not implemented"
+        "ExternalStreamHandle, writable=False, tail reads not implemented"
     ] * 3 + ["no owner refused"]
