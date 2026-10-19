@@ -10,7 +10,10 @@ Handles by context:
   from :py:meth:`temporalio.client.Client.get_stream_handle`. It reads, and publishes through
   named producers (:py:meth:`StreamHandle.producer`).
 * Workflow code gets its own stream's :py:class:`WorkflowStreamHandle` from
-  :py:func:`temporalio.workflow.stream`. Reading in workflow code is not implemented yet.
+  :py:func:`temporalio.workflow.stream`, and a read-only :py:class:`ExternalStreamHandle` to
+  another owner's stream from :py:func:`temporalio.workflow.get_stream_handle` or
+  :py:meth:`temporalio.workflow.ExternalWorkflowHandle.stream`. Reading in workflow code is not
+  implemented yet.
 * Activity code gets an :py:class:`ActivityStreamHandle` from :py:func:`temporalio.activity.stream`:
   its workflow's stream for a workflow or local activity, and its own for a Standalone Activity.
 
@@ -70,6 +73,7 @@ from temporalio.streams._record import (
     ProducerIdentity,
 )
 from temporalio.streams._workflow import (
+    ExternalStreamHandle,
     WorkflowStreamHandle,
     WorkflowTopicHandle,
 )
@@ -78,6 +82,7 @@ __all__ = [
     "ActivityStreamHandle",
     "CloseStatus",
     "EpochFencedError",
+    "ExternalStreamHandle",
     "ProducerIdentity",
     "PublishingTopicHandle",
     "RecordStatus",

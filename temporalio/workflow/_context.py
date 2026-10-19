@@ -711,6 +711,34 @@ def stream() -> temporalio.streams.WorkflowStreamHandle:
     return WorkflowStreamHandle()
 
 
+def get_stream_handle(
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+) -> temporalio.streams.ExternalStreamHandle:
+    """A read-only handle to the stream of another workflow run chain or a Standalone Activity.
+
+    Exactly one of ``workflow_id`` and ``activity_id`` must be set. Without a run ID, reads read
+    the owner ID's latest chain or execution.
+
+    .. warning::
+        Streams are a prototype and will change.
+    """
+    from temporalio.streams import ExternalStreamHandle
+    from temporalio.streams.backend import StreamRef
+
+    return ExternalStreamHandle(
+        StreamRef(
+            workflow_id=workflow_id or "",
+            first_run_id=first_execution_run_id or "",
+            activity_id=activity_id or "",
+            activity_run_id=activity_run_id or "",
+        )
+    )
+
+
 def get_current_details() -> str:
     """Get the current details of the workflow which may appear in the UI/CLI.
     Unlike static details set at start, this value can be updated throughout

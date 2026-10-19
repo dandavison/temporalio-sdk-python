@@ -3,10 +3,21 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
 from enum import IntEnum
-from typing import Any, Concatenate, Generic, NoReturn, TypedDict, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Concatenate,
+    Generic,
+    NoReturn,
+    TypedDict,
+    overload,
+)
 
 import temporalio.bridge.proto.child_workflow
 import temporalio.common
+
+if TYPE_CHECKING:
+    import temporalio.streams
 
 from ..types import (
     MethodAsyncNoParam,
@@ -19,7 +30,7 @@ from ..types import (
     SelfType,
 )
 from ._activities import _AsyncioTask
-from ._context import _Runtime, uuid4
+from ._context import _Runtime, get_stream_handle, uuid4
 from ._exceptions import ContinueAsNewVersioningBehavior, VersioningIntent
 
 __all__ = [
@@ -615,6 +626,18 @@ class ExternalWorkflowHandle(Generic[SelfType]):
                 the target workflow via :py:func:`cancellation_reason`.
         """
         raise NotImplementedError
+
+    def stream(self) -> temporalio.streams.ExternalStreamHandle:
+        """A read-only handle to the stream this workflow's run chain owns: the chain whose first
+        run is :py:attr:`run_id` if set, and otherwise the workflow ID's latest chain. So a handle
+        to a later run of a chain names no stream.
+
+        .. warning::
+            Streams are a prototype and will change.
+        """
+        return get_stream_handle(
+            workflow_id=self.id, first_execution_run_id=self.run_id
+        )
 
 
 def get_external_workflow_handle(

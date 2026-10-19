@@ -1,4 +1,4 @@
-"""The stream handle of workflow code."""
+"""The stream handles of workflow code."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ from collections.abc import Sequence
 from typing import Any, Generic, NoReturn, TypeVar
 
 import temporalio.workflow
+from temporalio.streams._handles import TopicReader
 from temporalio.streams._iterator import StreamCursor, StreamRecord
+from temporalio.streams._ref import StreamRef
 
 T = TypeVar("T")
 
@@ -84,5 +86,36 @@ class WorkflowTopicHandle(Generic[T]):
         after: StreamCursor | None = None,  # type:ignore[reportUnusedParameter]
         **kwargs: Any,  # type:ignore[reportUnusedParameter]
     ) -> NoReturn:
+        """Not implemented yet."""
+        raise NotImplementedError(_NO_READS)
+
+
+class ExternalStreamHandle:
+    """Workflow code's handle to another owner's stream: reads only. Reads are not implemented
+    yet.
+
+    .. warning::
+        This API is a prototype and will change.
+    """
+
+    def __init__(self, ref: StreamRef) -> None:
+        """Create a handle. Use :py:func:`temporalio.workflow.get_stream_handle` or
+        :py:meth:`temporalio.workflow.ExternalWorkflowHandle.stream` instead.
+        """
+        self._ref = ref
+
+    def topic(self, name: str, *, type: type[T]) -> TopicReader[T]:
+        """A reader of one topic, whose values decode as ``type``."""
+        return TopicReader(self, name, type)
+
+    def fetch_records(self, **kwargs: Any) -> NoReturn:  # type:ignore[reportUnusedParameter]
+        """Not implemented yet."""
+        raise NotImplementedError(_NO_READS)
+
+    async def fetch_last_records(
+        self,
+        n: int,  # type:ignore[reportUnusedParameter]
+        **kwargs: Any,  # type:ignore[reportUnusedParameter]
+    ) -> Sequence[StreamRecord[Any]]:
         """Not implemented yet."""
         raise NotImplementedError(_NO_READS)
