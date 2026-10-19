@@ -696,6 +696,49 @@ async def test_held_record_holds_back_later_records_across_continue_as_new(
     assert result == [client_value, owner_value]
 
 
+async def test_reader_that_continues_as_new_while_waiting_reads_and_waits_again(
+    stream_client: Client,
+):
+    """Every backend: a reader that continues as new with a Wait pending abandons that Wait; the
+    new run reads after the iterator's cursor, waits again, and is woken by the next append.
+    HoldReaderWorkflow returns after reading two records in one run.
+    """
+    task_queue = unique("tq")
+    first, second, third = unique("first"), unique("second"), unique("third")
+    async with Worker(
+        stream_client,
+        task_queue=task_queue,
+        workflows=[OwnerWorkflow, HoldReaderWorkflow],
+    ):
+        owner = await start_owner(stream_client, task_queue)
+        await append(owner, first)
+        reader = await stream_client.start_workflow(
+            HoldReaderWorkflow.run,
+            args=[owner.id, "", []],
+            id=unique("reader"),
+            task_queue=task_queue,
+        )
+        await wait_for_event(reader, EventType.EVENT_TYPE_NEXUS_OPERATION_STARTED)
+        first_run = stream_client.get_workflow_handle(
+            reader.id, run_id=reader.first_execution_run_id
+        )
+        await reader.signal(HoldReaderWorkflow.please_continue)
+        await wait_for_event(
+            first_run, EventType.EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW
+        )
+        latest = stream_client.get_workflow_handle(reader.id)
+        await wait_for_event(latest, EventType.EVENT_TYPE_NEXUS_OPERATION_STARTED)
+        await append(owner, second)
+        await append(owner, third)
+        result = await latest.result()
+
+    assert result == [first, second, third]
+    abandoned = await events(first_run)
+    assert count(
+        abandoned, EventType.EVENT_TYPE_NEXUS_OPERATION_SCHEDULED
+    ) == 1 + count(abandoned, EventType.EVENT_TYPE_NEXUS_OPERATION_COMPLETED)
+
+
 async def test_hold_provisional_is_refused_on_redis(client: Client, redis_url: str):
     """Redis: without commit records a hold could last indefinitely, so a reader that asks to
     hold provisional records is refused.
