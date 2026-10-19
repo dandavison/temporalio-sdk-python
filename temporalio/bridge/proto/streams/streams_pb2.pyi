@@ -690,7 +690,8 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     activation's completion is sent. Appends the activation's records, splitting them into appends
     that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
     appends of the activation stay stored. Then writes close, if set. On Redis, if it wrote anything,
-    it then sends one Notify of the owner, without retries; a failed Notify fails nothing and is
+    it then starts one Notify of the owner, without retries, and returns without waiting for it, so
+    that the Notify adds nothing to the workflow task's latency; a failed Notify fails nothing and is
     logged, and the run's next write sends another.
     """
 

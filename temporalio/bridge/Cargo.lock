@@ -2888,7 +2888,7 @@ dependencies = [
 [[package]]
 name = "temporalio-streams"
 version = "0.1.0"
-source = "git+ssh://git@github.com/dandavison/temporalio-sdk-streams.git?rev=455a48304efc44cfa7a3562e059b1f5d7d0db118#455a48304efc44cfa7a3562e059b1f5d7d0db118"
+source = "git+ssh://git@github.com/dandavison/temporalio-sdk-streams.git?rev=a6dfe6f2e676d533b88e30c33ed72b3e955d7617#a6dfe6f2e676d533b88e30c33ed72b3e955d7617"
 dependencies = [
  "prost",
  "prost-build",
