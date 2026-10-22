@@ -27,7 +27,8 @@ with that context's ``get_stream_handle``:
 
 Publishing is awaited: ``await publish(*values, topic=...)`` returns once the store has the
 records (in workflow code, see :py:class:`WorkflowStreamHandle`). ``buffered()`` on a client
-producer or an activity handle gives a :py:class:`BufferedStreamWriter`, which batches. A created
+producer or an activity handle gives a :py:class:`BufferedStreamWriter`, which buffers in memory
+until flushed. A created
 stream's ``create_stream`` result is also an async context manager, which closes the stream on exit.
 
 Handles carry no type. A value's type is given per topic, with ``topic(name, type=T)``, or per

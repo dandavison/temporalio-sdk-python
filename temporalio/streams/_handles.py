@@ -369,7 +369,7 @@ class StreamProducer:
     Each ``publish`` appends at once, as one producer with the next seq, and waits until the store
     has the records; concurrent calls are made one at a time. A failed append, after the backend's
     retries, is raised, and from every later call too; open a new producer to continue.
-    ``buffered`` gives a writer that batches.
+    ``buffered`` gives a writer that buffers in memory until flushed.
 
     .. warning::
         This API is a prototype and will change.
@@ -406,11 +406,11 @@ class StreamProducer:
         """A handle that publishes values of ``type`` to one topic."""
         return PublishingTopicHandle(self, name, type)
 
-    def buffered(
-        self, *, batch_interval: timedelta = timedelta(milliseconds=100)
-    ) -> BufferedStreamWriter:
-        """A writer that buffers what it publishes, and appends it through this producer."""
-        return BufferedStreamWriter(self, batch_interval)
+    def buffered(self) -> BufferedStreamWriter:
+        """A writer that buffers what it publishes, and appends it through this producer when
+        flushed.
+        """
+        return BufferedStreamWriter(self)
 
     async def finish(self) -> None:
         """Record that this producer will write no more, and release its ID. It does not close the
@@ -434,7 +434,7 @@ class ActivityStreamHandle(StreamHandleBase):
     Each ``publish`` appends at once, as the activity attempt, whose epoch is its attempt stamp,
     and waits until the store has the records; one append is in flight at a time per stream and
     attempt. Nothing is buffered, so nothing is flushed when the attempt completes. ``buffered``
-    gives a writer that batches, and that the activity must flush itself.
+    gives a writer that buffers in memory until the activity flushes it.
 
     .. warning::
         This API is a prototype and will change.
@@ -453,13 +453,12 @@ class ActivityStreamHandle(StreamHandleBase):
         """A handle that publishes values of ``type`` to one topic."""
         return PublishingTopicHandle(self, name, type)
 
-    def buffered(
-        self, *, batch_interval: timedelta = timedelta(milliseconds=100)
-    ) -> BufferedStreamWriter:
-        """A writer that buffers what it publishes, and appends it through this handle. The
-        activity must flush it, or use it with ``async with``, before the attempt completes.
+    def buffered(self) -> BufferedStreamWriter:
+        """A writer that buffers what it publishes, and appends it through this handle when
+        flushed. The activity must flush it, or use it with ``async with``, before the attempt
+        completes.
         """
-        return BufferedStreamWriter(self, batch_interval)
+        return BufferedStreamWriter(self)
 
     async def close(
         self, *, failure: BaseException | None = None, reason: str = ""

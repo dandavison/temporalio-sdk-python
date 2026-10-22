@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Callable, Sequence
-from datetime import timedelta
 from typing import Any, Protocol
 
 import temporalio.api.common.v1
@@ -104,30 +103,25 @@ class _Publishing(Protocol):
 
 
 class BufferedStreamWriter:
-    """Buffers published values and appends them through a writer, such as a client's
-    :py:class:`temporalio.streams.StreamProducer` or an activity's stream handle.
+    """Buffers published values in memory and appends them through a writer, such as a client's
+    :py:class:`temporalio.streams.StreamProducer` or an activity's stream handle, when flushed.
 
-    ``publish`` returns at once. An append is sent ``batch_interval`` after the first value it holds
-    was published, or at once when the buffer reaches an append's size limits or a caller forces
-    or awaits a flush; one append is in flight at a time. A failed append, after the backend's
-    retries, drops the buffer and is raised from every later call. Nothing flushes the buffer for
-    you: values still buffered when the process exits, or when an activity attempt completes, are
-    lost. Use ``async with`` to flush on exit.
+    ``publish`` only buffers. ``flush`` appends everything buffered, in appends that fit the size
+    limits (1000 records, 4 MiB), one at a time, and returns once all are stored. Leaving the
+    ``async with`` block flushes, also when the block raised. Nothing else flushes: the buffer
+    grows until flushed, and values still buffered when the process exits, or when an activity
+    attempt completes, are lost. A failed append, after the backend's retries, is raised from this
+    and every later call.
 
     .. warning::
         This API is a prototype and will change.
     """
 
-    def __init__(self, writer: _Publishing, batch_interval: timedelta) -> None:
+    def __init__(self, writer: _Publishing) -> None:
         """Create a buffer. Use ``buffered`` on a writer instead."""
         self._writer = writer
-        self._batch_interval = batch_interval.total_seconds()
         self._buffer: list[AppendRecord] = []
-        self._buffer_bytes = 0
         self._error: BaseException | None = None
-        self._sending: asyncio.Task[None] | None = None
-        self._timer: asyncio.TimerHandle | None = None
-        self._urgent = False
 
     async def __aenter__(self) -> BufferedStreamWriter:
         """Return self."""
@@ -137,65 +131,29 @@ class BufferedStreamWriter:
         """Flush."""
         await self.flush()
 
-    def publish(self, *values: Any, topic: str = "", force_flush: bool = False) -> None:
-        """Convert the values now and buffer them. Must be called in the event loop."""
+    def publish(self, *values: Any, topic: str = "") -> None:
+        """Convert the values and buffer them."""
         self._check()
         for value in values:
-            payload = self._writer.payload_converter.to_payload(value)
-            self._buffer.append(AppendRecord(topic, payload))
-            self._buffer_bytes += payload.ByteSize()
-        self._schedule(force_flush or self._full())
+            self._buffer.append(
+                AppendRecord(topic, self._writer.payload_converter.to_payload(value))
+            )
 
     async def flush(self) -> None:
-        """Wait until everything published so far is stored."""
-        while True:
-            self._check()
-            if not self._buffer and not self._sending:
-                return
-            self._schedule(True)
-            assert self._sending
-            await asyncio.shield(self._sending)
+        """Append everything buffered, and return once it is stored."""
+        self._check()
+        batch, self._buffer = self._buffer, []
+        if not batch:
+            return
+        try:
+            await self._writer._append(batch)
+        except Exception as err:
+            self._error = err
+            raise
 
     def _check(self) -> None:
         if self._error:
             raise self._error
-
-    def _full(self) -> bool:
-        return len(self._buffer) >= _MAX_RECORDS or self._buffer_bytes >= _MAX_BYTES
-
-    def _schedule(self, urgent: bool) -> None:
-        self._urgent = self._urgent or urgent
-        if self._sending:
-            return
-        loop = asyncio.get_running_loop()
-        if self._urgent:
-            if self._timer:
-                self._timer.cancel()
-                self._timer = None
-            self._sending = loop.create_task(self._send())
-        elif not self._timer:
-            self._timer = loop.call_later(self._batch_interval, self._on_timer)
-
-    def _on_timer(self) -> None:
-        self._timer = None
-        self._schedule(True)
-
-    async def _send(self) -> None:
-        try:
-            while self._buffer:
-                self._urgent = False
-                batch, self._buffer, self._buffer_bytes = self._buffer, [], 0
-                await self._writer._append(batch)
-                if not self._urgent and not self._full():
-                    break
-        except Exception as err:
-            self._error = err
-            self._buffer.clear()
-            self._buffer_bytes = 0
-        finally:
-            self._sending = None
-        if self._buffer and not self._error:
-            self._schedule(False)
 
 
 def _fitting(payloads: list[temporalio.api.common.v1.Payload]) -> int:
