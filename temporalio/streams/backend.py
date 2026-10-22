@@ -69,6 +69,7 @@ __all__ = [
     "client_backend",
     "client_backends",
     "default_backend",
+    "workflow_reads",
 ]
 
 _native_backends: weakref.WeakKeyDictionary[
@@ -77,11 +78,25 @@ _native_backends: weakref.WeakKeyDictionary[
 
 
 def client_backends(client: temporalio.client.Client) -> dict[str, StreamBackend]:
-    """The backends of a client and its workers, by name: native, and those its config lists."""
-    native = _native_backends.get(client)
-    if not native:
-        native = _native_backends[client] = NativeStreamBackend(client)
-    return {NATIVE: native, **{b.name: b for b in _config(client).backends}}
+    """The backends of a client and its workers, by name: native, unless its config switches it
+    off, and those its config lists.
+    """
+    config = _config(client)
+    backends: dict[str, StreamBackend] = {}
+    if config.native:
+        native = _native_backends.get(client)
+        if not native:
+            native = _native_backends[client] = NativeStreamBackend(client)
+        backends[NATIVE] = native
+    for b in config.backends:
+        b.bind(client, workflow_reads=config.workflow_reads)
+        backends[b.name] = b
+    return backends
+
+
+def workflow_reads(client: temporalio.client.Client) -> bool:
+    """Whether the client's workflows read streams: its config does not switch them off."""
+    return _config(client).workflow_reads
 
 
 def client_backend(

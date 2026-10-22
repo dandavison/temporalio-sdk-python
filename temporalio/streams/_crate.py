@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Mapping, Sequence
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import TypeVar
 
 from google.protobuf.message import Message
@@ -41,6 +41,8 @@ from temporalio.bridge.proto.streams import (
     WorkflowActivationCompletedResponse,
     WorkflowEvictedRequest,
     WorkflowEvictedResponse,
+    WorkflowReadRequest,
+    WorkflowReadResponse,
 )
 from temporalio.bridge.proto.streams import (
     ClientProducer as ClientProducerProto,
@@ -65,6 +67,7 @@ from temporalio.streams._backend import (
     ReadResponse,
     StreamBackend,
     StreamClose,
+    StreamMode,
     WorkflowActivationCompleted,
 )
 from temporalio.streams._errors import (
@@ -134,7 +137,7 @@ class CrateStreamBackend(StreamBackend):
         idle_timeout: timedelta | None = None,
     ) -> bool:
         """See :py:meth:`StreamBackend.create`."""
-        req = CreateRequest(stream=_ref(ref), request_id=request_id)
+        req = CreateRequest(stream=ref_proto(ref), request_id=request_id)
         if idle_timeout is not None:
             req.settings.idle_timeout.FromTimedelta(idle_timeout)
         return (await self._call("Create", req, CreateResponse)).created
@@ -150,7 +153,7 @@ class CrateStreamBackend(StreamBackend):
     ) -> Sequence[bytes]:
         """See :py:meth:`StreamBackend.append`."""
         req = AppendRequest(
-            stream=_ref(ref),
+            stream=ref_proto(ref),
             producer=_producer(producer),
             seq=seq,
             records=_records(records),
@@ -166,7 +169,7 @@ class CrateStreamBackend(StreamBackend):
         close: StreamClose,
     ) -> None:
         """See :py:meth:`StreamBackend.close`."""
-        req = CloseRequest(stream=_ref(ref), seq=seq, close=_close_proto(close))
+        req = CloseRequest(stream=ref_proto(ref), seq=seq, close=_close_proto(close))
         if owner is None:
             pass
         elif isinstance(owner, ActivityProducer):
@@ -187,16 +190,20 @@ class CrateStreamBackend(StreamBackend):
         max_records: int = 0,
         wait: timedelta = timedelta(0),
         last: int = 0,
+        until: bytes | None = None,
+        max_bytes: int = 0,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ReadResponse:
         """See :py:meth:`StreamBackend.read`."""
         req = ReadRequest(
-            stream=_ref(ref),
+            stream=ref_proto(ref),
             after=after or b"",
             topics=topics,
             max_records=max_records,
             last=last,
+            until=until or b"",
+            max_bytes=max_bytes,
             rpc_metadata={
                 k: v.encode() if isinstance(v, str) else v
                 for k, v in rpc_metadata.items()
@@ -206,13 +213,11 @@ class CrateStreamBackend(StreamBackend):
             req.wait.FromTimedelta(wait)
         if rpc_timeout is not None:
             req.rpc_timeout.FromTimedelta(rpc_timeout)
-        resp = await self._call("Read", req, ReadResponseProto)
-        return ReadResponse(
-            records=[_record(r) for r in resp.records],
-            cursor=resp.cursor or None,
-            close=_close(resp.close) if resp.HasField("close") else None,
-            exists=resp.exists,
-        )
+        return read_response(await self._call("Read", req, ReadResponseProto))
+
+    async def workflow_read(self, request: WorkflowReadRequest) -> WorkflowReadResponse:
+        """See :py:meth:`StreamBackend.workflow_read`."""
+        return await self._call("WorkflowRead", request, WorkflowReadResponse)
 
     async def workflow_activation_completed(
         self, completed: WorkflowActivationCompleted
@@ -226,6 +231,7 @@ class CrateStreamBackend(StreamBackend):
             previous_started_event_id=p.previous_started_event_id,
             attempt=p.attempt,
             commit_mode=completed.commit_mode,
+            declare_mode=completed.declare_mode,
             streams=[
                 WorkflowStreamWritesProto(
                     name=w.name,
@@ -260,11 +266,32 @@ class CrateStreamBackend(StreamBackend):
             data = await streams.call(name, req.SerializeToString())
         except temporalio.bridge.temporal_sdk_bridge.StreamError as err:
             type_name, message = err.args
-            raise _ERRORS.get(type_name, StreamError)(message) from None
+            raise stream_error(type_name, message) from None
         return response_type.FromString(bytes(data))
 
 
-def _ref(ref: StreamRef) -> StreamRefProto:
+def read_response(resp: ReadResponseProto) -> ReadResponse:
+    """A read response of the stream service, as the backend interface's."""
+    return ReadResponse(
+        records=[_record(r) for r in resp.records],
+        cursor=resp.cursor or None,
+        close=_close(resp.close) if resp.HasField("close") else None,
+        exists=resp.exists,
+        mode=StreamMode(resp.mode),
+        owner_close_time=resp.owner_close_time.ToDatetime(timezone.utc)
+        if resp.HasField("owner_close_time")
+        else None,
+        retention=resp.retention.ToTimedelta() if resp.HasField("retention") else None,
+    )
+
+
+def stream_error(type_name: str, message: str) -> StreamError:
+    """The stream error for a StreamFailureType value's name."""
+    return _ERRORS.get(type_name, StreamError)(message)
+
+
+def ref_proto(ref: StreamRef) -> StreamRefProto:
+    """A stream reference, as the crate's."""
     return StreamRefProto(
         workflow_id=ref.workflow_id,
         first_run_id=ref.first_run_id,

@@ -393,6 +393,9 @@ async def test_waiting_reader_has_no_open_task_and_survives_a_worker_restart(
     task_queue = unique("tq")
     async with reader_worker(stream_client, task_queue):
         owner = await start_owner(stream_client, task_queue)
+        # A Notify of the owner's create could otherwise wake the reader after its Wait started.
+        await wait_for(owner.stream("main").exists)
+        await asyncio.sleep(0.5)
         reader = await start_reader(
             stream_client, task_queue, ReadSpec(owner.id, count=1)
         )

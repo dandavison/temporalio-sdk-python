@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import inspect
 import sys
 import time
 import uuid
-from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -205,8 +203,7 @@ async def test_workflow_publish_is_visible_while_workflow_runs_and_closes_on_com
 ):
     """Every backend: a workflow's records are visible while it runs, a later workflow task's
     records carry a higher workflow task, and the stream closes as completed when the run completes:
-    on native the server closes it, on Redis the worker. Native only: the mode is known to be sink
-    from the run's append mode record.
+    on native the server closes it, on Redis the worker. The read states the stream's mode, sink.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -235,9 +232,7 @@ async def test_workflow_publish_is_visible_while_workflow_runs_and_closes_on_com
     assert second.producer.workflow_task > first.producer.workflow_task
     end = await read_to_end(stream)
     assert end.close is not None and end.close.status == CloseStatus.COMPLETED
-    assert end.mode == (
-        StreamMode.SINK if is_native(stream_client) else StreamMode.UNKNOWN
-    )
+    assert end.mode == StreamMode.SINK
 
 
 async def test_workflow_creates_its_stream_before_appending(stream_client: Client):
@@ -1867,7 +1862,7 @@ class GetOtherStreamsWorkflow:
                 publish = "publish refused"
             observed.append(
                 f"{type(stream).__name__}, {publish}, "
-                + await reads_not_implemented(stream)
+                + await tail_reads_not_implemented(stream)
             )
         try:
             workflow.get_stream_handle()
@@ -1876,27 +1871,20 @@ class GetOtherStreamsWorkflow:
         return observed
 
 
-async def reads_not_implemented(stream: Any) -> str:
-    reads: list[Callable[[], Any]] = [
-        stream.fetch_records,
-        lambda: stream.fetch_last_records(1),
-        stream.topic("t", type=str).fetch_records,
-    ]
-    for read in reads:
-        try:
-            result = read()
-            if inspect.isawaitable(result):
-                await result
-            return "read did not raise"
-        except NotImplementedError:
-            pass
-    return "reads not implemented"
+async def tail_reads_not_implemented(stream: Any) -> str:
+    stream.fetch_records()
+    stream.topic("t", type=str).fetch_records()
+    try:
+        await stream.fetch_last_records(1)
+        return "tail read did not raise"
+    except NotImplementedError:
+        return "tail reads not implemented"
 
 
 async def test_workflow_gets_handles_to_other_owners_streams(client: Client):
     """Any backend: workflow code gets a handle to another owner's stream, by owner ID or from an
-    external workflow handle, to which it cannot publish. Reads in workflow code are not
-    implemented yet.
+    external workflow handle, to which it cannot publish, and which reads, except the last
+    records, which replay cannot read again.
     """
     task_queue = f"tq-{uuid.uuid4()}"
     async with Worker(
@@ -1909,7 +1897,7 @@ async def test_workflow_gets_handles_to_other_owners_streams(client: Client):
             task_queue=task_queue,
         )
     assert observed == [
-        "WorkflowStreamHandle, publish refused, reads not implemented"
+        "WorkflowStreamHandle, publish refused, tail reads not implemented"
     ] * 3 + ["no owner refused"]
 
 

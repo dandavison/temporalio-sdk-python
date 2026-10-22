@@ -14,6 +14,7 @@ import temporalio.api.failure.v1
 import temporalio.converter
 from temporalio.streams._backend import CloseStatus, StreamClose
 from temporalio.streams._iterator import (
+    ClientRecordIterator,
     StreamCursor,
     StreamRecord,
     StreamRecordAsyncIterator,
@@ -275,7 +276,7 @@ class StreamHandle(StreamHandleBase):
         """See :py:meth:`StreamReader.fetch_records`. ``rpc_metadata`` and ``rpc_timeout`` apply to
         each read's RPCs on native; other backends ignore them.
         """
-        return StreamRecordAsyncIterator(
+        return ClientRecordIterator(
             _backend(self.client, self.backend),
             self.ref,
             self.client.data_converter,

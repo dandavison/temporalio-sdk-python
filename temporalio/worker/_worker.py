@@ -30,6 +30,7 @@ from temporalio.common import (
     VersioningBehavior,
     WorkerDeploymentVersion,
 )
+from temporalio.streams._workflow_reads import read_stream
 
 from ._activity import SharedStateManager, _ActivityWorker
 from ._interceptor import Interceptor
@@ -486,7 +487,19 @@ class Worker:
         self._runtime = (
             bridge_client.config.runtime or temporalio.runtime.Runtime.default()
         )
-        activities = config.get("activities")
+        # Workflow code reads streams with a local activity that every worker with workflows
+        # registers, unless the client's stream backends configuration switches workflow reads off.
+        stream_workflow_reads = temporalio.streams.backend.workflow_reads(
+            config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
+        )
+        activities: list[Callable] = [
+            *config.get("activities", []),
+            *(
+                [read_stream]
+                if config.get("workflows") and stream_workflow_reads
+                else []
+            ),
+        ]
         if activities:
             _warn_if_activity_executor_max_workers_is_inconsistent(config)
             self._activity_worker = _ActivityWorker(
@@ -572,6 +585,7 @@ class Worker:
                 default_stream_backend=temporalio.streams.backend.default_backend(
                     config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
                 ),
+                stream_workflow_reads=stream_workflow_reads,
             )
 
         tuner = config.get("tuner")
@@ -659,7 +673,7 @@ class Worker:
                     enable_workflows=self._workflow_worker is not None,
                     enable_local_activities=self._activity_worker is not None
                     and self._workflow_worker is not None,
-                    enable_remote_activities=self._activity_worker is not None
+                    enable_remote_activities=bool(config.get("activities"))
                     and not config.get("no_remote_activities"),
                     enable_nexus=self._nexus_worker is not None,
                 ),

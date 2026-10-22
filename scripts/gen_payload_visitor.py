@@ -12,6 +12,12 @@ base_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(base_dir))
 
 from temporalio.api.common.v1.message_pb2 import Payload, Payloads, SearchAttributes
+from temporalio.api.nexusservices.streamservice.v1 import (
+    ReadRequest,
+    ReadResponse,
+    WaitRequest,
+    WaitResponse,
+)
 from temporalio.bridge.proto.nexus import NexusTaskCompletion
 from temporalio.bridge.proto.workflow_activation.workflow_activation_pb2 import (
     WorkflowActivation,
@@ -440,12 +446,22 @@ def write_bridge_visitors() -> None:
     out_path = base_dir / "temporalio" / "bridge" / "_visitor.py"
 
     # Build root descriptors: WorkflowActivation, WorkflowActivationCompletion,
-    # NexusTaskCompletion, and the system Nexus operation roots.
-    roots: list[Descriptor] = [
-        WorkflowActivation.DESCRIPTOR,
-        WorkflowActivationCompletion.DESCRIPTOR,
-        NexusTaskCompletion.DESCRIPTOR,
-    ] + discover_system_nexus_roots()
+    # NexusTaskCompletion, the system Nexus operation roots, and the stream service operations that
+    # workflow code calls on the system endpoint.
+    roots: list[Descriptor] = (
+        [
+            WorkflowActivation.DESCRIPTOR,
+            WorkflowActivationCompletion.DESCRIPTOR,
+            NexusTaskCompletion.DESCRIPTOR,
+        ]
+        + discover_system_nexus_roots()
+        + [
+            ReadRequest.DESCRIPTOR,
+            ReadResponse.DESCRIPTOR,
+            WaitRequest.DESCRIPTOR,
+            WaitResponse.DESCRIPTOR,
+        ]
+    )
 
     code = VisitorGenerator().generate(roots)
     out_path.write_text(code)

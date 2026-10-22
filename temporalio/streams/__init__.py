@@ -17,7 +17,8 @@ with that context's ``get_stream_handle``:
 * Workflow code creates its own streams with :py:func:`temporalio.workflow.create_stream`, and
   gets a :py:class:`WorkflowStreamHandle` to others with
   :py:func:`temporalio.workflow.get_stream_handle`. It publishes to its own streams and to
-  standalone streams. Reading in workflow code is not implemented yet.
+  standalone streams, and reads any stream: a read is recorded so that replay is deterministic, and
+  a reader at a stream's end waits without polling (see :py:class:`WorkflowStreamHandle`).
 * Activity code gets an :py:class:`ActivityStreamHandle` with
   :py:func:`temporalio.activity.get_stream_handle`, for example from a handle its workflow passed
   it, and a Standalone Activity creates its own streams with
@@ -51,6 +52,7 @@ from temporalio.streams._backend import (
     CloseStatus,
     StreamBackends,
     StreamClose,
+    StreamMode,
 )
 from temporalio.streams._errors import (
     EpochFencedError,
@@ -62,6 +64,7 @@ from temporalio.streams._errors import (
     StreamCursorError,
     StreamError,
     StreamExpiredError,
+    StreamModeUnknownError,
     StreamNotFoundError,
     StreamNotOwnerError,
     StreamSettingsMismatchError,
@@ -83,7 +86,6 @@ from temporalio.streams._handles import (
 from temporalio.streams._iterator import (
     RecordStatus,
     StreamCursor,
-    StreamMode,
     StreamRecord,
     StreamRecordAsyncIterator,
     Withdrawal,
@@ -120,6 +122,7 @@ __all__ = [
     "StreamHandle",
     "StreamHandleBase",
     "StreamMode",
+    "StreamModeUnknownError",
     "StreamNotFoundError",
     "StreamNotOwnerError",
     "StreamProducer",

@@ -287,6 +287,7 @@ class Replayer:
                 max_workflow_task_external_storage_concurrency=1,
                 stream_backends=None,
                 default_stream_backend=temporalio.streams.backend.NATIVE,
+                stream_workflow_reads=True,
                 default_workflow_logic_flags=frozenset(
                     self._default_workflow_logic_flags
                 ),

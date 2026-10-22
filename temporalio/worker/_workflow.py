@@ -15,6 +15,7 @@ from datetime import timezone
 from types import TracebackType
 
 import temporalio.api.common.v1
+import temporalio.api.enums.v1
 import temporalio.api.protocol.v1
 import temporalio.bridge.proto.common
 import temporalio.bridge.proto.workflow_activation
@@ -25,7 +26,9 @@ import temporalio.common
 import temporalio.converter
 import temporalio.converter._extstore
 import temporalio.exceptions
+import temporalio.streams._workflow_reads
 import temporalio.streams.backend
+import temporalio.streams.native
 import temporalio.workflow
 from temporalio.bridge.worker import PollShutdownError
 from temporalio.converter import StorageDriverStoreContext, StorageDriverWorkflowInfo
@@ -107,6 +110,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         max_workflow_task_external_storage_concurrency: int,
         stream_backends: Mapping[str, temporalio.streams.backend.StreamBackend] | None,
         default_stream_backend: str,
+        stream_workflow_reads: bool,
         default_workflow_logic_flags: frozenset[_WorkflowLogicFlag] | None = None,
     ) -> None:
         # Debug mode is enabled if specified or if the TEMPORAL_DEBUG env var is truthy
@@ -164,6 +168,16 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             **_WorkflowExternFunctions(  # type: ignore
                 __temporal_get_metric_meter=lambda: metric_meter,
                 __temporal_assert_local_activity_valid=assert_local_activity_valid,
+                # A replayer has no backends; its default is native.
+                __temporal_stream_backend_native=lambda name: (
+                    name == temporalio.streams.backend.NATIVE
+                    if stream_backends is None
+                    else isinstance(
+                        stream_backends.get(name),
+                        temporalio.streams.native.NativeStreamBackend,
+                    )
+                ),
+                __temporal_stream_workflow_reads=lambda: stream_workflow_reads,
             )
         )
 
@@ -179,6 +193,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         )
         self._stream_backends = stream_backends
         self._default_stream_backend = default_stream_backend
+        self._stream_workflow_reads = stream_workflow_reads
+        self._read_budgets = temporalio.streams._workflow_reads.ReadBudgets()
         self._throw_after_activation: Exception | None = None
 
         # If debug mode is enabled, disable deadlock detection
@@ -405,6 +421,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                 decode_headers=self._encode_headers,
                 storage_concurrency_limit=self._max_workflow_task_external_storage_concurrency,
             )
+            await temporalio.streams._workflow_reads.resolve_reads(
+                act, self._stream_backends, data_converter
+            )
             if not workflow:
                 assert init_job
                 workflow = _RunningWorkflow(
@@ -456,6 +475,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                     )
             else:
                 completion.failed.failure.SetInParent()
+                if isinstance(err, temporalio.workflow.NondeterminismError):
+                    completion.failed.force_cause = temporalio.api.enums.v1.WorkflowTaskFailedCause.WORKFLOW_TASK_FAILED_CAUSE_NON_DETERMINISTIC_ERROR
                 try:
                     data_converter.failure_converter.to_failure(
                         err,
@@ -529,6 +550,7 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                     "Failed writing stream of workflow with run ID %s", act.run_id
                 )
                 completion.failed.failure.message = f"Failed writing stream: {err}"
+        self._read_budgets.spend(act, completion)
 
         # Send off completion
         if LOG_PROTOS:
@@ -603,18 +625,30 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             if writes:
                 raise RuntimeError("The worker has no stream backends")
             return []
-        if not writes and not ending:
+        info = workflow.get_info()
+        defn = self._workflows.get(info.workflow_type, self._dynamic_workflow)
+        commit_mode = bool(defn and defn.stream_commit_mode)
+        # A commit-mode run declares its streams' mode, for their workflow readers, in its first
+        # workflow task, while not replaying, since lang must send no protocol messages then.
+        declare_mode = (
+            commit_mode
+            and self._stream_workflow_reads
+            and not act.is_replaying
+            and act.HasField("workflow_task")
+            and act.workflow_task.previous_started_event_id == 0
+        )
+        if not writes and not ending and not declare_mode:
             return []
         if not act.HasField("workflow_task"):
             raise RuntimeError("Workflow wrote to a stream outside a workflow task")
-        info = workflow.get_info()
-        defn = self._workflows.get(info.workflow_type, self._dynamic_workflow)
         by_backend: dict[str, list[temporalio.streams.backend.PendingStreamWrites]] = {}
         for w in writes:
             by_backend.setdefault(w.backend, []).append(w)
         names = list(by_backend) + (
             [n for n in self._stream_backends if n not in by_backend] if ending else []
         )
+        if declare_mode and temporalio.streams.backend.NATIVE not in names:
+            names.append(temporalio.streams.backend.NATIVE)
         messages: list[temporalio.api.protocol.v1.Message] = []
         for name in names:
             backend = self._stream_backends.get(name)
@@ -667,7 +701,9 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
                         )
                         if ending
                         else None,
-                        commit_mode=bool(defn and defn.stream_commit_mode)
+                        commit_mode=commit_mode
+                        and name == temporalio.streams.backend.NATIVE,
+                        declare_mode=declare_mode
                         and name == temporalio.streams.backend.NATIVE,
                     )
                 )
@@ -773,6 +809,8 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
             if seen_fail:
                 self._could_not_evict_count -= 1
 
+        temporalio.streams._workflow_reads.forget_run(act.run_id)
+        self._read_budgets.forget(act.run_id)
         for backend in (self._stream_backends or {}).values():
             try:
                 await backend.workflow_evicted(

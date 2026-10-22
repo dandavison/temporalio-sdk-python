@@ -70,3 +70,9 @@ class WorkflowAppendModeMismatchError(StreamError):
     A commit-mode completion in the wrong mode does not raise it: the server fails the workflow
     task with an application failure of type ``BAD_STREAM_APPEND``, and the task is retried.
     """
+
+
+class StreamModeUnknownError(StreamError):
+    """Workflow code waited for ``owner_wait`` for the stream's mode, which is unknown until the
+    owner's first workflow task completes: the owner has no worker, or its first task keeps failing.
+    """

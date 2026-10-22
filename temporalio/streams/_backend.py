@@ -5,11 +5,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import IntEnum
+from typing import TYPE_CHECKING
 
 import temporalio.api.failure.v1
 import temporalio.api.protocol.v1
+from temporalio.bridge.proto.streams import WorkflowReadRequest, WorkflowReadResponse
 from temporalio.streams._record import (
     ActivityProducer,
     AppendRecord,
@@ -18,6 +20,9 @@ from temporalio.streams._record import (
     WorkflowProducer,
 )
 from temporalio.streams._ref import StreamRef
+
+if TYPE_CHECKING:
+    import temporalio.client
 
 NATIVE = "native"
 """The name of the backend that stores streams in Temporal, which every client has."""
@@ -31,6 +36,21 @@ class CloseStatus(IntEnum):
     CANCELED = 3
     TERMINATED = 4
     TIMED_OUT = 5
+
+
+class StreamMode(IntEnum):
+    """How a stream's owner appends its own records, which decides how workflows read it."""
+
+    UNKNOWN = 0
+    """Not yet known: the owner is a workflow whose first workflow task has not completed, or no
+    read has told the mode yet."""
+    SINK = 1
+    """The owner's records are appended as it runs, so a failed workflow task attempt's records
+    can be read, and are then withdrawn. Always the mode of a Standalone Activity's stream, a
+    standalone stream, and every stream on a backend other than native."""
+    COMMIT = 2
+    """The owning workflow's records become visible when its workflow task commits. Workflows
+    read the stream with recorded Read operations."""
 
 
 @dataclass(frozen=True)
@@ -50,13 +70,20 @@ class ReadResponse:
 
     ``cursor`` is where the next read resumes, past records a topic filter skipped. ``close`` is
     set once the stream is closed and the reader has every record. ``exists`` is set once the
-    stream has been created, by a create or its first append.
+    stream has been created, by a create or its first append. ``mode`` is the stream's mode for
+    the owner's current run. On native, ``owner_close_time`` is set once the execution that holds
+    the stream has closed, and ``retention`` is then the namespace's retention, after which the
+    stream is removed; on Redis ``retention`` is the backend's, which applies from the stream's
+    last write.
     """
 
     records: Sequence[Record]
     cursor: bytes | None
     close: StreamClose | None
     exists: bool = False
+    mode: StreamMode = StreamMode.UNKNOWN
+    owner_close_time: datetime | None = None
+    retention: timedelta | None = None
 
 
 @dataclass(frozen=True)
@@ -94,8 +121,10 @@ class WorkflowActivationCompleted:
     activation that has not failed.
 
     ``workflow_id`` and ``first_run_id`` are the workflow's run chain, whose streams ``streams``
-    names. ``commit_mode`` is set when the workflow's definition declares commit mode. ``ending``
-    is set in the last call for an activation whose completion ends the run.
+    names. ``commit_mode`` is set when the workflow's definition declares commit mode, and
+    ``declare_mode`` in the activations of the run's first workflow task while not replaying, in
+    which a commit-mode run declares the mode of its streams for their readers. ``ending`` is set
+    in the last call for an activation whose completion ends the run.
     """
 
     workflow_id: str
@@ -104,6 +133,7 @@ class WorkflowActivationCompleted:
     streams: Sequence[WorkflowStreamWrites]
     ending: WorkflowEnding | None
     commit_mode: bool = False
+    declare_mode: bool = False
 
 
 class StreamBackend(ABC):
@@ -114,6 +144,17 @@ class StreamBackend(ABC):
 
     name: str
     """The backend's name among its client's backends."""
+
+    def bind(  # type:ignore[reportUnusedParameter]
+        self,
+        client: temporalio.client.Client,  # type:ignore[reportUnusedParameter]
+        *,
+        workflow_reads: bool,  # type:ignore[reportUnusedParameter]
+    ) -> None:
+        """Called with the client whose backends include this one, and whether its workflows read
+        streams. A backend that needs the server, such as for the notifiers of streams in an
+        external store, keeps it.
+        """
 
     @abstractmethod
     async def create(
@@ -182,6 +223,8 @@ class StreamBackend(ABC):
         max_records: int = 0,
         wait: timedelta = timedelta(0),
         last: int = 0,
+        until: bytes | None = None,
+        max_bytes: int = 0,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> ReadResponse:
@@ -189,11 +232,22 @@ class StreamBackend(ABC):
 
         ``topics`` filters by topic; empty means all. ``wait`` is how long the read may wait for a
         matching record. ``last``, if positive, reads the last N matching records instead. Markers
-        match every topic filter, and count towards ``max_records`` and ``last``. A backend that
-        makes RPCs uses ``rpc_metadata`` and ``rpc_timeout`` for each; others ignore them.
+        match every topic filter, and count towards ``max_records`` and ``last``. ``until`` stops
+        the read after the record at that cursor, without waiting. ``max_bytes``, if positive,
+        stops the read before the record that would take its payloads past it; a record that alone
+        exceeds it raises :py:class:`temporalio.streams.StreamTooLargeError`. A backend that makes
+        RPCs uses ``rpc_metadata`` and ``rpc_timeout`` for each; others ignore them.
 
         A read from the beginning of a stream that does not exist yet waits, and returns no
         records when ``wait`` passes. A read after a cursor of a stream that does not exist fails.
+        """
+
+    @abstractmethod
+    async def workflow_read(self, request: WorkflowReadRequest) -> WorkflowReadResponse:
+        """A workflow's read, made by the SDK's read local activity and again by replay: a read
+        that does not wait, with the SHA-256 digest of its records. On a backend whose readers wait
+        on a notifier, with ``request.notifier`` set, a read that finds nothing reads the stream's
+        notifier position and then reads again. The messages are the temporalio-streams crate's.
         """
 
     @abstractmethod
@@ -234,16 +288,26 @@ class StreamBackends:
     backend. ``default`` names the backend that streams are created on, and that handles got by
     name refer to, when the caller names none.
 
+    ``native`` and ``workflow_reads`` switch off native streams and workflow reads of streams. With
+    native off, the client and its workers have no native backend, so the default must be another,
+    and a worker refuses workflows that declare commit mode. With workflow reads off, a workflow's
+    read raises, workers register no read local activity, and backends whose readers wait on
+    notifiers in the server, such as Redis, send no Notify. The server has matching switches,
+    history.enableNativeStreams and history.enableStreamWorkflowReads. Both off is the Brook
+    configuration.
+
     .. warning::
         This API is a prototype and will change.
     """
 
     backends: Sequence[StreamBackend] = ()
     default: str = NATIVE
+    native: bool = True
+    workflow_reads: bool = True
 
     def __post_init__(self) -> None:
         """Check that the names are unique and the default is one of them."""
-        names = [NATIVE, *(b.name for b in self.backends)]
+        names = [*([NATIVE] if self.native else []), *(b.name for b in self.backends)]
         if len(set(names)) != len(names):
             raise ValueError(f"stream backend names must be unique: {names}")
         if self.default not in names:

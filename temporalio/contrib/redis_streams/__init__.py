@@ -53,6 +53,13 @@ Properties weaker than Temporal-native streams, all because Redis cannot see the
 * A standalone stream's idle timeout is applied by the next create, append or close after it, and
   by readers before they report whether the stream is closed: nothing in Redis runs when it
   passes, so a reader waiting at the stream's end learns of the close only when its wait ends.
+* Workflow readers wait on the stream's notifier in the server, which producers wake: after an
+  activity's or a client's create, append or close, the backend sends a Notify of the stream
+  through the client's connection, at most one per stream every 100 ms and always one after the
+  last write; after a workflow's writes the worker sends one per stream in the background. A
+  failed Notify fails nothing: it is logged, and the next write sends another. A reader is not
+  woken if a producer stops between a write and its Notify, until its Wait expires. With workflow
+  reads switched off in the client's stream backends configuration, no Notify is sent.
 
 There is no commit mode: a worker refuses to register a workflow that declares it.
 """
@@ -143,8 +150,16 @@ class RedisStreamBackend(CrateStreamBackend):
         self._options = RedisOptions(url=url, namespace=namespace)
         self._options.retention.FromTimedelta(retention)
         self._runtime = runtime
+        self._client: temporalio.client.Client | None = None
         self._ref: temporalio.bridge.temporal_sdk_bridge.StreamsRef | None = None
         self._connecting: asyncio.Lock | None = None
+
+    def bind(self, client: temporalio.client.Client, *, workflow_reads: bool) -> None:
+        """Keep the client, through whose connection the backend calls the server for the streams'
+        notifiers, if its workflows read streams.
+        """
+        if workflow_reads and not self._client:
+            self._client = client
 
     async def _streams(self) -> temporalio.bridge.temporal_sdk_bridge.StreamsRef:
         if not self._ref:
@@ -152,10 +167,21 @@ class RedisStreamBackend(CrateStreamBackend):
             async with self._connecting:
                 if not self._ref:
                     runtime = self._runtime or temporalio.runtime.Runtime.default()
+                    bridge_client = None
+                    if self._client:
+                        from temporalio.worker._worker import (
+                            _extract_bridge_client_for_worker,
+                        )
+
+                        bridge_client = (
+                            await _extract_bridge_client_for_worker(
+                                self._client
+                            )._connected_client()
+                        )._ref
                     self._ref = (
                         await temporalio.bridge.temporal_sdk_bridge.new_redis_streams(
                             runtime._core_runtime._ref,
-                            None,
+                            bridge_client,
                             self._options.SerializeToString(),
                         )
                     )

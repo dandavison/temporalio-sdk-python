@@ -650,3 +650,40 @@ class PayloadVisitor:
         self, fs: VisitorFunctions, o: Any
     ) -> None:
         pass
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_ReadRequest(
+        self, fs: VisitorFunctions, o: Any
+    ) -> None:
+        pass
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_Record(
+        self, fs: VisitorFunctions, o: Any
+    ):
+        if o.HasField("payload"):
+            await self._visit_temporal_api_common_v1_Payload(fs, o.payload)
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_StreamClose(
+        self, fs: VisitorFunctions, o: Any
+    ):
+        if o.HasField("failure"):
+            await self._visit_temporal_api_failure_v1_Failure(fs, o.failure)
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_ReadResponse(
+        self, fs: VisitorFunctions, o: Any
+    ):
+        for v in o.records:
+            await self._visit_temporal_api_nexusservices_streamservice_v1_Record(fs, v)
+        if o.HasField("close"):
+            await self._visit_temporal_api_nexusservices_streamservice_v1_StreamClose(
+                fs, o.close
+            )
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_WaitRequest(
+        self, fs: VisitorFunctions, o: Any
+    ) -> None:
+        pass
+
+    async def _visit_temporal_api_nexusservices_streamservice_v1_WaitResponse(
+        self, fs: VisitorFunctions, o: Any
+    ) -> None:
+        pass
