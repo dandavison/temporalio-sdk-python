@@ -26,10 +26,12 @@ else:
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class StreamRef(google.protobuf.message.Message):
-    """A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
-    Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
-    activity_id is set. On Redis, appends and closes need the owner's run ID; a read without it reads
-    the stream of the owner ID's run that most recently created one.
+    """A stream: one of the named streams of an owner, a workflow run chain (workflow_id, first_run_id)
+    or a Standalone Activity execution (activity_id, activity_run_id), or a standalone stream
+    (stream_id). Exactly one of workflow_id, activity_id and stream_id is set. name, from 1 to 255
+    bytes, is required for an owner's stream and empty for a standalone stream. On Redis, creates,
+    appends and closes of an owner's stream need the owner's run ID; a read without it reads the
+    stream of the owner ID's run whose first stream was created most recently.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -38,10 +40,14 @@ class StreamRef(google.protobuf.message.Message):
     FIRST_RUN_ID_FIELD_NUMBER: builtins.int
     ACTIVITY_ID_FIELD_NUMBER: builtins.int
     ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
+    NAME_FIELD_NUMBER: builtins.int
+    STREAM_ID_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     first_run_id: builtins.str
     activity_id: builtins.str
     activity_run_id: builtins.str
+    name: builtins.str
+    stream_id: builtins.str
     def __init__(
         self,
         *,
@@ -49,6 +55,8 @@ class StreamRef(google.protobuf.message.Message):
         first_run_id: builtins.str = ...,
         activity_id: builtins.str = ...,
         activity_run_id: builtins.str = ...,
+        name: builtins.str = ...,
+        stream_id: builtins.str = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -59,6 +67,10 @@ class StreamRef(google.protobuf.message.Message):
             b"activity_run_id",
             "first_run_id",
             b"first_run_id",
+            "name",
+            b"name",
+            "stream_id",
+            b"stream_id",
             "workflow_id",
             b"workflow_id",
         ],
@@ -348,10 +360,51 @@ class AppendResponse(google.protobuf.message.Message):
 
 global___AppendResponse = AppendResponse
 
+class CreateRequest(google.protobuf.message.Message):
+    """ "Create". Creates the stream before any append and fixes its settings; see the stream service's
+    CreateRequest. The response is a temporalio.api.nexusservices.streamservice.v1.CreateResponse.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STREAM_FIELD_NUMBER: builtins.int
+    REQUEST_ID_FIELD_NUMBER: builtins.int
+    SETTINGS_FIELD_NUMBER: builtins.int
+    @property
+    def stream(self) -> global___StreamRef: ...
+    request_id: builtins.str
+    @property
+    def settings(
+        self,
+    ) -> temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamSettings: ...
+    def __init__(
+        self,
+        *,
+        stream: global___StreamRef | None = ...,
+        request_id: builtins.str = ...,
+        settings: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamSettings
+        | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "settings", b"settings", "stream", b"stream"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "request_id", b"request_id", "settings", b"settings", "stream", b"stream"
+        ],
+    ) -> None: ...
+
+global___CreateRequest = CreateRequest
+
 class CloseRequest(google.protobuf.message.Message):
     """ "Close". Only the stream's owner closes the stream: a workflow task of the owning run (owner), or
-    an attempt of the owning Standalone Activity (activity_owner). Exactly one is set. On Redis
-    nothing else closes an activity's stream when the activity ends.
+    an attempt of the owning Standalone Activity (activity_owner). Exactly one is set, except for a
+    standalone stream, which any caller may close, with neither set. On Redis nothing else closes an
+    activity's stream when the activity ends.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -525,9 +578,10 @@ global___ReadRequest = ReadRequest
 
 class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     """ "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
-    activation's completion is sent. Appends the activation's records, splitting them into appends
-    that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-    appends of the activation stay stored. Then writes close, if set.
+    activation's completion is sent. Appends the activation's records to each of the workflow's own
+    streams, splitting them into appends that fit the size limits; in commit mode, returns them
+    instead. If an append fails, the earlier appends of the activation stay stored. Then writes each
+    stream's close, if set.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -537,10 +591,9 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     FIRST_RUN_ID_FIELD_NUMBER: builtins.int
     PREVIOUS_STARTED_EVENT_ID_FIELD_NUMBER: builtins.int
     ATTEMPT_FIELD_NUMBER: builtins.int
-    RECORDS_FIELD_NUMBER: builtins.int
     ENDING_FIELD_NUMBER: builtins.int
     COMMIT_MODE_FIELD_NUMBER: builtins.int
-    CLOSE_FIELD_NUMBER: builtins.int
+    STREAMS_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     run_id: builtins.str
     first_run_id: builtins.str
@@ -548,30 +601,21 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
     """The workflow task of the activation."""
     attempt: builtins.int
     @property
-    def records(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        temporalio.api.nexusservices.streamservice.v1.request_response_pb2.AppendRecord
-    ]: ...
-    @property
     def ending(self) -> global___WorkflowEnding:
         """Set when the completion ends the run."""
     commit_mode: builtins.bool
-    """The run's workflow declares commit mode. Only native supports it; other backends fail the
-    call. The server fixes a run's mode at its first workflow append, so a run whose workers
-    disagree fails the workflow tasks of the workers in the other mode.
+    """The run's workflow declares commit mode, for every one of its own streams. Only native
+    supports it; other backends fail the call. The server fixes a run's mode for a stream at its
+    first workflow append to it, so a run whose workers disagree fails the workflow tasks of the
+    workers in the other mode.
     """
     @property
-    def close(
+    def streams(
         self,
-    ) -> temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose:
-        """The workflow closed its own stream in this activation. The crate closes the stream after
-        appending the records, as the activation's workflow task, and then writes no close when the
-        run ends. Not supported in commit mode: the close would precede the records, which travel in
-        the task completion. The close is written before the task completes, so if the task attempt
-        then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
-        failing.
-        """
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        global___WorkflowStreamWrites
+    ]:
+        """The activation's writes, one entry per stream of the workflow that it wrote to."""
     def __init__(
         self,
         *,
@@ -580,26 +624,18 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
         first_run_id: builtins.str = ...,
         previous_started_event_id: builtins.int = ...,
         attempt: builtins.int = ...,
-        records: collections.abc.Iterable[
-            temporalio.api.nexusservices.streamservice.v1.request_response_pb2.AppendRecord
-        ]
-        | None = ...,
         ending: global___WorkflowEnding | None = ...,
         commit_mode: builtins.bool = ...,
-        close: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
-        | None = ...,
+        streams: collections.abc.Iterable[global___WorkflowStreamWrites] | None = ...,
     ) -> None: ...
     def HasField(
-        self,
-        field_name: typing_extensions.Literal["close", b"close", "ending", b"ending"],
+        self, field_name: typing_extensions.Literal["ending", b"ending"]
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
             "attempt",
             b"attempt",
-            "close",
-            b"close",
             "commit_mode",
             b"commit_mode",
             "ending",
@@ -608,16 +644,78 @@ class WorkflowActivationCompletedRequest(google.protobuf.message.Message):
             b"first_run_id",
             "previous_started_event_id",
             b"previous_started_event_id",
-            "records",
-            b"records",
             "run_id",
             b"run_id",
+            "streams",
+            b"streams",
             "workflow_id",
             b"workflow_id",
         ],
     ) -> None: ...
 
 global___WorkflowActivationCompletedRequest = WorkflowActivationCompletedRequest
+
+class WorkflowStreamWrites(google.protobuf.message.Message):
+    """An activation's writes to one of its workflow's own streams, by name, or to a standalone stream,
+    by stream_id. A workflow appends to a standalone stream as an unverified producer, sink-style,
+    also when it declares commit mode, and cannot close it.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NAME_FIELD_NUMBER: builtins.int
+    STREAM_ID_FIELD_NUMBER: builtins.int
+    RECORDS_FIELD_NUMBER: builtins.int
+    CLOSE_FIELD_NUMBER: builtins.int
+    name: builtins.str
+    stream_id: builtins.str
+    @property
+    def records(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        temporalio.api.nexusservices.streamservice.v1.request_response_pb2.AppendRecord
+    ]: ...
+    @property
+    def close(
+        self,
+    ) -> temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose:
+        """The workflow closed this stream in the activation. The crate closes the stream after appending
+        the records, as the activation's workflow task, so the close at the run's end leaves it as it
+        is. Not supported in commit mode: the close would precede the records, which travel in the
+        task completion. The close is written before the task completes, so if the task attempt then
+        fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
+        failing.
+        """
+    def __init__(
+        self,
+        *,
+        name: builtins.str = ...,
+        stream_id: builtins.str = ...,
+        records: collections.abc.Iterable[
+            temporalio.api.nexusservices.streamservice.v1.request_response_pb2.AppendRecord
+        ]
+        | None = ...,
+        close: temporalio.api.nexusservices.streamservice.v1.request_response_pb2.StreamClose
+        | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["close", b"close"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "close",
+            b"close",
+            "name",
+            b"name",
+            "records",
+            b"records",
+            "stream_id",
+            b"stream_id",
+        ],
+    ) -> None: ...
+
+global___WorkflowStreamWrites = WorkflowStreamWrites
 
 class WorkflowEnding(google.protobuf.message.Message):
     """How a run ends, from the terminal command of its completion."""
@@ -690,7 +788,9 @@ global___WorkflowActivationCompletedResponse = WorkflowActivationCompletedRespon
 class WorkflowEvictedRequest(google.protobuf.message.Message):
     """ "WorkflowEvicted". Sent by the worker when a run is evicted. execution_ending is set when the
     eviction's reason is WORKFLOW_EXECUTION_ENDING, which Core sends only after the server accepted
-    the run's terminal completion.
+    the run's terminal completion. On Redis the crate then closes every stream of the run that is
+    open, including ones other producers created, and makes later appends to the run's streams that
+    do not exist yet fail as CLOSED.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor

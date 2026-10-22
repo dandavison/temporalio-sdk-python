@@ -5,6 +5,7 @@ from .streams_pb2 import (
     ClientProducer,
     CloseRequest,
     CloseResponse,
+    CreateRequest,
     LocalActivityProducer,
     NativeOptions,
     Producer,
@@ -17,6 +18,7 @@ from .streams_pb2 import (
     WorkflowEvictedRequest,
     WorkflowEvictedResponse,
     WorkflowProducer,
+    WorkflowStreamWrites,
 )
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "ClientProducer",
     "CloseRequest",
     "CloseResponse",
+    "CreateRequest",
     "LocalActivityProducer",
     "NativeOptions",
     "Producer",
@@ -38,4 +41,5 @@ __all__ = [
     "WorkflowEvictedRequest",
     "WorkflowEvictedResponse",
     "WorkflowProducer",
+    "WorkflowStreamWrites",
 ]

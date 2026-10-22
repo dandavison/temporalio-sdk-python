@@ -41,10 +41,11 @@ class _CloseStateEnumTypeWrapper(
     CLOSE_STATE_TIMED_OUT: _CloseState.ValueType  # 5
 
 class CloseState(_CloseState, metaclass=_CloseStateEnumTypeWrapper):
-    """The state a stream closed with: the state its owner ended in, or the state an owner's Close
-    request gave. The server does not close a workflow's stream when the run's chain continues in a new
-    run: at continue-as-new, when a cron run completes, fails or times out, and when a failed or
-    timed-out run is retried.
+    """The state a stream closed with: the state its owner ended in, or the state a Close request gave.
+    A standalone stream that reaches its idle timeout closes as CLOSE_STATE_TIMED_OUT. The server
+    does not close a workflow's stream when the run's chain continues in a new run: at
+    continue-as-new, when a cron run completes, fails or times out, and when a failed or timed-out run
+    is retried.
     """
 
 CLOSE_STATE_UNSPECIFIED: CloseState.ValueType  # 0
@@ -72,8 +73,9 @@ class _StreamFailureTypeEnumTypeWrapper(
     still succeeds.
     """
     STREAM_FAILURE_TYPE_NOT_FOUND: _StreamFailureType.ValueType  # 2
-    """The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one.
-    A read from the beginning waits instead of failing this way.
+    """The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one,
+    or the standalone stream that a Close names does not exist. A read from the beginning waits
+    instead of failing this way.
     """
     STREAM_FAILURE_TYPE_EXPIRED: _StreamFailureType.ValueType  # 3
     """A read after a cursor whose owner, or whose run chain, no longer exists, or whose workflow
@@ -116,6 +118,8 @@ class _StreamFailureTypeEnumTypeWrapper(
     after the run fixed sink mode fail the workflow task instead, with an application failure of
     type BAD_STREAM_APPEND. A run's workers must agree on the mode.
     """
+    STREAM_FAILURE_TYPE_SETTINGS_MISMATCH: _StreamFailureType.ValueType  # 13
+    """A create of a stream that exists with other settings."""
 
 class StreamFailureType(
     _StreamFailureType, metaclass=_StreamFailureTypeEnumTypeWrapper
@@ -128,8 +132,9 @@ STREAM_FAILURE_TYPE_CLOSED: StreamFailureType.ValueType  # 1
 still succeeds.
 """
 STREAM_FAILURE_TYPE_NOT_FOUND: StreamFailureType.ValueType  # 2
-"""The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one.
-A read from the beginning waits instead of failing this way.
+"""The stream's owner does not exist, or a pinned run chain is not the workflow ID's current one,
+or the standalone stream that a Close names does not exist. A read from the beginning waits
+instead of failing this way.
 """
 STREAM_FAILURE_TYPE_EXPIRED: StreamFailureType.ValueType  # 3
 """A read after a cursor whose owner, or whose run chain, no longer exists, or whose workflow
@@ -170,6 +175,8 @@ STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH: StreamFailureType.ValueType  
 after the run fixed sink mode fail the workflow task instead, with an application failure of
 type BAD_STREAM_APPEND. A run's workers must agree on the mode.
 """
+STREAM_FAILURE_TYPE_SETTINGS_MISMATCH: StreamFailureType.ValueType  # 13
+"""A create of a stream that exists with other settings."""
 global___StreamFailureType = StreamFailureType
 
 class _WorkflowAppendMode:
@@ -197,8 +204,9 @@ class _WorkflowAppendModeEnumTypeWrapper(
 class WorkflowAppendMode(
     _WorkflowAppendMode, metaclass=_WorkflowAppendModeEnumTypeWrapper
 ):
-    """How a workflow appends to its own stream. Fixed per run at its first workflow append, and recorded
-    in a WorkflowAppendModeFixed record. A workflow's appends to another owner's stream have no mode.
+    """How a workflow appends to its own streams. Fixed per run and stream at the run's first workflow
+    append to the stream, and recorded in a WorkflowAppendModeFixed record. A workflow's appends to
+    another owner's stream, or to a standalone stream, have no mode.
     """
 
 WORKFLOW_APPEND_MODE_UNSPECIFIED: WorkflowAppendMode.ValueType  # 0
@@ -216,27 +224,31 @@ global___WorkflowAppendMode = WorkflowAppendMode
 class StreamRef(google.protobuf.message.Message):
     """(--
     Prototype. Operations of the "temporalio.api.nexusservices.streamservice.v1.StreamService" service on
-    the System Nexus Endpoint: "Append", "Read" and "Close". Callers make them as synchronous direct
-    Nexus calls (StartNexusOperation), which the server accepts only when CHASM and
-    frontend.enableDirectNexusCalls are enabled. They operate on the stream owned by a workflow run
-    chain or a Standalone Activity execution. The server stores the stream embedded in its owner, so
-    the stream exists only while its owner does. A failed operation returns an operation failure whose
-    ApplicationFailureInfo type is the name of a StreamFailureType value; a malformed request fails
-    with a gRPC error instead.
+    the System Nexus Endpoint: "Create", "Append", "Read" and "Close". Callers make them as
+    synchronous direct Nexus calls (StartNexusOperation), which the server accepts only when CHASM and
+    frontend.enableDirectNexusCalls are enabled. They operate on a named stream of a workflow run
+    chain or a Standalone Activity execution, which the server stores embedded in its owner, so the
+    stream exists only while its owner does; or on a standalone stream, which is an execution of its
+    own. A failed operation returns an operation failure whose ApplicationFailureInfo type is the name
+    of a StreamFailureType value; a malformed request fails with a gRPC error instead.
 
     Stream backends outside the server, such as Redis, use the same records, but the server checks
     none of their producers. The comments below describe the server's stream.
     --)
 
-    A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
-    Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
-    activity_id is set; the server rejects a reference with neither or both. A workflow and an
-    activity with the same ID have different streams.
+    A stream: one of the named streams of an owner, a workflow run chain (workflow_id, first_run_id)
+    or a Standalone Activity execution (activity_id, activity_run_id), or a standalone stream
+    (stream_id). Exactly one of workflow_id, activity_id and stream_id is set; the server rejects a
+    reference with none or more than one. A workflow, an activity and a standalone stream with the same
+    ID have different streams. An owner has any number of streams, each with its own records, producer
+    state and close.
 
     A workflow's stream is kept in the run that created it. It is not moved to the next run at
     continue-as-new, retry or cron, so the next run starts with a new, empty stream, and the earlier
     run's records can no longer be read: a read after a cursor of the earlier run's stream fails as
     EXPIRED.
+    (-- api-linter: core::0123::resource-annotation=disabled
+        aip.dev/not-precedent: name is a stream's name among its owner's streams, not a resource name. --)
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -246,6 +258,8 @@ class StreamRef(google.protobuf.message.Message):
     NAMESPACE_FIELD_NUMBER: builtins.int
     ACTIVITY_ID_FIELD_NUMBER: builtins.int
     ACTIVITY_RUN_ID_FIELD_NUMBER: builtins.int
+    NAME_FIELD_NUMBER: builtins.int
+    STREAM_ID_FIELD_NUMBER: builtins.int
     workflow_id: builtins.str
     first_run_id: builtins.str
     """Pins the run chain. Empty means the workflow ID's current chain. A pinned chain that is not
@@ -259,6 +273,16 @@ class StreamRef(google.protobuf.message.Message):
     """Pins the activity execution. Empty means the activity ID's current execution. A read after a
     cursor reads the cursor's execution.
     """
+    name: builtins.str
+    """The stream's name among its owner's streams: required for a stream of a workflow or activity,
+    from 1 to 255 bytes, and empty for a standalone stream.
+    """
+    stream_id: builtins.str
+    """A standalone stream, which has no owner execution. Producers of every kind append to it
+    unverified, and any caller may close it. It closes after its idle timeout (see
+    StreamSettings), and is removed the namespace's retention after it closes. Until then, an
+    append or create with its ID finds it closed.
+    """
     def __init__(
         self,
         *,
@@ -267,6 +291,8 @@ class StreamRef(google.protobuf.message.Message):
         namespace: builtins.str = ...,
         activity_id: builtins.str = ...,
         activity_run_id: builtins.str = ...,
+        name: builtins.str = ...,
+        stream_id: builtins.str = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -277,14 +303,44 @@ class StreamRef(google.protobuf.message.Message):
             b"activity_run_id",
             "first_run_id",
             b"first_run_id",
+            "name",
+            b"name",
             "namespace",
             b"namespace",
+            "stream_id",
+            b"stream_id",
             "workflow_id",
             b"workflow_id",
         ],
     ) -> None: ...
 
 global___StreamRef = StreamRef
+
+class StreamSettings(google.protobuf.message.Message):
+    """The settings of a stream, fixed when it is created, by Create or by its first append."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    IDLE_TIMEOUT_FIELD_NUMBER: builtins.int
+    @property
+    def idle_timeout(self) -> google.protobuf.duration_pb2.Duration:
+        """A standalone stream closes, as CLOSE_STATE_TIMED_OUT, once this long has passed without a
+        create or an append. Zero means 7 days. A stream of a workflow or activity closes when its
+        owner ends, and does not accept an idle timeout.
+        """
+    def __init__(
+        self,
+        *,
+        idle_timeout: google.protobuf.duration_pb2.Duration | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing_extensions.Literal["idle_timeout", b"idle_timeout"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["idle_timeout", b"idle_timeout"]
+    ) -> None: ...
+
+global___StreamSettings = StreamSettings
 
 class WorkflowTaskProducer(google.protobuf.message.Message):
     """A workflow task attempt appending sink-style. On a stream owned by the same workflow, the server
@@ -573,8 +629,8 @@ class AppendRecord(google.protobuf.message.Message):
 global___AppendRecord = AppendRecord
 
 class WorkflowTaskCommit(google.protobuf.message.Message):
-    """Records which attempt completed a workflow task. The server writes one in the transaction that
-    completes each workflow task of a run whose workflow owns a stream, and none for a rejected
+    """Records which attempt completed a workflow task. The server writes one in each of the run's
+    streams, in the transaction that completes each workflow task, and none for a rejected
     speculative task. A workflow task that completed before the stream existed has none; see
     StreamCreated.
     """
@@ -642,8 +698,9 @@ class StreamCreated(google.protobuf.message.Message):
 global___StreamCreated = StreamCreated
 
 class WorkflowAppendModeFixed(google.protobuf.message.Message):
-    """Written when a run's first workflow append to its workflow's own stream fixes how the run's
-    workflow appends. The mode is fixed per run, at that append, not when the stream is created.
+    """Written when a run's first workflow append to one of its workflow's own streams fixes how the run's
+    workflow appends to that stream. The mode is fixed per run and stream, at that append, not when the
+    stream is created.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -668,32 +725,40 @@ class WorkflowAppendModeFixed(google.protobuf.message.Message):
 global___WorkflowAppendModeFixed = WorkflowAppendModeFixed
 
 class CommitModeAppend(google.protobuf.message.Message):
-    """The body of a protocol message in a workflow task completion: records the workflow appends to its
-    own stream in commit mode. The server appends them in the completion's transaction, before it
+    """The body of a protocol message in a workflow task completion: records the workflow appends to one
+    of its own streams in commit mode. A workflow that declares commit mode appends to every one of its
+    own streams in commit mode. The server appends them in the completion's transaction, before it
     records the completion and before a terminal command closes the stream, with the workflow task as
     their producer, so the task's commit record covers them. They are not written to History. A
     message the server cannot apply fails the workflow task with cause
     WORKFLOW_WORKER_UNHANDLED_FAILURE and an application failure of type BAD_STREAM_APPEND. Each
     message is subject to an append's size limits, and all of a completion's messages are subject to
     the size limit of the completion request.
+    (-- api-linter: core::0123::resource-annotation=disabled
+        aip.dev/not-precedent: name is a stream's name among its owner's streams, not a resource name. --)
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     RECORDS_FIELD_NUMBER: builtins.int
+    NAME_FIELD_NUMBER: builtins.int
     @property
     def records(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___AppendRecord
     ]: ...
+    name: builtins.str
+    """The stream's name among the workflow's streams."""
     def __init__(
         self,
         *,
         records: collections.abc.Iterable[global___AppendRecord] | None = ...,
+        name: builtins.str = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing_extensions.Literal["records", b"records"]
+        self,
+        field_name: typing_extensions.Literal["name", b"name", "records", b"records"],
     ) -> None: ...
 
 global___CommitModeAppend = CommitModeAppend
@@ -801,7 +866,7 @@ class StreamClose(google.protobuf.message.Message):
         owner.
         """
     reason: builtins.str
-    """Set only by an owner's Close request."""
+    """Set by a Close request, and by the server when a standalone stream reaches its idle timeout."""
     def __init__(
         self,
         *,
@@ -823,7 +888,7 @@ global___StreamClose = StreamClose
 
 class AppendRequest(google.protobuf.message.Message):
     """Input of the "Append" operation. Appends the records as one atomic, contiguous batch. The first
-    append creates the stream.
+    append creates the stream, with default settings, if Create has not.
 
     seq is 0 for a producer's first append in an epoch and one more than its latest after that, so a
     producer must not have two appends in flight in one epoch. Only the latest seq is deduplicated: a
@@ -837,7 +902,7 @@ class AppendRequest(google.protobuf.message.Message):
 
     An append has at most 1000 records, of at most 1 MiB each and 4 MiB in all, counting payloads but
     not topics. An append to an owner that does not exist fails as NOT_FOUND; one to the stream of an
-    owner that has ended fails as CLOSED, also when the owner never had a stream.
+    owner that has ended fails as CLOSED, also when the owner never had that stream.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -994,6 +1059,7 @@ class ReadResponse(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     RECORDS_FIELD_NUMBER: builtins.int
+    EXISTS_FIELD_NUMBER: builtins.int
     CURSOR_FIELD_NUMBER: builtins.int
     CLOSE_FIELD_NUMBER: builtins.int
     @property
@@ -1002,6 +1068,11 @@ class ReadResponse(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         global___Record
     ]: ...
+    exists: builtins.bool
+    """The stream has been created, by Create or by an append. So a reader of a stream that its
+    creator creates explicitly, before any append, can tell an empty stream from one that has not
+    been created yet. A stream created by its first append does not exist until then.
+    """
     cursor: builtins.bytes
     """Where the next read resumes: after the last record this read passed, including records a
     topic filter skipped. The request's cursor if the read passed none.
@@ -1015,6 +1086,7 @@ class ReadResponse(google.protobuf.message.Message):
         self,
         *,
         records: collections.abc.Iterable[global___Record] | None = ...,
+        exists: builtins.bool = ...,
         cursor: builtins.bytes = ...,
         close: global___StreamClose | None = ...,
     ) -> None: ...
@@ -1024,7 +1096,14 @@ class ReadResponse(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing_extensions.Literal[
-            "close", b"close", "cursor", b"cursor", "records", b"records"
+            "close",
+            b"close",
+            "cursor",
+            b"cursor",
+            "exists",
+            b"exists",
+            "records",
+            b"records",
         ],
     ) -> None: ...
 
@@ -1040,6 +1119,11 @@ class CloseRequest(google.protobuf.message.Message):
     A close is an append of no records by the owner: seq is the owner's next seq in its epoch, and a
     retry of a stored close succeeds. The server also closes a stream itself, in the transaction in
     which the owner ends.
+
+    A standalone stream has no owner, so any caller may close it, without owner, seq or task token,
+    which the server ignores. The server does not verify the caller: the creator's right to close is
+    not enforced. A close of a closed standalone stream succeeds if it is the same close, and fails as
+    CLOSED otherwise. A close of a standalone stream that does not exist fails as NOT_FOUND.
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
@@ -1099,3 +1183,80 @@ class CloseResponse(google.protobuf.message.Message):
     ) -> None: ...
 
 global___CloseResponse = CloseResponse
+
+class CreateRequest(google.protobuf.message.Message):
+    """Input of the "Create" operation. Creates the stream, so that readers see it exist before any
+    append, and fixes its settings. Appends create a stream too, with default settings, so Create is
+    optional.
+
+    A create of a stream that exists succeeds if its settings are the same, with zero values taken
+    as the defaults, and fails as SETTINGS_MISMATCH otherwise. A create of a closed stream fails as
+    CLOSED, unless it is a retry of the create that created it. Creating a stream of a workflow or
+    activity needs its owner: it fails as NOT_FOUND if the owner does not exist, and as CLOSED if the
+    owner has ended.
+    (-- api-linter: core::0133::request-parent-required=disabled
+        api-linter: core::0133::request-resource-field=disabled
+        aip.dev/not-precedent: Create is a Nexus operation on a stream named by its StreamRef, not a resource-oriented RPC. --)
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STREAM_FIELD_NUMBER: builtins.int
+    REQUEST_ID_FIELD_NUMBER: builtins.int
+    SETTINGS_FIELD_NUMBER: builtins.int
+    @property
+    def stream(self) -> global___StreamRef:
+        """(-- api-linter: core::0133::request-unknown-fields=disabled
+        aip.dev/not-precedent: as for the message. --)
+        """
+    request_id: builtins.str
+    """Identifies the create, so that a retry of the create that created the stream reports it as
+    created. Optional.
+    (-- api-linter: core::0133::request-unknown-fields=disabled
+        aip.dev/not-precedent: as for the message. --)
+    """
+    @property
+    def settings(self) -> global___StreamSettings:
+        """(-- api-linter: core::0133::request-unknown-fields=disabled
+        aip.dev/not-precedent: as for the message. --)
+        """
+    def __init__(
+        self,
+        *,
+        stream: global___StreamRef | None = ...,
+        request_id: builtins.str = ...,
+        settings: global___StreamSettings | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing_extensions.Literal[
+            "settings", b"settings", "stream", b"stream"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing_extensions.Literal[
+            "request_id", b"request_id", "settings", b"settings", "stream", b"stream"
+        ],
+    ) -> None: ...
+
+global___CreateRequest = CreateRequest
+
+class CreateResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    CREATED_FIELD_NUMBER: builtins.int
+    created: builtins.bool
+    """Whether this create, or an earlier attempt of it with the same request ID, created the
+    stream. False when the stream already existed, created by an append or by another create.
+    """
+    def __init__(
+        self,
+        *,
+        created: builtins.bool = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing_extensions.Literal["created", b"created"]
+    ) -> None: ...
+
+global___CreateResponse = CreateResponse

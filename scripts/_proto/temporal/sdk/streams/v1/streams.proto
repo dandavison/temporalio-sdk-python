@@ -9,15 +9,19 @@ import "google/protobuf/duration.proto";
 import "temporal/api/protocol/v1/message.proto";
 import "temporal/api/nexusservices/streamservice/v1/request_response.proto";
 
-// A stream, named by its owner: a workflow run chain, by workflow_id and first_run_id, or a
-// Standalone Activity execution, by activity_id and activity_run_id. Exactly one of workflow_id and
-// activity_id is set. On Redis, appends and closes need the owner's run ID; a read without it reads
-// the stream of the owner ID's run that most recently created one.
+// A stream: one of the named streams of an owner, a workflow run chain (workflow_id, first_run_id)
+// or a Standalone Activity execution (activity_id, activity_run_id), or a standalone stream
+// (stream_id). Exactly one of workflow_id, activity_id and stream_id is set. name, from 1 to 255
+// bytes, is required for an owner's stream and empty for a standalone stream. On Redis, creates,
+// appends and closes of an owner's stream need the owner's run ID; a read without it reads the
+// stream of the owner ID's run whose first stream was created most recently.
 message StreamRef {
     string workflow_id = 1;
     string first_run_id = 2;
     string activity_id = 3;
     string activity_run_id = 4;
+    string name = 5;
+    string stream_id = 6;
 }
 
 message ClientProducer {
@@ -77,9 +81,18 @@ message AppendResponse {
     repeated bytes cursors = 1;
 }
 
+// "Create". Creates the stream before any append and fixes its settings; see the stream service's
+// CreateRequest. The response is a temporal.api.nexusservices.streamservice.v1.CreateResponse.
+message CreateRequest {
+    StreamRef stream = 1;
+    string request_id = 2;
+    temporal.api.nexusservices.streamservice.v1.StreamSettings settings = 3;
+}
+
 // "Close". Only the stream's owner closes the stream: a workflow task of the owning run (owner), or
-// an attempt of the owning Standalone Activity (activity_owner). Exactly one is set. On Redis
-// nothing else closes an activity's stream when the activity ends.
+// an attempt of the owning Standalone Activity (activity_owner). Exactly one is set, except for a
+// standalone stream, which any caller may close, with neither set. On Redis nothing else closes an
+// activity's stream when the activity ends.
 message CloseRequest {
     StreamRef stream = 1;
     WorkflowProducer owner = 2;
@@ -109,30 +122,43 @@ message ReadRequest {
 }
 
 // "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
-// activation's completion is sent. Appends the activation's records, splitting them into appends
-// that fit the size limits; in commit mode, returns them instead. If an append fails, the earlier
-// appends of the activation stay stored. Then writes close, if set.
+// activation's completion is sent. Appends the activation's records to each of the workflow's own
+// streams, splitting them into appends that fit the size limits; in commit mode, returns them
+// instead. If an append fails, the earlier appends of the activation stay stored. Then writes each
+// stream's close, if set.
 message WorkflowActivationCompletedRequest {
+    reserved 6, 9;
     string workflow_id = 1;
     string run_id = 2;
     string first_run_id = 3;
     // The workflow task of the activation.
     int64 previous_started_event_id = 4;
     int32 attempt = 5;
-    repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 6;
     // Set when the completion ends the run.
     WorkflowEnding ending = 7;
-    // The run's workflow declares commit mode. Only native supports it; other backends fail the
-    // call. The server fixes a run's mode at its first workflow append, so a run whose workers
-    // disagree fails the workflow tasks of the workers in the other mode.
+    // The run's workflow declares commit mode, for every one of its own streams. Only native
+    // supports it; other backends fail the call. The server fixes a run's mode for a stream at its
+    // first workflow append to it, so a run whose workers disagree fails the workflow tasks of the
+    // workers in the other mode.
     bool commit_mode = 8;
-    // The workflow closed its own stream in this activation. The crate closes the stream after
-    // appending the records, as the activation's workflow task, and then writes no close when the
-    // run ends. Not supported in commit mode: the close would precede the records, which travel in
-    // the task completion. The close is written before the task completes, so if the task attempt
-    // then fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
+    // The activation's writes, one entry per stream of the workflow that it wrote to.
+    repeated WorkflowStreamWrites streams = 10;
+}
+
+// An activation's writes to one of its workflow's own streams, by name, or to a standalone stream,
+// by stream_id. A workflow appends to a standalone stream as an unverified producer, sink-style,
+// also when it declares commit mode, and cannot close it.
+message WorkflowStreamWrites {
+    string name = 1;
+    string stream_id = 4;
+    repeated temporal.api.nexusservices.streamservice.v1.AppendRecord records = 2;
+    // The workflow closed this stream in the activation. The crate closes the stream after appending
+    // the records, as the activation's workflow task, so the close at the run's end leaves it as it
+    // is. Not supported in commit mode: the close would precede the records, which travel in the
+    // task completion. The close is written before the task completes, so if the task attempt then
+    // fails, its retry's appends and close fail as CLOSED, and the run's workflow tasks keep
     // failing.
-    temporal.api.nexusservices.streamservice.v1.StreamClose close = 9;
+    temporal.api.nexusservices.streamservice.v1.StreamClose close = 3;
 }
 
 // How a run ends, from the terminal command of its completion.
@@ -152,7 +178,9 @@ message WorkflowActivationCompletedResponse {
 
 // "WorkflowEvicted". Sent by the worker when a run is evicted. execution_ending is set when the
 // eviction's reason is WORKFLOW_EXECUTION_ENDING, which Core sends only after the server accepted
-// the run's terminal completion.
+// the run's terminal completion. On Redis the crate then closes every stream of the run that is
+// open, including ones other producers created, and makes later appends to the run's streams that
+// do not exist yet fail as CLOSED.
 message WorkflowEvictedRequest {
     string run_id = 1;
     bool execution_ending = 2;
