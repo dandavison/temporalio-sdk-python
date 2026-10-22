@@ -1525,6 +1525,27 @@ async def test_activity_publish_is_awaited_and_a_buffered_writer_batches(
             assert len(seqs) < 50
 
 
+async def test_buffered_writer_sends_nothing_until_flushed(stream_client: Client):
+    """Every backend: a buffered writer's publish only buffers. Nothing is stored until flush,
+    which stores everything buffered, in publish order, in appends of at most 1000 records; leaving
+    its block flushes too.
+    """
+    async with stream_client.create_stream(f"s-{uuid.uuid4()}") as stream:
+        async with stream.producer("p") as producer:
+            async with producer.buffered() as buffered:
+                buffered.publish(*range(2500))
+                await asyncio.sleep(0.5)
+                assert await read_values(stream, type_hint=int) == []
+                await buffered.flush()
+                assert await read_values(stream, type_hint=int) == list(range(2500))
+                buffered.publish(-1)
+                await asyncio.sleep(0.5)
+                assert len(await read_values(stream, type_hint=int)) == 2500
+            records = data(await raw_records(stream_client, stream.ref))
+            assert len({r.seq for r in records}) == 4
+            assert await read_values(stream, type_hint=int) == [*range(2500), -1]
+
+
 @activity.defn
 def publish_from_sync_activity(stream: StreamHandleBase) -> None:
     activity.get_sync_stream_handle(stream).publish("sync")
