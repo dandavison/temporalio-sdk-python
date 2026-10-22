@@ -15,17 +15,14 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import inspect
-import socket
-import subprocess
 import sys
 import time
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
 import pytest
-import pytest_asyncio
 
 from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType, WorkflowTaskFailedCause
@@ -56,58 +53,10 @@ from temporalio.streams.backend import (
     StreamRef,
     WorkflowAppendMode,
     client_backend,
-    default_backend,
 )
 from temporalio.streams.native import NativeStreamBackend
 from temporalio.worker import Replayer, Worker
-
-
-@pytest.fixture
-def redis_url() -> Iterator[str]:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    server = subprocess.Popen(
-        ["redis-server", "--port", str(port), "--save", "", "--appendonly", "no"],
-        stdout=subprocess.DEVNULL,
-    )
-    try:
-        for _ in range(100):
-            try:
-                socket.create_connection(("127.0.0.1", port)).close()
-                break
-            except OSError:
-                time.sleep(0.05)
-        yield f"redis://127.0.0.1:{port}"
-    finally:
-        server.kill()
-        server.wait()
-
-
-def redis_client(client: Client, redis_url: str) -> Client:
-    """A client whose default stream backend is Redis."""
-    return Client(
-        client.service_client,
-        namespace=client.namespace,
-        stream_backends=StreamBackends(
-            [RedisStreamBackend(redis_url, namespace=client.namespace)],
-            default="redis",
-        ),
-    )
-
-
-@pytest_asyncio.fixture(params=["redis", "native"])  # type: ignore[reportUntypedFunctionDecorator]
-async def stream_client(request: pytest.FixtureRequest, client: Client) -> Client:
-    """A client, and so its workers, whose default stream backend is each backend: Redis, and
-    native with no configuration.
-    """
-    if request.param == "redis":
-        return redis_client(client, request.getfixturevalue("redis_url"))
-    return client
-
-
-def is_native(client: Client) -> bool:
-    return default_backend(client) == NATIVE
+from tests.streams.conftest import is_native, redis_client
 
 
 def stream_ref(handle: WorkflowHandle, name: str = "main") -> StreamRef:
@@ -1962,3 +1911,31 @@ async def test_workflow_gets_handles_to_other_owners_streams(client: Client):
     assert observed == [
         "WorkflowStreamHandle, publish refused, reads not implemented"
     ] * 3 + ["no owner refused"]
+
+
+async def test_stream_backends_without_native_have_no_native_backend(
+    client: Client, redis_url: str
+):
+    """With native streams switched off in the stream backends configuration, a client and its
+    workers have no native backend: the default must be another, and a handle that names native
+    fails. A worker refuses a workflow that declares commit mode, which needs native.
+    """
+    with pytest.raises(ValueError):
+        StreamBackends(native=False)
+    off = Client(
+        client.service_client,
+        namespace=client.namespace,
+        stream_backends=StreamBackends(
+            [RedisStreamBackend(redis_url, namespace=client.namespace)],
+            default="redis",
+            native=False,
+        ),
+    )
+    with pytest.raises(ValueError):
+        client_backend(off, NATIVE)
+    with pytest.raises(ValueError):
+        await off.get_stream_handle(
+            workflow_id="wf", name="main", backend=NATIVE
+        ).exists()
+    with pytest.raises(ValueError, match="commit mode"):
+        Worker(off, task_queue="tq", workflows=[CommitModeWaitForSignalWorkflow])
