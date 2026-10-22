@@ -18,6 +18,9 @@ from .streams_pb2 import (
     WorkflowEvictedRequest,
     WorkflowEvictedResponse,
     WorkflowProducer,
+    WorkflowReadMarker,
+    WorkflowReadRequest,
+    WorkflowReadResponse,
     WorkflowStreamWrites,
 )
 
@@ -41,5 +44,8 @@ __all__ = [
     "WorkflowEvictedRequest",
     "WorkflowEvictedResponse",
     "WorkflowProducer",
+    "WorkflowReadMarker",
+    "WorkflowReadRequest",
+    "WorkflowReadResponse",
     "WorkflowStreamWrites",
 ]

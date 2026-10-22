@@ -67,7 +67,10 @@ message Producer {
     }
 }
 
-// "Append". Appends the records as one atomic, contiguous batch.
+// "Append". Appends the records as one atomic, contiguous batch. On Redis with a connection to the
+// Temporal server, a stored create, append or close is followed by a Notify of the stream, coalesced
+// per stream to at most one every 100 ms and always one after the stream's last write. A failed
+// Notify, after 30 s of retries, fails nothing: it is logged, and the next write sends another.
 message AppendRequest {
     StreamRef stream = 1;
     Producer producer = 2;
@@ -105,7 +108,9 @@ message CloseRequest {
 message CloseResponse {
 }
 
-// "Read". The response is a temporal.api.nexusservices.streamservice.v1.ReadResponse.
+// "Read". The response is a temporal.api.nexusservices.streamservice.v1.ReadResponse. On Redis its
+// mode is always sink, owner_close_time is never set, and retention is the backend's retention,
+// which applies from the stream's last write.
 message ReadRequest {
     StreamRef stream = 1;
     // Empty means from the beginning.
@@ -119,6 +124,50 @@ message ReadRequest {
     // "-bin" is binary metadata; other values must be ASCII. Redis ignores both.
     map<string, bytes> rpc_metadata = 7;
     google.protobuf.Duration rpc_timeout = 8;
+    // If set, reads no record after the one at this cursor, and does not wait: XRANGE (after, until]
+    // on Redis.
+    bytes until = 9;
+    // If positive, the read stops before the first record whose payload would take the records'
+    // payloads past this many bytes, and a record that alone exceeds it fails as TOO_LARGE.
+    int64 max_bytes = 10;
+}
+
+// "WorkflowRead". A workflow's read of a stream, which the SDK's read local activity makes, and
+// which replay makes again for the recorded range. It reads as Read does, but does not wait. The
+// response is a WorkflowReadResponse.
+message WorkflowReadRequest {
+    ReadRequest read = 1;
+    // When the read returns no records and no close, read the stream's notifier state and then read
+    // again, so that a Wait at that position misses no Notify. Redis only: a native Wait checks the
+    // stream itself.
+    bool notifier = 2;
+}
+
+// What a workflow's History holds for one read of a sink-mode stream, as the result of the SDK's
+// read local activity: the request, and the response without its records. Replay reads the range
+// (request.read.after, response.read.cursor] again, and checks it against response.digest. When the
+// response's mode is commit or unknown, the read keeps no records and does not advance the cursor.
+message WorkflowReadMarker {
+    WorkflowReadRequest request = 1;
+    WorkflowReadResponse response = 2;
+    // How many records the read returned.
+    int32 record_count = 3;
+}
+
+message WorkflowReadResponse {
+    temporal.api.nexusservices.streamservice.v1.ReadResponse read = 1;
+    // SHA-256 over the records as returned: each record's cursor, producer identity, topic, finish,
+    // markers, and payload (metadata in key order, then data, after the codec). Replay re-reads the
+    // range and compares it.
+    bytes digest = 2;
+    // Set when notifier was set and the second read also returned nothing.
+    temporal.api.nexusservices.streamservice.v1.NotifierStateResponse notifier = 3;
+    // The owner's run that the notifier position belongs to: a workflow's first run ID, or the
+    // activity's run ID. Set with notifier, for a stream of an owner.
+    string owner_run_id = 4;
+    // Set, instead of notifier, when the owner does not exist, or, for a standalone stream, the
+    // stream does not.
+    bool owner_not_found = 5;
 }
 
 // "WorkflowActivationCompleted". Sent by the worker after a successful activation, before the
@@ -143,6 +192,11 @@ message WorkflowActivationCompletedRequest {
     bool commit_mode = 8;
     // The activation's writes, one entry per stream of the workflow that it wrote to.
     repeated WorkflowStreamWrites streams = 10;
+    // Set for each activation of the run's first workflow task, while not replaying. In commit mode
+    // the crate then returns a StreamModeDeclaration message, once per task attempt, before the
+    // records' messages, so the server learns the mode of the run's streams from its first
+    // completion, with or without records.
+    bool declare_mode = 11;
 }
 
 // An activation's writes to one of its workflow's own streams, by name, or to a standalone stream,
@@ -189,10 +243,13 @@ message WorkflowEvictedRequest {
 message WorkflowEvictedResponse {
 }
 
+// The Redis backend also calls the Temporal server, through the connection it is given, if any: Notify
+// after writes, and NotifierState and owner lookups for workflow reads. Without one it sends no Notify
+// and workflow reads cannot wait.
 message RedisOptions {
     string url = 1;
-    // Part of every key, so that namespaces sharing a Redis do not share streams. Not checked
-    // against the Temporal namespace.
+    // Part of every key, so that namespaces sharing a Redis do not share streams, and the Temporal
+    // namespace of the streams' notifiers.
     string namespace = 2;
     // How long a stream's data is kept after its last write; reads do not extend it. Required.
     google.protobuf.Duration retention = 3;

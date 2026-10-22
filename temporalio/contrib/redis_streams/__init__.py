@@ -155,6 +155,7 @@ class RedisStreamBackend(CrateStreamBackend):
                     self._ref = (
                         await temporalio.bridge.temporal_sdk_bridge.new_redis_streams(
                             runtime._core_runtime._ref,
+                            None,
                             self._options.SerializeToString(),
                         )
                     )

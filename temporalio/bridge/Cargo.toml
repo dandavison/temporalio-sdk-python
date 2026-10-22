@@ -73,7 +73,7 @@ temporalio-sdk-core = { version = "0.7", path = "./sdk-core/crates/sdk-core", de
 ] }
 # Stream backends shared by Temporal SDKs. Prototype. A private repository fetched over SSH, so
 # building needs CARGO_NET_GIT_FETCH_WITH_CLI=true.
-temporalio-streams = { git = "ssh://git@github.com/dandavison/temporalio-sdk-streams.git", rev = "d1af7a876e24e54ac2c60a8f3975269004b726ee" }
+temporalio-streams = { git = "ssh://git@github.com/dandavison/temporalio-sdk-streams.git", rev = "f7b98387077b9aaf4030ea455495e497cbb09185" }
 tokio = "1.26"
 # Matches the sdk-core client crate's rustls stack; used to build the custom
 # server certificate verifier for ClientTlsConfig.verification_server_name.
