@@ -15,6 +15,9 @@ from temporalio.api.nexusservices.streamservice.v1 import (
     AppendRecord as AppendRecordProto,
 )
 from temporalio.api.nexusservices.streamservice.v1 import (
+    CreateResponse,
+)
+from temporalio.api.nexusservices.streamservice.v1 import (
     ReadResponse as ReadResponseProto,
 )
 from temporalio.api.nexusservices.streamservice.v1 import (
@@ -31,6 +34,7 @@ from temporalio.bridge.proto.streams import (
     AppendResponse,
     CloseRequest,
     CloseResponse,
+    CreateRequest,
     LocalActivityProducer,
     ReadRequest,
     WorkflowActivationCompletedRequest,
@@ -53,6 +57,9 @@ from temporalio.bridge.proto.streams import (
 from temporalio.bridge.proto.streams import (
     WorkflowProducer as WorkflowProducerProto,
 )
+from temporalio.bridge.proto.streams import (
+    WorkflowStreamWrites as WorkflowStreamWritesProto,
+)
 from temporalio.streams._backend import (
     CloseStatus,
     ReadResponse,
@@ -72,6 +79,7 @@ from temporalio.streams._errors import (
     StreamExpiredError,
     StreamNotFoundError,
     StreamNotOwnerError,
+    StreamSettingsMismatchError,
     StreamTooLargeError,
     StreamUnavailableError,
     WorkflowAppendModeMismatchError,
@@ -104,6 +112,7 @@ _ERRORS: dict[str, type[StreamError]] = {
     "STREAM_FAILURE_TYPE_SEQ_GAP": SeqGapError,
     "STREAM_FAILURE_TYPE_TOO_LARGE": StreamTooLargeError,
     "STREAM_FAILURE_TYPE_WORKFLOW_APPEND_MODE_MISMATCH": WorkflowAppendModeMismatchError,
+    "STREAM_FAILURE_TYPE_SETTINGS_MISMATCH": StreamSettingsMismatchError,
     "UNAVAILABLE": StreamUnavailableError,
 }
 
@@ -116,6 +125,19 @@ class CrateStreamBackend(StreamBackend):
     @abstractmethod
     async def _streams(self) -> temporalio.bridge.temporal_sdk_bridge.StreamsRef:
         """The bridge streams object, created on first use."""
+
+    async def create(
+        self,
+        ref: StreamRef,
+        *,
+        request_id: str = "",
+        idle_timeout: timedelta | None = None,
+    ) -> bool:
+        """See :py:meth:`StreamBackend.create`."""
+        req = CreateRequest(stream=_ref(ref), request_id=request_id)
+        if idle_timeout is not None:
+            req.settings.idle_timeout.FromTimedelta(idle_timeout)
+        return (await self._call("Create", req, CreateResponse)).created
 
     async def append(
         self,
@@ -139,13 +161,15 @@ class CrateStreamBackend(StreamBackend):
     async def close(
         self,
         ref: StreamRef,
-        owner: WorkflowProducer | ActivityProducer,
+        owner: WorkflowProducer | ActivityProducer | None,
         seq: int,
         close: StreamClose,
     ) -> None:
         """See :py:meth:`StreamBackend.close`."""
         req = CloseRequest(stream=_ref(ref), seq=seq, close=_close_proto(close))
-        if isinstance(owner, ActivityProducer):
+        if owner is None:
+            pass
+        elif isinstance(owner, ActivityProducer):
             req.activity_owner.CopyFrom(_activity_producer(owner).activity)
         # The crate's workflow producer has no workflow ID, so the owner's workflow is checked here.
         elif owner.workflow_id == ref.workflow_id:
@@ -187,6 +211,7 @@ class CrateStreamBackend(StreamBackend):
             records=[_record(r) for r in resp.records],
             cursor=resp.cursor or None,
             close=_close(resp.close) if resp.HasField("close") else None,
+            exists=resp.exists,
         )
 
     async def workflow_activation_completed(
@@ -195,16 +220,22 @@ class CrateStreamBackend(StreamBackend):
         """See :py:meth:`StreamBackend.workflow_activation_completed`."""
         p = completed.producer
         req = WorkflowActivationCompletedRequest(
-            workflow_id=completed.ref.workflow_id,
+            workflow_id=completed.workflow_id,
             run_id=p.run_id,
-            first_run_id=completed.ref.first_run_id,
+            first_run_id=completed.first_run_id,
             previous_started_event_id=p.previous_started_event_id,
             attempt=p.attempt,
-            records=_records(completed.records),
             commit_mode=completed.commit_mode,
+            streams=[
+                WorkflowStreamWritesProto(
+                    name=w.name,
+                    stream_id=w.stream_id,
+                    records=_records(w.records),
+                    close=_close_proto(w.close) if w.close else None,
+                )
+                for w in completed.streams
+            ],
         )
-        if completed.close:
-            req.close.CopyFrom(_close_proto(completed.close))
         if e := completed.ending:
             req.ending.CopyFrom(
                 WorkflowEndingProto(
@@ -239,6 +270,8 @@ def _ref(ref: StreamRef) -> StreamRefProto:
         first_run_id=ref.first_run_id,
         activity_id=ref.activity_id,
         activity_run_id=ref.activity_run_id,
+        name=ref.name,
+        stream_id=ref.stream_id,
     )
 
 

@@ -60,6 +60,7 @@ import temporalio.converter
 import temporalio.exceptions
 import temporalio.nexus.system
 import temporalio.streams
+import temporalio.streams.backend
 import temporalio.workflow
 from temporalio.converter import StorageDriverStoreContext, StorageDriverWorkflowInfo
 from temporalio.nexus.system.workflow_service._system_nexus_interceptor import (
@@ -178,6 +179,7 @@ class WorkflowInstanceDetails:
     default_workflow_logic_flags: frozenset[_WorkflowLogicFlag] = field(
         default_factory=lambda: _DEFAULT_ENABLED_WORKFLOW_LOGIC_FLAGS
     )
+    default_stream_backend: str = "native"
 
 
 class WorkflowInstance(ABC):
@@ -248,14 +250,25 @@ class WorkflowInstance(ABC):
 
     def take_stream_writes(
         self,
-    ) -> tuple[
-        list[tuple[str, temporalio.api.common.v1.Payload]],
-        temporalio.streams.StreamClose | None,
-    ]:
-        """Return and clear the (topic, payload) records the workflow appended to its stream since
-        the last call, and the close it made since then, if any.
+    ) -> list[temporalio.streams.backend.PendingStreamWrites]:
+        """Return and clear what workflow code wrote to streams since the last call."""
+        return []
+
+    def stream_flush_pending(self) -> bool:
+        """Whether the activation is waiting for the worker to store what workflow code wrote to
+        streams: the worker takes the writes, stores them, and calls
+        :py:meth:`resume_after_stream_flush`.
         """
-        return [], None
+        return False
+
+    def resume_after_stream_flush(
+        self,
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        """Resolve workflow code's waits for the writes the worker stored, and run the activation
+        on. Returns the activation's completion, which is not final while
+        :py:meth:`stream_flush_pending`.
+        """
+        raise NotImplementedError
 
 
 class UnsandboxedWorkflowRunner(WorkflowRunner):
@@ -419,9 +432,19 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         # The current details (as opposed to static details on workflow start), returned in the
         # metadata query
         self._current_details = ""
-        self._stream_appends: list[tuple[str, temporalio.api.common.v1.Payload]] = []
-        self._stream_close: temporalio.streams.StreamClose | None = None
-        self._stream_closed = False
+        # What workflow code wrote to streams that the worker has not taken, keyed by (backend,
+        # name, stream ID); the futures workflow code awaits, resolved once nothing else can run;
+        # whether one of the writes needs the store; and whether the activation waits for the
+        # worker to store them.
+        self._default_stream_backend = det.default_stream_backend
+        self._stream_writes: dict[
+            tuple[str, str, str], temporalio.streams.backend.PendingStreamWrites
+        ] = {}
+        self._stream_waiters: list[tuple[asyncio.Future[Any], Any]] = []
+        self._stream_io = False
+        self._stream_flush_pending = False
+        self._streams_closed: set[tuple[str, str, str]] = set()
+        self._activation_err: Exception | None = None
 
         self._last_completion_result = det.last_completion_result
         self._last_failure = det.last_failure
@@ -487,7 +510,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
         self._single_batch_activation = self._workflow_logic_flag_enabled(
             _WorkflowLogicFlag.PROCESS_WORKFLOW_ACTIVATION_JOBS_AS_SINGLE_BATCH
         )
-        activation_err: Exception | None = None
+        self._activation_err = None
         try:
             # Split into job sets with patches, then signals + updates, then
             # non-queries, then queries
@@ -540,26 +563,57 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                     # be checked in patch jobs (first index) or query jobs (last
                     # index).
                     self._run_once(check_conditions=index == 1 or index == 2)
+            self._settle_stream_waiters()
         except Exception as err:
-            # We want some errors during activation, like those that can happen
-            # during payload conversion, to be able to fail the workflow not the
-            # task
-            if self.workflow_is_failure_exception(err):
-                try:
-                    self._set_workflow_failure(err)
-                except Exception as inner_err:
-                    activation_err = inner_err
-            else:
-                # Otherwise all exceptions are activation errors
-                activation_err = err
-            # If we're deleting, swallow any activation error
-            if self._deleting:
-                if LOG_IGNORE_DURING_DELETE:
-                    logger.debug(
-                        "Ignoring exception while deleting workflow", exc_info=True
-                    )
-                activation_err = None
+            self._on_activation_exception(err)
+        if self._stream_flush_pending:
+            return self._current_completion
+        return self._finish_activation(act.run_id)
 
+    def resume_after_stream_flush(
+        self,
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        self._current_thread_id = threading.get_ident()
+        self._stream_flush_pending = False
+        try:
+            self._resolve_stream_waiters()
+            self._run_once(check_conditions=True)
+            self._settle_stream_waiters()
+        except Exception as err:
+            self._on_activation_exception(err)
+        if self._stream_flush_pending:
+            return self._current_completion
+        return self._finish_activation(self._info.run_id)
+
+    def stream_flush_pending(self) -> bool:
+        return self._stream_flush_pending
+
+    def _on_activation_exception(self, err: Exception) -> None:
+        # We want some errors during activation, like those that can happen
+        # during payload conversion, to be able to fail the workflow not the
+        # task
+        if self.workflow_is_failure_exception(err):
+            try:
+                self._set_workflow_failure(err)
+            except Exception as inner_err:
+                self._activation_err = inner_err
+        else:
+            # Otherwise all exceptions are activation errors
+            self._activation_err = err
+        # If we're deleting, swallow any activation error
+        if self._deleting:
+            if LOG_IGNORE_DURING_DELETE:
+                logger.debug(
+                    "Ignoring exception while deleting workflow", exc_info=True
+                )
+            self._activation_err = None
+        # A failed activation's stream writes are dropped: the retried task writes them again.
+        self._stream_flush_pending = False
+
+    def _finish_activation(
+        self, run_id: str
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        activation_err = self._activation_err
         # Apply versioning behavior if one was established
         if self._versioning_behavior:
             self._current_completion.successful.versioning_behavior = (
@@ -597,7 +651,7 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
                 )
             except Exception as inner_err:
                 logger.exception(
-                    f"Failed converting activation exception on workflow with run ID {act.run_id}"
+                    f"Failed converting activation exception on workflow with run ID {run_id}"
                 )
                 self._current_completion.failed.failure.message = (
                     f"Failed converting activation exception: {inner_err}"
@@ -1965,51 +2019,166 @@ class _WorkflowInstanceImpl(  # type: ignore[reportImplicitAbstractClass]
     def workflow_get_current_details(self) -> str:
         return self._current_details
 
-    def workflow_stream_append(self, topic: str, value: Any) -> None:
-        self._assert_not_read_only("append to a stream")
-        if self._stream_closed:
-            raise RuntimeError("The workflow closed its stream")
-        # Replay runs only code of completed workflow tasks, whose records were appended, or in
-        # commit mode sent in the completion, when the code first ran.
-        if self._is_replaying:
-            return
-        self._stream_appends.append(
-            (topic, self._workflow_context_payload_converter.to_payload(value))
+    def workflow_stream_create(
+        self, name: str, backend: str | None
+    ) -> Awaitable[temporalio.streams.WorkflowStreamHandle]:
+        self._assert_not_read_only("create a stream")
+        stream = temporalio.streams.WorkflowStreamHandle.of(
+            backend or self._default_stream_backend,
+            temporalio.streams.backend.StreamRef(
+                workflow_id=self._info.workflow_id,
+                first_run_id=self._info.first_execution_run_id,
+                name=name,
+            ),
+        )
+        self._check_commit_mode_backend(stream)
+        # In commit mode a stream is created by its first append, in the task's completion.
+        if not self._is_replaying and not self._defn.stream_commit_mode:
+            self._stream_writes_for(stream).create = True
+        return self._stream_wait(stream, self._stream_needs_io(stream))
+
+    def workflow_stream_handle(
+        self, backend: str | None, ref: temporalio.streams.backend.StreamRef
+    ) -> temporalio.streams.WorkflowStreamHandle:
+        return temporalio.streams.WorkflowStreamHandle.of(
+            backend or self._default_stream_backend, ref
         )
 
-    def workflow_stream_close(self, failure: BaseException | None, reason: str) -> None:
+    def workflow_stream_publish(
+        self,
+        stream: temporalio.streams.WorkflowStreamHandle,
+        topic: str,
+        values: Sequence[Any],
+    ) -> Awaitable[None]:
+        self._assert_not_read_only("publish to a stream")
+        if not self._own_stream(stream) and not stream.stream_id:
+            raise ValueError(
+                "Workflow code publishes only to its own streams and to standalone streams"
+            )
+        self._check_commit_mode_backend(stream)
+        if self._stream_key(stream) in self._streams_closed:
+            raise RuntimeError("The workflow closed this stream")
+        # Replay runs only code of completed workflow tasks, whose records were appended, or in
+        # commit mode sent in the completion, when the code first ran.
+        if not self._is_replaying:
+            self._stream_writes_for(stream).records.extend(
+                temporalio.streams.backend.AppendRecord(
+                    topic, self._workflow_context_payload_converter.to_payload(v)
+                )
+                for v in values
+            )
+        return self._stream_wait(None, self._stream_needs_io(stream))
+
+    def workflow_stream_close(
+        self,
+        stream: temporalio.streams.WorkflowStreamHandle,
+        failure: BaseException | None,
+        reason: str,
+    ) -> Awaitable[None]:
         self._assert_not_read_only("close a stream")
+        if not self._own_stream(stream):
+            raise ValueError("Workflow code closes only its own streams")
         if self._defn.stream_commit_mode:
             raise NotImplementedError(
-                "A workflow that declares stream commit mode cannot close its own stream yet"
+                "A workflow that declares stream commit mode cannot close its own streams yet"
             )
-        if self._stream_closed:
-            raise RuntimeError("The workflow closed its stream")
-        self._stream_closed = True
-        if self._is_replaying:
-            return
-        close = temporalio.streams.StreamClose(
-            temporalio.streams.CloseStatus.COMPLETED, reason=reason
-        )
-        if failure:
-            proto = temporalio.api.failure.v1.Failure()
-            self._workflow_context_failure_converter.to_failure(
-                failure, self._workflow_context_payload_converter, proto
-            )
+        key = self._stream_key(stream)
+        if key in self._streams_closed:
+            raise RuntimeError("The workflow closed this stream")
+        self._streams_closed.add(key)
+        if not self._is_replaying:
             close = temporalio.streams.StreamClose(
-                temporalio.streams.CloseStatus.FAILED, proto, reason
+                temporalio.streams.CloseStatus.COMPLETED, reason=reason
             )
-        self._stream_close = close
+            if failure:
+                proto = temporalio.api.failure.v1.Failure()
+                self._workflow_context_failure_converter.to_failure(
+                    failure, self._workflow_context_payload_converter, proto
+                )
+                close = temporalio.streams.StreamClose(
+                    temporalio.streams.CloseStatus.FAILED, proto, reason
+                )
+            self._stream_writes_for(stream).close = close
+        return self._stream_wait(None, True)
 
     def take_stream_writes(
         self,
-    ) -> tuple[
-        list[tuple[str, temporalio.api.common.v1.Payload]],
-        temporalio.streams.StreamClose | None,
-    ]:
-        writes = (self._stream_appends, self._stream_close)
-        self._stream_appends, self._stream_close = [], None
+    ) -> list[temporalio.streams.backend.PendingStreamWrites]:
+        writes = list(self._stream_writes.values())
+        self._stream_writes = {}
         return writes
+
+    def _own_stream(self, stream: temporalio.streams.WorkflowStreamHandle) -> bool:
+        return (
+            stream.workflow_id == self._info.workflow_id
+            and stream.first_run_id == self._info.first_execution_run_id
+        )
+
+    def _check_commit_mode_backend(
+        self, stream: temporalio.streams.WorkflowStreamHandle
+    ) -> None:
+        if (
+            self._defn.stream_commit_mode
+            and self._own_stream(stream)
+            and stream.backend != temporalio.streams.backend.NATIVE
+        ):
+            raise ValueError(
+                f"Stream commit mode needs the native backend, not {stream.backend!r}"
+            )
+
+    def _stream_needs_io(self, stream: temporalio.streams.WorkflowStreamHandle) -> bool:
+        # In commit mode the records for the workflow's own streams travel in the task's
+        # completion.
+        return not (self._defn.stream_commit_mode and self._own_stream(stream))
+
+    @staticmethod
+    def _stream_key(
+        stream: temporalio.streams.WorkflowStreamHandle,
+    ) -> tuple[str, str, str]:
+        return (stream.backend, stream.name, stream.stream_id)
+
+    def _stream_writes_for(
+        self, stream: temporalio.streams.WorkflowStreamHandle
+    ) -> temporalio.streams.backend.PendingStreamWrites:
+        key = self._stream_key(stream)
+        writes = self._stream_writes.get(key)
+        if not writes:
+            writes = self._stream_writes[key] = (
+                temporalio.streams.backend.PendingStreamWrites(
+                    backend=stream.backend, name=stream.name, stream_id=stream.stream_id
+                )
+            )
+        return writes
+
+    def _stream_wait(self, result: Any, needs_io: bool) -> Awaitable[Any]:
+        """A future that resolves to ``result`` once nothing else in the workflow can run: at once
+        when replaying, or when the write needs no store, and otherwise after the worker stores
+        the writes. Either way workflow code resumes at the same point, so replay is
+        deterministic.
+        """
+        future: asyncio.Future[Any] = self.create_future()
+        self._stream_waiters.append((future, result))
+        if needs_io and not self._is_replaying:
+            self._stream_io = True
+        return future
+
+    def _settle_stream_waiters(self) -> None:
+        """Called when nothing else in the workflow can run. Resolves the stream waits that need no
+        store and runs workflow code on, until nothing can run; then, if writes need the store,
+        leaves the activation waiting for the worker to store them.
+        """
+        while self._stream_waiters and not self._deleting:
+            if self._stream_io:
+                self._stream_flush_pending = True
+                return
+            self._resolve_stream_waiters()
+            self._run_once(check_conditions=True)
+
+    def _resolve_stream_waiters(self) -> None:
+        waiters, self._stream_waiters, self._stream_io = self._stream_waiters, [], False
+        for future, result in waiters:
+            if not future.done():
+                future.set_result(result)
 
     def workflow_set_current_details(self, details: str):
         self._assert_not_read_only("set current details")

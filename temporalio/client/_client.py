@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import (
     Awaitable,
     Callable,
@@ -111,7 +112,6 @@ from ._workflow import (
 
 if TYPE_CHECKING:
     import temporalio.streams
-    import temporalio.streams.backend
 
     from ._interceptor import Interceptor
     from ._plugin import Plugin
@@ -158,6 +158,7 @@ class Client:
         grpc_compression: GrpcCompression = GrpcCompression.GZIP,
         payload_limits: PayloadLimitsConfig = PayloadLimitsConfig(),
         header_codec_behavior: HeaderCodecBehavior = HeaderCodecBehavior.NO_CODEC,
+        stream_backends: temporalio.streams.StreamBackends | None = None,
     ) -> Self:
         """Connect to a Temporal server.
 
@@ -223,6 +224,8 @@ class Client:
             payload_limits: Warning thresholds for outbound payload/memo sizes. Over-threshold
                 fields are logged but still sent. Set a threshold to 0 to disable it.
             header_codec_behavior: Encoding behavior for headers sent by the client.
+            stream_backends: The stream backends of the client and its workers, besides native,
+                and their default. WARNING: Streams are a prototype.
         """
         connect_config = temporalio.service.ConnectConfig(
             target_host=target_host,
@@ -259,6 +262,7 @@ class Client:
             default_workflow_query_reject_condition=default_workflow_query_reject_condition,
             header_codec_behavior=header_codec_behavior,
             plugins=plugins,
+            stream_backends=stream_backends,
         )
 
     def __init__(
@@ -272,13 +276,11 @@ class Client:
         default_workflow_query_reject_condition: None
         | (temporalio.common.QueryRejectCondition) = None,
         header_codec_behavior: HeaderCodecBehavior = HeaderCodecBehavior.NO_CODEC,
-        stream_backend: temporalio.streams.backend.StreamBackend | None = None,
+        stream_backends: temporalio.streams.StreamBackends | None = None,
     ):
         """Create a Temporal client from a service client.
 
-        See :py:meth:`connect` for details on the parameters. ``stream_backend`` is the backend of
-        the client's streams, and its workers'; it is usually set by a plugin, and unset means
-        native. WARNING: Streams are a prototype.
+        See :py:meth:`connect` for details on the parameters.
         """
         # Store the config for tracking
         config = ClientConfig(
@@ -289,7 +291,7 @@ class Client:
             interceptors=interceptors,
             default_workflow_query_reject_condition=default_workflow_query_reject_condition,
             header_codec_behavior=header_codec_behavior,
-            stream_backend=stream_backend,
+            stream_backends=stream_backends,
         )
         self._initial_config = config.copy()
 
@@ -2566,33 +2568,79 @@ class Client:
 
     def get_stream_handle(
         self,
+        stream: temporalio.streams.StreamHandleBase | None = None,
         *,
         workflow_id: str | None = None,
         first_execution_run_id: str | None = None,
         activity_id: str | None = None,
         activity_run_id: str | None = None,
+        stream_id: str | None = None,
+        name: str | None = None,
+        backend: str | None = None,
     ) -> temporalio.streams.StreamHandle:
-        """Get a handle to the stream of a workflow run chain or a Standalone Activity.
+        """Get a handle, bound to this client, to the stream of a handle passed as a value, or to
+        the one the arguments name: a named stream of a workflow run chain or a Standalone
+        Activity, or a standalone stream.
 
-        Exactly one of ``workflow_id`` and ``activity_id`` must be set. Without a run ID, reads
-        read the owner ID's latest chain or execution; a Redis-backed stream needs the run ID for
-        appends.
+        Without a run ID, reads read the owner ID's latest chain or execution; a Redis-backed
+        stream of an owner needs the run ID for writes. Without ``backend``, the client's default
+        stream backend.
 
         .. warning::
             Streams are a prototype and will change.
         """
         from temporalio.streams import StreamHandle
-        from temporalio.streams.backend import StreamRef
+        from temporalio.streams._handles import handle_ref
+        from temporalio.streams.backend import default_backend
 
-        return StreamHandle(
-            self,
-            StreamRef(
-                workflow_id=workflow_id or "",
-                first_run_id=first_execution_run_id or "",
-                activity_id=activity_id or "",
-                activity_run_id=activity_run_id or "",
-            ),
+        backend, ref = handle_ref(
+            stream,
+            workflow_id=workflow_id,
+            first_execution_run_id=first_execution_run_id,
+            activity_id=activity_id,
+            activity_run_id=activity_run_id,
+            stream_id=stream_id,
+            name=name,
+            backend=backend,
         )
+        return StreamHandle.of(backend or default_backend(self), ref)._bound(self)
+
+    def create_stream(
+        self,
+        stream_id: str,
+        *,
+        idle_timeout: timedelta | None = None,
+        request_id: str | None = None,
+        backend: str | None = None,
+    ) -> temporalio.streams.Creating[temporalio.streams.StreamHandle]:
+        """Create a standalone stream, which has no owner. Await the result for the stream's
+        handle, or use it with ``async with``, which closes the stream on exit.
+
+        A create of a stream that exists succeeds, unless it is closed or has another idle timeout.
+        The stream closes, as timed out, once ``idle_timeout`` (7 days if unset) passes with no
+        create or append, and is removed the backend's retention after it closes; until then its ID
+        cannot be reused. Any caller may append to it, unverified, and close it.
+
+        .. warning::
+            Streams are a prototype and will change.
+        """
+        from temporalio.streams import Creating, StreamHandle
+        from temporalio.streams.backend import client_backend
+
+        handle = self.get_stream_handle(stream_id=stream_id, backend=backend)
+
+        async def create() -> StreamHandle:
+            await client_backend(self, handle.backend).create(
+                handle.ref,
+                request_id=request_id or str(uuid.uuid4()),
+                idle_timeout=idle_timeout,
+            )
+            return handle
+
+        async def close(handle: StreamHandle, failure: BaseException | None) -> None:
+            await handle.close(failure=failure)
+
+        return Creating(create, close)
 
     @overload
     def get_async_activity_handle(
@@ -3069,7 +3117,8 @@ class ClientConfig(TypedDict, total=False):
         temporalio.common.QueryRejectCondition | None
     ]
     header_codec_behavior: Required[HeaderCodecBehavior]
-    stream_backend: temporalio.streams.backend.StreamBackend | None
-    """The backend of the client's streams, and its workers'. Set by plugins; unset means native.
+    stream_backends: temporalio.streams.StreamBackends | None
+    """The stream backends of the client and its workers, besides native, and their default.
+    Unset means native only.
 
     WARNING: Streams are a prototype."""

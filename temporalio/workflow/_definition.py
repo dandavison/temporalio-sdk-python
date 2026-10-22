@@ -86,15 +86,16 @@ def defn(
             ``Exception`` is set, it effectively will fail a workflow/update in
             all user exception cases. WARNING: This setting is experimental.
         versioning_behavior: Specifies the versioning behavior to use for this workflow.
-        stream_commit_mode: Whether the workflow's own stream records travel in its workflow task
-            completions, becoming visible when each task commits, so that a failed task attempt's
-            records are never delivered. Only the native stream backend supports it: a worker
-            whose client uses another backend refuses to register the workflow. All of a task's
-            records go in its one completion, so it suits low-volume streams only. The server
-            fixes a run's mode at its first workflow append, so during a deploy that changes the
-            declaration, a run's workflow tasks fail on workers whose definition declares the
-            other mode. A workflow in commit mode cannot close its own stream yet. WARNING:
-            Streams are a prototype.
+        stream_commit_mode: Whether the workflow's records for every one of its own streams
+            travel in its workflow task completions, becoming visible when each task commits, so
+            that a failed task attempt's records are never delivered. Only the native stream
+            backend supports it: a worker whose client's default stream backend is another
+            refuses to register the workflow, and the workflow's own streams must be native. All
+            of a task's records go in its one completion, so it suits low-volume streams only.
+            The server fixes a run's mode for a stream at its first workflow append to it, so
+            during a deploy that changes the declaration, a run's workflow tasks fail on workers
+            whose definition declares the other mode. A workflow in commit mode cannot close its
+            own streams yet. WARNING: Streams are a prototype.
     """
 
     def decorator(cls: ClassType) -> ClassType:

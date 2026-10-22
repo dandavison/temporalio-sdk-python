@@ -51,6 +51,10 @@ class SeqGapError(StreamError):
     """The seq is not the next seq: an epoch's first append has seq 0, and each later one the next."""
 
 
+class StreamSettingsMismatchError(StreamError):
+    """A create of a stream that exists with other settings."""
+
+
 class StreamTooLargeError(StreamError):
     """The append exceeds a size limit."""
 

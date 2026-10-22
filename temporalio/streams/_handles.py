@@ -1,15 +1,16 @@
-"""Stream handles for clients and activities."""
+"""Stream handles for clients and activities, and what every handle shares."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import asyncio
+from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 import temporalio.activity
 import temporalio.api.failure.v1
-import temporalio.client
 import temporalio.converter
 from temporalio.streams._backend import CloseStatus, StreamClose
 from temporalio.streams._iterator import (
@@ -18,12 +19,130 @@ from temporalio.streams._iterator import (
     StreamRecordAsyncIterator,
     fetch_last_records,
 )
-from temporalio.streams._publisher import Publisher, claim_producer
-from temporalio.streams._record import ActivityProducer, ClientProducer
+from temporalio.streams._publisher import Appender, BufferedStreamWriter, claim_producer
+from temporalio.streams._record import ActivityProducer, AppendRecord, ClientProducer
 from temporalio.streams._ref import StreamRef
-from temporalio.streams.backend import client_backend
+
+if TYPE_CHECKING:
+    import temporalio.client
 
 T = TypeVar("T")
+H = TypeVar("H", bound="StreamHandleBase")
+
+
+@dataclass(frozen=True)
+class StreamHandleBase:
+    """What every stream handle holds: its stream's reference and backend. A handle is a value, so
+    it can be passed in workflow and activity inputs, and through continue-as-new, and each kind of
+    handle can be made from another with the ``get_stream_handle`` function of the context that
+    uses it.
+    """
+
+    backend: str
+    """The name of the backend that stores the stream, among the client's stream backends."""
+    workflow_id: str = ""
+    first_run_id: str = ""
+    activity_id: str = ""
+    activity_run_id: str = ""
+    name: str = ""
+    """The stream's name among its owner's streams."""
+    stream_id: str = ""
+    """Set for a standalone stream, which has no owner."""
+
+    def __post_init__(self) -> None:
+        """Check the reference."""
+        self.ref  # noqa: B018
+
+    @property
+    def ref(self) -> StreamRef:
+        """The stream's reference."""
+        return StreamRef(
+            workflow_id=self.workflow_id,
+            first_run_id=self.first_run_id,
+            activity_id=self.activity_id,
+            activity_run_id=self.activity_run_id,
+            name=self.name,
+            stream_id=self.stream_id,
+        )
+
+    @classmethod
+    def of(cls: type[H], backend: str, ref: StreamRef) -> H:
+        """The handle of this kind to the stream ``ref`` on ``backend``."""
+        return cls(
+            backend=backend,
+            workflow_id=ref.workflow_id,
+            first_run_id=ref.first_run_id,
+            activity_id=ref.activity_id,
+            activity_run_id=ref.activity_run_id,
+            name=ref.name,
+            stream_id=ref.stream_id,
+        )
+
+
+def handle_ref(
+    stream: StreamHandleBase | None,
+    *,
+    workflow_id: str | None,
+    first_execution_run_id: str | None,
+    activity_id: str | None,
+    activity_run_id: str | None,
+    stream_id: str | None,
+    name: str | None,
+    backend: str | None,
+) -> tuple[str | None, StreamRef]:
+    """The backend, None for the default, and reference that ``get_stream_handle``'s arguments
+    name.
+    """
+    if stream:
+        if any((workflow_id, activity_id, stream_id, name, backend)):
+            raise ValueError(
+                "Pass either a stream handle or the stream's IDs, not both"
+            )
+        return stream.backend, stream.ref
+    return backend, StreamRef(
+        workflow_id=workflow_id or "",
+        first_run_id=first_execution_run_id or "",
+        activity_id=activity_id or "",
+        activity_run_id=activity_run_id or "",
+        name=name or "",
+        stream_id=stream_id or "",
+    )
+
+
+class Creating(Generic[H]):
+    """A stream being created: await it for the stream's handle, or use it as an async context
+    manager, which closes the stream on exit, as failed if the block raises and as completed
+    otherwise. The close is best effort: nothing closes the stream if the process stops first.
+    """
+
+    def __init__(
+        self,
+        create: Callable[[], Awaitable[H]],
+        close: Callable[[H, BaseException | None], Awaitable[None]],
+    ) -> None:
+        """Wrap a create. Use a ``create_stream`` function instead."""
+        self._create = create
+        self._close = close
+        self._handle: H | None = None
+
+    def __await__(self) -> Generator[Any, None, H]:
+        """Create the stream and return its handle."""
+        return self._create().__await__()
+
+    async def __aenter__(self) -> H:
+        """Create the stream and return its handle."""
+        self._handle = await self._create()
+        return self._handle
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the stream."""
+        assert self._handle
+        await self._close(self._handle, exc_value)
 
 
 class StreamReader(Protocol):
@@ -97,9 +216,7 @@ class TopicReader(Generic[T]):
 
 
 class _Publishing(Protocol):
-    def publish(
-        self, value: Any, *, topic: str = "", force_flush: bool = False
-    ) -> None: ...
+    async def publish(self, *values: Any, topic: str = "") -> None: ...
 
 
 class PublishingTopicHandle(Generic[T]):
@@ -111,24 +228,34 @@ class PublishingTopicHandle(Generic[T]):
         self.name = name
         self.type = type
 
-    def publish(self, value: T, *, force_flush: bool = False) -> None:
-        """Publish a value to the topic. See the publisher's ``publish``."""
-        self._publisher.publish(value, topic=self.name, force_flush=force_flush)
+    async def publish(self, *values: T) -> None:
+        """Publish values to the topic. See the publisher's ``publish``."""
+        await self._publisher.publish(*values, topic=self.name)
 
 
-class StreamHandle:
-    """A client's handle to a stream: reads, and named producers.
+@dataclass(frozen=True)
+class StreamHandle(StreamHandleBase):
+    """A client's handle to a stream: reads, named producers, and, for a standalone stream, close.
+
+    A handle from a client method is bound to that client; one passed in as a value is bound with
+    :py:meth:`temporalio.client.Client.get_stream_handle`, and in an activity uses the activity's
+    client.
 
     .. warning::
         This API is a prototype and will change.
     """
 
-    def __init__(self, client: temporalio.client.Client, ref: StreamRef) -> None:
-        """Create a handle. Use ``stream()`` on a workflow or activity handle, or
-        :py:meth:`temporalio.client.Client.get_stream_handle`, instead.
-        """
-        self._client = client
-        self._ref = ref
+    def _bound(self, client: temporalio.client.Client) -> StreamHandle:
+        object.__setattr__(self, "_client", client)
+        return self
+
+    @property
+    def client(self) -> temporalio.client.Client:
+        """The client the handle's calls go through."""
+        client = self.__dict__.get("_client")
+        if not client:
+            client = temporalio.activity.client()
+        return client
 
     def topic(self, name: str, *, type: type[T]) -> TopicReader[T]:
         """See :py:meth:`StreamReader.topic`."""
@@ -149,9 +276,9 @@ class StreamHandle:
         each read's RPCs on native; other backends ignore them.
         """
         return StreamRecordAsyncIterator(
-            client_backend(self._client),
-            self._ref,
-            self._client.data_converter,
+            _backend(self.client, self.backend),
+            self.ref,
+            self.client.data_converter,
             after=after,
             topics=topics,
             page_size=page_size,
@@ -172,9 +299,9 @@ class StreamHandle:
     ) -> Sequence[StreamRecord[Any]]:
         """See :py:meth:`StreamReader.fetch_last_records`."""
         return await fetch_last_records(
-            client_backend(self._client),
-            self._ref,
-            self._client.data_converter,
+            _backend(self.client, self.backend),
+            self.ref,
+            self.client.data_converter,
             n,
             topics=topics,
             type_hint=type_hint,
@@ -182,13 +309,15 @@ class StreamHandle:
             rpc_timeout=rpc_timeout,
         )
 
-    def producer(
-        self,
-        id: str,
-        *,
-        epoch: int | None = None,
-        batch_interval: timedelta = timedelta(milliseconds=100),
-    ) -> StreamProducer:
+    async def exists(self) -> bool:
+        """Whether the stream has been created, by its creator or its first append. A stream that
+        its creator created explicitly exists before any append; a stream created by its first
+        append does not exist until then.
+        """
+        resp = await _backend(self.client, self.backend).read(self.ref, max_records=1)
+        return resp.exists
+
+    def producer(self, id: str, *, epoch: int | None = None) -> StreamProducer:
         """A producer that appends as ``id``.
 
         A producer's state is kept on the stream, on native for the stream's life, so use one ID
@@ -204,90 +333,42 @@ class StreamHandle:
                 earlier incarnation, unless the clock went back across the restart, in which case
                 its appends fail with :py:class:`temporalio.streams.EpochFencedError`. A client
                 that keeps a durable counter can pass it here.
-            batch_interval: How long a published value may wait in the buffer.
         """
-        epoch, release = claim_producer(self._ref, id, epoch)
+        epoch, release = claim_producer(self.backend, self.ref, id, epoch)
         return StreamProducer(
             id,
             epoch,
-            Publisher(
-                client_backend(self._client),
-                self._ref,
+            Appender(
+                _backend(self.client, self.backend),
+                self.ref,
                 ClientProducer(id, epoch),
-                self._client.data_converter.payload_converter,
-                self._client.data_converter,
-                batch_interval,
-                release,
+                self.client.data_converter,
             ),
+            self.client.data_converter.payload_converter,
+            release,
         )
+
+    async def close(
+        self, *, failure: BaseException | None = None, reason: str = ""
+    ) -> None:
+        """Close a standalone stream, as failed if ``failure`` is given and as completed otherwise.
+        Any caller may close a standalone stream: the creator's right to close is not enforced. A
+        close of a closed stream succeeds if it is the same close. An owner's stream is closed by
+        its owner.
+        """
+        if not self.stream_id:
+            raise RuntimeError("Only a standalone stream can be closed by a client")
+        close = await _stream_close(self.client.data_converter, failure, reason)
+        await _backend(self.client, self.backend).close(self.ref, None, 0, close)
 
 
 class StreamProducer:
-    """A client's named producer. An async context manager that flushes on exit.
+    """A client's named producer. An async context manager that releases its ID on exit.
 
-    ``publish`` buffers; the producer sends at most one append per ``batch_interval``, or sooner
-    when the buffer reaches an append's size limits or a publish forces a flush. A failed append,
-    after the backend's retries, drops what was buffered and is raised from the next ``flush``,
-    ``publish`` or ``finish``, and from every call after; open a new producer to continue. Values
-    still buffered when the process exits are lost.
-
-    .. warning::
-        This API is a prototype and will change.
-    """
-
-    def __init__(self, id: str, epoch: int, publisher: Publisher) -> None:
-        """Create a producer. Use :py:meth:`StreamHandle.producer` instead."""
-        self.id = id
-        self.epoch = epoch
-        self._publisher = publisher
-
-    async def __aenter__(self) -> StreamProducer:
-        """Return self."""
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> None:
-        """Flush, and release the producer's ID."""
-        try:
-            await self.flush()
-        finally:
-            self._publisher.release()
-
-    def publish(
-        self, value: Any, *, topic: str = "", force_flush: bool = False
-    ) -> None:
-        """Convert the value and buffer it for appending. Must be called in the event loop."""
-        self._publisher.publish(value, topic, force_flush)
-
-    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]:
-        """A handle that publishes values of ``type`` to one topic."""
-        return PublishingTopicHandle(self, name, type)
-
-    async def flush(self) -> None:
-        """Wait until everything published so far is stored."""
-        await self._publisher.flush()
-
-    async def finish(self) -> None:
-        """Flush, then record that this producer will write no more, and release its ID. It does
-        not close the stream.
-        """
-        await self._publisher.finish()
-
-
-class ActivityStreamHandle:
-    """An activity's handle to a stream: its workflow's stream for a workflow or local activity,
-    and its own for a Standalone Activity.
-
-    ``publish`` buffers as :py:class:`StreamProducer` does, appending as the activity attempt,
-    whose epoch is its attempt stamp. The worker flushes before completing the attempt, and a
-    failed flush fails the attempt; values still buffered when the worker process crashes are lost.
-
-    A workflow activity names its workflow's stream by its workflow's current run, which identifies
-    the stream only in the chain's first run.
+    Each ``publish`` appends at once, as one producer with the next seq, and waits until the store
+    has the records; concurrent calls are made one at a time. A failed append, after the backend's
+    retries, is raised, and from every later call too; open a new producer to continue.
+    ``buffered`` gives a writer that batches.
 
     .. warning::
         This API is a prototype and will change.
@@ -295,89 +376,227 @@ class ActivityStreamHandle:
 
     def __init__(
         self,
-        client: temporalio.client.Client,
-        info: temporalio.activity.Info,
+        id: str,
+        epoch: int,
+        appender: Appender,
         payload_converter: temporalio.converter.PayloadConverter,
+        release: Callable[[], None],
     ) -> None:
-        """Create a handle. Use :py:func:`temporalio.activity.stream` instead."""
-        self._standalone = not info.workflow_id
-        ref = (
-            StreamRef(
-                activity_id=info.activity_id, activity_run_id=info.activity_run_id or ""
-            )
-            if self._standalone
-            else StreamRef(info.workflow_id or "", info.workflow_run_id or "")
-        )
-        self._reader = StreamHandle(client, ref)
-        self._publisher = Publisher(
-            client_backend(client),
-            ref,
-            ActivityProducer(info),
-            payload_converter,
-            client.data_converter,
-            timedelta(milliseconds=100),
-        )
-        self._data_converter = client.data_converter
+        """Create a producer. Use :py:meth:`StreamHandle.producer` instead."""
+        self.id = id
+        self.epoch = epoch
+        self.payload_converter = payload_converter
+        self._appender = appender
+        self._release = release
+
+    async def __aenter__(self) -> StreamProducer:
+        """Return self."""
+        return self
+
+    async def __aexit__(self, *exc_info: Any) -> None:
+        """Release the producer's ID."""
+        self._release()
+
+    async def publish(self, *values: Any, topic: str = "") -> None:
+        """Convert the values and append them to the topic."""
+        await self._append(_records(self.payload_converter, values, topic))
 
     def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]:
         """A handle that publishes values of ``type`` to one topic."""
         return PublishingTopicHandle(self, name, type)
 
-    def publish(
-        self, value: Any, *, topic: str = "", force_flush: bool = False
-    ) -> None:
-        """Convert the value and buffer it for appending."""
-        self._publisher.publish(value, topic, force_flush)
+    def buffered(
+        self, *, batch_interval: timedelta = timedelta(milliseconds=100)
+    ) -> BufferedStreamWriter:
+        """A writer that buffers what it publishes, and appends it through this producer."""
+        return BufferedStreamWriter(self, batch_interval)
 
-    async def flush(self) -> None:
-        """Wait until everything published so far is stored."""
-        await self._publisher.flush()
+    async def finish(self) -> None:
+        """Record that this producer will write no more, and release its ID. It does not close the
+        stream.
+        """
+        try:
+            await self._appender.finish()
+        finally:
+            self._release()
+
+    async def _append(self, records: Sequence[AppendRecord]) -> None:
+        await self._appender.append(records)
+
+
+@dataclass(frozen=True)
+class ActivityStreamHandle(StreamHandleBase):
+    """An activity's handle to a stream: from a handle passed to the activity, with
+    :py:func:`temporalio.activity.get_stream_handle`, or to a Standalone Activity's own stream,
+    from :py:func:`temporalio.activity.create_stream`.
+
+    Each ``publish`` appends at once, as the activity attempt, whose epoch is its attempt stamp,
+    and waits until the store has the records; one append is in flight at a time per stream and
+    attempt. Nothing is buffered, so nothing is flushed when the attempt completes. ``buffered``
+    gives a writer that batches, and that the activity must flush itself.
+
+    .. warning::
+        This API is a prototype and will change.
+    """
+
+    @property
+    def payload_converter(self) -> temporalio.converter.PayloadConverter:
+        """The activity's payload converter."""
+        return temporalio.activity.payload_converter()
+
+    async def publish(self, *values: Any, topic: str = "") -> None:
+        """Convert the values and append them to the topic."""
+        await self._append(_records(self.payload_converter, values, topic))
+
+    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]:
+        """A handle that publishes values of ``type`` to one topic."""
+        return PublishingTopicHandle(self, name, type)
+
+    def buffered(
+        self, *, batch_interval: timedelta = timedelta(milliseconds=100)
+    ) -> BufferedStreamWriter:
+        """A writer that buffers what it publishes, and appends it through this handle. The
+        activity must flush it, or use it with ``async with``, before the attempt completes.
+        """
+        return BufferedStreamWriter(self, batch_interval)
 
     async def close(
         self, *, failure: BaseException | None = None, reason: str = ""
     ) -> None:
-        """Flush, then close the Standalone Activity's own stream, as failed if ``failure`` is
-        given, and as completed otherwise. On native the server closes the stream when the activity
-        ends, if the activity has not; on other backends nothing does.
+        """Close the stream, as failed if ``failure`` is given and as completed otherwise: a
+        Standalone Activity's own stream, as the activity's attempt, or a standalone stream. On
+        native the server closes an activity's streams when the activity ends, if the activity has
+        not; on other backends nothing does.
         """
-        if not self._standalone:
-            raise RuntimeError(
-                "Only a Standalone Activity owns its stream; a workflow activity's stream is its "
-                "workflow's"
-            )
-        close = StreamClose(CloseStatus.COMPLETED, reason=reason)
-        if failure:
-            proto = temporalio.api.failure.v1.Failure()
-            await self._data_converter.encode_failure(failure, proto)
-            close = StreamClose(CloseStatus.FAILED, proto, reason)
-        await self._publisher.close(close)
-
-    def fetch_records(
-        self,
-        *,
-        after: StreamCursor | None = None,
-        topics: Sequence[str] | None = None,
-        page_size: int | None = None,
-        wait_new_records: bool = False,
-        type_hint: type | None = None,
-    ) -> StreamRecordAsyncIterator[Any]:
-        """See :py:meth:`StreamReader.fetch_records`."""
-        return self._reader.fetch_records(
-            after=after,
-            topics=topics,
-            page_size=page_size,
-            wait_new_records=wait_new_records,
-            type_hint=type_hint,
+        await _close_from_activity(
+            self, _activity_appender(self), temporalio.activity.info(), failure, reason
         )
+
+    def fetch_records(self, **kwargs: Any) -> StreamRecordAsyncIterator[Any]:
+        """See :py:meth:`StreamReader.fetch_records`."""
+        return self._reader().fetch_records(**kwargs)
 
     async def fetch_last_records(
-        self,
-        n: int,
-        *,
-        topics: Sequence[str] | None = None,
-        type_hint: type | None = None,
+        self, n: int, **kwargs: Any
     ) -> Sequence[StreamRecord[Any]]:
         """See :py:meth:`StreamReader.fetch_last_records`."""
-        return await self._reader.fetch_last_records(
-            n, topics=topics, type_hint=type_hint
+        return await self._reader().fetch_last_records(n, **kwargs)
+
+    async def _append(self, records: Sequence[AppendRecord]) -> None:
+        await _activity_appender(self).append(records)
+
+    def _reader(self) -> StreamHandle:
+        return StreamHandle.of(self.backend, self.ref)._bound(
+            temporalio.activity.client()
         )
+
+
+@dataclass(frozen=True)
+class SyncActivityStreamHandle(StreamHandleBase):
+    """A synchronous activity's handle to a stream, from
+    :py:func:`temporalio.activity.get_sync_stream_handle`: the blocking counterpart of
+    :py:class:`ActivityStreamHandle`. Available in activities that run in a thread pool, not in a
+    process pool.
+
+    .. warning::
+        This API is a prototype and will change.
+    """
+
+    def publish(self, *values: Any, topic: str = "") -> None:
+        """Convert the values, append them to the topic, and return once the store has them."""
+        records = _records(temporalio.activity.payload_converter(), values, topic)
+        _run_on_worker_loop(_activity_appender(self).append(records))
+
+    def close(self, *, failure: BaseException | None = None, reason: str = "") -> None:
+        """See :py:meth:`ActivityStreamHandle.close`."""
+        _run_on_worker_loop(
+            _close_from_activity(
+                self,
+                _activity_appender(self),
+                temporalio.activity.info(),
+                failure,
+                reason,
+            )
+        )
+
+
+async def _close_from_activity(
+    handle: StreamHandleBase,
+    appender: Appender,
+    info: temporalio.activity.Info,
+    failure: BaseException | None,
+    reason: str,
+) -> None:
+    close = await _stream_close(appender.data_converter, failure, reason)
+    if handle.stream_id:
+        await appender.backend.close(handle.ref, None, 0, close)
+        return
+    if info.workflow_id or handle.activity_id != info.activity_id:
+        raise RuntimeError(
+            "An activity can close only its own stream, as a Standalone Activity, or a standalone "
+            "stream"
+        )
+    owner = appender.producer
+    assert isinstance(owner, ActivityProducer)
+    await appender.call(
+        lambda seq: appender.backend.close(handle.ref, owner, seq, close)
+    )
+
+
+def _run_on_worker_loop(coro: Coroutine[Any, Any, None]) -> None:
+    loop = temporalio.activity._Context.current().worker_loop
+    if not loop:
+        coro.close()
+        raise RuntimeError(
+            "Streams are available in synchronous activities only when they run in a thread pool"
+        )
+    asyncio.run_coroutine_threadsafe(coro, loop).result()
+
+
+def _activity_appender(handle: StreamHandleBase) -> Appender:
+    """The appender of the current activity attempt for the stream, shared by every handle to it in
+    the attempt, so that its appends take consecutive seqs one at a time.
+    """
+    context = temporalio.activity._Context.current()
+    key = (handle.backend, handle.ref)
+    appender = context.stream_appenders.get(key)
+    if not appender:
+        client = context.stream_client
+        if not client:
+            raise RuntimeError(
+                "Streams are available in activities only when they have a client: in tests, pass "
+                "one to ActivityEnvironment"
+            )
+        appender = context.stream_appenders[key] = Appender(
+            _backend(client, handle.backend),
+            handle.ref,
+            ActivityProducer(context.info()),
+            client.data_converter,
+        )
+    return appender
+
+
+def _records(
+    payload_converter: temporalio.converter.PayloadConverter,
+    values: Sequence[Any],
+    topic: str,
+) -> list[AppendRecord]:
+    return [AppendRecord(topic, payload_converter.to_payload(v)) for v in values]
+
+
+async def _stream_close(
+    data_converter: temporalio.converter.DataConverter,
+    failure: BaseException | None,
+    reason: str,
+) -> StreamClose:
+    if not failure:
+        return StreamClose(CloseStatus.COMPLETED, reason=reason)
+    proto = temporalio.api.failure.v1.Failure()
+    await data_converter.encode_failure(failure, proto)
+    return StreamClose(CloseStatus.FAILED, proto, reason)
+
+
+def _backend(client: temporalio.client.Client, name: str) -> Any:
+    from temporalio.streams.backend import client_backend
+
+    return client_backend(client, name)

@@ -668,6 +668,7 @@ class _ActivityWorker:
             runtime_metric_meter=None if sync_non_threaded else self._metric_meter,
             client=self._client if not running_activity.sync else None,
             cancellation_details=running_activity.cancellation_details,
+            stream_client=self._client,
         )
         temporalio.activity._Context.set(context)
         temporalio.activity.logger.debug("Starting activity")
@@ -680,13 +681,7 @@ class _ActivityWorker:
             impl = interceptor.intercept_activity(impl)
 
         impl.init(_ActivityOutboundImpl(self, running_activity.info))
-        try:
-            result = await impl.execute_activity(input)
-        except BaseException:
-            await _flush_stream(context, raise_failure=False)
-            raise
-        await _flush_stream(context, raise_failure=True)
-        return result
+        return await impl.execute_activity(input)
 
     def assert_activity_valid(self, activity: str) -> None:
         if self._dynamic_activity:
@@ -698,24 +693,6 @@ class _ActivityWorker:
                 f"Activity function {activity} "
                 f"is not registered on this worker, available activities: {activity_names}",
             )
-
-
-async def _flush_stream(
-    context: temporalio.activity._Context, *, raise_failure: bool
-) -> None:
-    """Flush what the activity published, before its attempt completes. A failure fails an attempt
-    that would otherwise succeed; an attempt that already fails keeps its own failure.
-    """
-    if not context.stream:
-        return
-    try:
-        await context.stream.flush()
-    except Exception:
-        if raise_failure:
-            raise
-        temporalio.activity.logger.warning(
-            "Failed flushing the stream of a failed activity attempt", exc_info=True
-        )
 
 
 @dataclass
@@ -870,6 +847,7 @@ class _ActivityInboundImpl(ActivityInboundInterceptor):
                     info.task_token, ctx.heartbeat
                 )
 
+            threaded = isinstance(input.executor, concurrent.futures.ThreadPoolExecutor)
             # The payload converter is the already instantiated one for thread
             # or the picklable class for non-thread
             payload_converter_class_or_instance = (
@@ -896,6 +874,10 @@ class _ActivityInboundImpl(ActivityInboundInterceptor):
                     payload_converter_class_or_instance,
                     ctx.runtime_metric_meter,
                     cancellation_details,
+                    # Stream calls of a threaded activity run on this event loop, with the
+                    # worker's client; a process cannot reach either.
+                    ctx.stream_client if threaded else None,
+                    loop if threaded else None,
                     input.fn,
                     *input.args,
                 ]
@@ -942,6 +924,8 @@ def _execute_sync_activity(
     ),
     runtime_metric_meter: temporalio.common.MetricMeter | None,
     cancellation_details: temporalio.activity._ActivityCancellationDetailsHolder,
+    stream_client: temporalio.client.Client | None,
+    worker_loop: asyncio.AbstractEventLoop | None,
     fn: Callable[..., Any],
     *args: Any,
 ) -> Any:
@@ -968,6 +952,8 @@ def _execute_sync_activity(
             runtime_metric_meter=runtime_metric_meter,
             client=None,
             cancellation_details=cancellation_details,
+            stream_client=stream_client,
+            worker_loop=worker_loop,
         )
     )
     if not cancel_thread_raiser:

@@ -1005,14 +1005,20 @@ class ActivityHandle(Generic[ReturnType]):
         """Run ID of the activity."""
         return self._run_id
 
-    def stream(self) -> temporalio.streams.StreamHandle:
-        """A handle to the stream this Standalone Activity owns.
+    def stream(
+        self, name: str, *, backend: str | None = None
+    ) -> temporalio.streams.StreamHandle:
+        """A handle to the stream named ``name`` that this Standalone Activity owns. Without
+        ``backend``, the client's default stream backend.
 
         .. warning::
             Streams are a prototype and will change.
         """
         return self._client.get_stream_handle(
-            activity_id=self._id, activity_run_id=self._run_id
+            activity_id=self._id,
+            activity_run_id=self._run_id,
+            name=name,
+            backend=backend,
         )
 
     async def result(

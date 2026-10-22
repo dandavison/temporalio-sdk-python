@@ -185,15 +185,21 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
         """
         return self._first_execution_run_id
 
-    def stream(self) -> temporalio.streams.StreamHandle:
-        """A handle to the stream this workflow's run chain owns: the chain of
+    def stream(
+        self, name: str, *, backend: str | None = None
+    ) -> temporalio.streams.StreamHandle:
+        """A handle to the stream named ``name`` that this workflow's run chain owns: the chain of
         :py:attr:`first_execution_run_id` if set, and otherwise the workflow ID's latest chain.
+        Without ``backend``, the client's default stream backend.
 
         .. warning::
             Streams are a prototype and will change.
         """
         return self._client.get_stream_handle(
-            workflow_id=self._id, first_execution_run_id=self._first_execution_run_id
+            workflow_id=self._id,
+            first_execution_run_id=self._first_execution_run_id,
+            name=name,
+            backend=backend,
         )
 
     async def result(

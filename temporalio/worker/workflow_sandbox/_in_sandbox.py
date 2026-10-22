@@ -8,11 +8,11 @@ import dataclasses
 import logging
 from typing import Any
 
-import temporalio.api.common.v1
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.converter
 import temporalio.streams
+import temporalio.streams.backend
 import temporalio.worker._workflow_instance
 import temporalio.workflow
 from temporalio.converter._extstore import StorageDriverStoreContext
@@ -87,12 +87,19 @@ class InSandbox:
 
     def take_stream_writes(
         self,
-    ) -> tuple[
-        list[tuple[str, temporalio.api.common.v1.Payload]],
-        temporalio.streams.StreamClose | None,
-    ]:
-        """Take the records the workflow appended to its stream, and its close."""
+    ) -> list[temporalio.streams.backend.PendingStreamWrites]:
+        """Take what workflow code wrote to streams."""
         return self.instance.take_stream_writes()
+
+    def stream_flush_pending(self) -> bool:
+        """Whether the activation waits for the worker to store stream writes."""
+        return self.instance.stream_flush_pending()
+
+    def resume_after_stream_flush(
+        self,
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        """Run the activation on after the worker stored stream writes."""
+        return self.instance.resume_after_stream_flush()
 
     def get_serialization_context(
         self,

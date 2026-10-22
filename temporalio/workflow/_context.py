@@ -4,7 +4,7 @@ import asyncio
 import contextvars
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from random import Random
@@ -22,6 +22,7 @@ from ._exceptions import _NotInWorkflowEventLoopError
 
 if TYPE_CHECKING:
     import temporalio.streams
+    import temporalio.streams.backend
 
     from ._activities import ActivityCancellationType, ActivityHandle
     from ._exceptions import ContinueAsNewVersioningBehavior, VersioningIntent
@@ -507,12 +508,30 @@ class _Runtime(ABC):
     def workflow_get_current_details(self) -> str: ...
 
     @abstractmethod
-    def workflow_stream_append(self, topic: str, value: Any) -> None: ...
+    def workflow_stream_create(
+        self, name: str, backend: str | None
+    ) -> Awaitable[temporalio.streams.WorkflowStreamHandle]: ...
+
+    @abstractmethod
+    def workflow_stream_handle(
+        self, backend: str | None, ref: temporalio.streams.backend.StreamRef
+    ) -> temporalio.streams.WorkflowStreamHandle: ...
+
+    @abstractmethod
+    def workflow_stream_publish(
+        self,
+        stream: temporalio.streams.WorkflowStreamHandle,
+        topic: str,
+        values: Sequence[Any],
+    ) -> Awaitable[None]: ...
 
     @abstractmethod
     def workflow_stream_close(
-        self, failure: BaseException | None, reason: str
-    ) -> None: ...
+        self,
+        stream: temporalio.streams.WorkflowStreamHandle,
+        failure: BaseException | None,
+        reason: str,
+    ) -> Awaitable[None]: ...
 
     @abstractmethod
     def workflow_set_current_details(self, details: str): ...
@@ -700,43 +719,66 @@ def upsert_memo(updates: Mapping[str, Any]) -> None:
     return _Runtime.current().workflow_upsert_memo(updates)
 
 
-def stream() -> temporalio.streams.WorkflowStreamHandle:
-    """A handle to the stream this workflow's run chain owns.
+def create_stream(
+    name: str, *, backend: str | None = None
+) -> temporalio.streams.Creating[temporalio.streams.WorkflowStreamHandle]:
+    """Create a stream named ``name`` that this workflow's run chain owns. Await the result for the
+    stream's handle, or use it with ``async with``, which closes the stream on exit.
+
+    ``backend`` names one of the worker's stream backends; by default, the worker's default. The
+    worker creates the stream once nothing else in the workflow can run, in the same activation;
+    replay creates nothing, and in commit mode the stream is created by its first append. A stream
+    whose handle the workflow was given, for example through continue-as-new, need not be created
+    again.
 
     .. warning::
         Streams are a prototype and will change.
     """
-    from temporalio.streams import WorkflowStreamHandle
+    from temporalio.streams import Creating, WorkflowStreamHandle
 
-    return WorkflowStreamHandle()
+    async def create() -> WorkflowStreamHandle:
+        return await _Runtime.current().workflow_stream_create(name, backend)
+
+    async def close(
+        stream: WorkflowStreamHandle, failure: BaseException | None
+    ) -> None:
+        await stream.close(failure=failure)
+
+    return Creating(create, close)
 
 
 def get_stream_handle(
+    stream: temporalio.streams.StreamHandleBase | None = None,
     *,
     workflow_id: str | None = None,
     first_execution_run_id: str | None = None,
     activity_id: str | None = None,
     activity_run_id: str | None = None,
-) -> temporalio.streams.ExternalStreamHandle:
-    """A read-only handle to the stream of another workflow run chain or a Standalone Activity.
-
-    Exactly one of ``workflow_id`` and ``activity_id`` must be set. Without a run ID, reads read
-    the owner ID's latest chain or execution.
+    stream_id: str | None = None,
+    name: str | None = None,
+    backend: str | None = None,
+) -> temporalio.streams.WorkflowStreamHandle:
+    """A handle to a stream, for workflow code: the stream of a handle passed to the workflow, or
+    the one the arguments name: a named stream of a workflow run chain or a Standalone Activity, or
+    a standalone stream. Without a run ID, reads read the owner ID's latest chain or execution.
+    Without ``backend``, the worker's default backend.
 
     .. warning::
         Streams are a prototype and will change.
     """
-    from temporalio.streams import ExternalStreamHandle
-    from temporalio.streams.backend import StreamRef
+    from temporalio.streams._handles import handle_ref
 
-    return ExternalStreamHandle(
-        StreamRef(
-            workflow_id=workflow_id or "",
-            first_run_id=first_execution_run_id or "",
-            activity_id=activity_id or "",
-            activity_run_id=activity_run_id or "",
-        )
+    backend, ref = handle_ref(
+        stream,
+        workflow_id=workflow_id,
+        first_execution_run_id=first_execution_run_id,
+        activity_id=activity_id,
+        activity_run_id=activity_run_id,
+        stream_id=stream_id,
+        name=name,
+        backend=backend,
     )
+    return _Runtime.current().workflow_stream_handle(backend, ref)
 
 
 def get_current_details() -> str:

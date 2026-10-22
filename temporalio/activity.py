@@ -9,6 +9,7 @@ explicitly propagated.
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import dataclasses
 import inspect
@@ -37,6 +38,7 @@ from .types import CallableType
 
 if TYPE_CHECKING:
     import temporalio.streams
+    import temporalio.streams.backend
     from temporalio.client import Client
 
 
@@ -223,7 +225,11 @@ class _Context:
     runtime_metric_meter: temporalio.common.MetricMeter | None
     client: Client | None
     cancellation_details: _ActivityCancellationDetailsHolder
-    stream: temporalio.streams.ActivityStreamHandle | None = None
+    # The client of the attempt's streams, also for a synchronous activity in a thread pool, and the
+    # worker's event loop, on which such an activity's stream calls run.
+    stream_client: Client | None = None
+    worker_loop: asyncio.AbstractEventLoop | None = None
+    stream_appenders: dict[Any, Any] = dataclasses.field(default_factory=dict)
     _logger_details: Mapping[str, Any] | None = None
     _payload_converter: temporalio.converter.PayloadConverter | None = None
     _metric_meter: temporalio.common.MetricMeter | None = None
@@ -313,29 +319,149 @@ def client() -> Client:
     return client
 
 
-def stream() -> temporalio.streams.ActivityStreamHandle:
-    """Return a handle to the current activity's stream: its workflow's stream for a workflow or
-    local activity, and its own for a Standalone Activity. Values it publishes are appended as this
-    attempt, and the worker flushes them before completing the attempt.
+def create_stream(
+    name: str, *, backend: str | None = None
+) -> temporalio.streams.Creating[temporalio.streams.ActivityStreamHandle]:
+    """Create a stream named ``name`` that this Standalone Activity owns. Await the result for the
+    stream's handle, or use it with ``async with``, which closes the stream on exit.
 
-    Only available in ``async def`` activities.
+    ``backend`` names one of the client's stream backends; by default, the client's default. Only
+    a Standalone Activity owns streams; a workflow activity writes to streams it is given.
 
     .. warning::
         Streams are a prototype and will change.
     """
-    context = _Context.current()
-    if not context.stream:
-        if not context.client:
-            raise RuntimeError(
-                "The stream is only available in `async def` activities, and in tests only when "
-                "ActivityEnvironment has a client"
-            )
-        from temporalio.streams import ActivityStreamHandle
+    from temporalio.streams import ActivityStreamHandle, Creating
+    from temporalio.streams.backend import StreamRef, client_backend, default_backend
 
-        context.stream = ActivityStreamHandle(
-            context.client, context.info(), context.payload_converter
+    context = _Context.current()
+    info = context.info()
+    client = context.stream_client
+    if info.workflow_id or not client:
+        raise RuntimeError(
+            "Only a Standalone Activity with a client creates streams it owns"
         )
-    return context.stream
+    backend = backend or default_backend(client)
+    handle = ActivityStreamHandle.of(
+        backend,
+        StreamRef(
+            activity_id=info.activity_id,
+            activity_run_id=info.activity_run_id or "",
+            name=name,
+        ),
+    )
+
+    async def create() -> temporalio.streams.ActivityStreamHandle:
+        await client_backend(client, backend).create(
+            handle.ref, request_id=info.activity_run_id or ""
+        )
+        return handle
+
+    async def close(
+        handle: temporalio.streams.ActivityStreamHandle, failure: BaseException | None
+    ) -> None:
+        await handle.close(failure=failure)
+
+    return Creating(create, close)
+
+
+def get_stream_handle(
+    stream: temporalio.streams.StreamHandleBase | None = None,
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    name: str | None = None,
+    backend: str | None = None,
+) -> temporalio.streams.ActivityStreamHandle:
+    """A handle to a stream, for this activity: the stream of a handle passed to the activity, or
+    the one the arguments name. Without ``backend``, the client's default backend.
+
+    .. warning::
+        Streams are a prototype and will change.
+    """
+    from temporalio.streams import ActivityStreamHandle
+
+    return ActivityStreamHandle.of(
+        *_stream_args(
+            stream,
+            workflow_id,
+            first_execution_run_id,
+            activity_id,
+            activity_run_id,
+            stream_id,
+            name,
+            backend,
+        )
+    )
+
+
+def get_sync_stream_handle(
+    stream: temporalio.streams.StreamHandleBase | None = None,
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    name: str | None = None,
+    backend: str | None = None,
+) -> temporalio.streams.SyncActivityStreamHandle:
+    """The blocking counterpart of :py:func:`get_stream_handle`, for a synchronous activity that
+    runs in a thread pool.
+
+    .. warning::
+        Streams are a prototype and will change.
+    """
+    from temporalio.streams import SyncActivityStreamHandle
+
+    return SyncActivityStreamHandle.of(
+        *_stream_args(
+            stream,
+            workflow_id,
+            first_execution_run_id,
+            activity_id,
+            activity_run_id,
+            stream_id,
+            name,
+            backend,
+        )
+    )
+
+
+def _stream_args(
+    stream: temporalio.streams.StreamHandleBase | None,
+    workflow_id: str | None,
+    first_execution_run_id: str | None,
+    activity_id: str | None,
+    activity_run_id: str | None,
+    stream_id: str | None,
+    name: str | None,
+    backend: str | None,
+) -> tuple[str, temporalio.streams.backend.StreamRef]:
+    from temporalio.streams._handles import handle_ref
+    from temporalio.streams.backend import default_backend
+
+    backend, ref = handle_ref(
+        stream,
+        workflow_id=workflow_id,
+        first_execution_run_id=first_execution_run_id,
+        activity_id=activity_id,
+        activity_run_id=activity_run_id,
+        stream_id=stream_id,
+        name=name,
+        backend=backend,
+    )
+    if backend:
+        return backend, ref
+    client = _Context.current().stream_client
+    if not client:
+        raise RuntimeError(
+            "Streams are available in activities only when they have a client"
+        )
+    return default_backend(client), ref
 
 
 def in_activity() -> bool:

@@ -189,6 +189,7 @@ class _Activity:
             runtime_metric_meter=env.metric_meter,
             client=client if self.is_async else None,
             cancellation_details=env._cancellation_details,
+            stream_client=client if self.is_async else None,
         )
         self.task: asyncio.Task | None = None
 

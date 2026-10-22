@@ -1,4 +1,4 @@
-"""The interface a stream store implements."""
+"""The interface a stream store implements, and the configuration of a client's stores."""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ from temporalio.streams._record import (
 )
 from temporalio.streams._ref import StreamRef
 
+NATIVE = "native"
+"""The name of the backend that stores streams in Temporal, which every client has."""
+
 
 class CloseStatus(IntEnum):
     """How a stream was closed."""
@@ -32,7 +35,9 @@ class CloseStatus(IntEnum):
 
 @dataclass(frozen=True)
 class StreamClose:
-    """The close of a stream: written by its owner, or by the native server when the owner ends."""
+    """The close of a stream: written by its owner, by any caller for a standalone stream, or by
+    the native server when the owner ends or a standalone stream reaches its idle timeout.
+    """
 
     status: CloseStatus
     failure: temporalio.api.failure.v1.Failure | None = None
@@ -44,12 +49,14 @@ class ReadResponse:
     """The result of a read.
 
     ``cursor`` is where the next read resumes, past records a topic filter skipped. ``close`` is
-    set once the stream is closed and the reader has every record.
+    set once the stream is closed and the reader has every record. ``exists`` is set once the
+    stream has been created, by a create or its first append.
     """
 
     records: Sequence[Record]
     cursor: bytes | None
     close: StreamClose | None
+    exists: bool = False
 
 
 @dataclass(frozen=True)
@@ -58,9 +65,9 @@ class WorkflowEnding:
 
     ``cron`` and ``retry_policy`` say whether the run chain may continue: a cron run that completes
     or fails is followed by another, and a failed run with a retry policy may be retried. The worker
-    cannot learn whether the server retries a failed run, so a backend does not close the stream for
-    either, even when the retries are exhausted. The native server knows, and closes the stream of a
-    failed run whose retries are exhausted.
+    cannot learn whether the server retries a failed run, so a backend does not close the streams
+    for either, even when the retries are exhausted. The native server knows, and closes the
+    streams of a failed run whose retries are exhausted.
     """
 
     close: StreamClose
@@ -69,24 +76,60 @@ class WorkflowEnding:
 
 
 @dataclass(frozen=True)
-class WorkflowActivationCompleted:
-    """The records a successful activation appended to its workflow's own stream.
-
-    ``commit_mode`` is set when the workflow's definition declares commit mode. ``close`` is set
-    when the workflow closed its own stream in the activation, after the records. ``ending`` is set
-    when the activation's completion ends the run.
+class WorkflowStreamWrites:
+    """An activation's writes to one stream: one of the workflow's own streams, by ``name``, or a
+    standalone stream, by ``stream_id``. ``close`` is set when the workflow closed its own stream,
+    after the records; a workflow cannot close a standalone stream.
     """
 
-    ref: StreamRef
-    producer: WorkflowProducer
     records: Sequence[AppendRecord]
-    ending: WorkflowEnding | None
-    commit_mode: bool = False
+    name: str = ""
+    stream_id: str = ""
     close: StreamClose | None = None
 
 
+@dataclass(frozen=True)
+class WorkflowActivationCompleted:
+    """What a workflow wrote to the streams of one backend since the previous call, in an
+    activation that has not failed.
+
+    ``workflow_id`` and ``first_run_id`` are the workflow's run chain, whose streams ``streams``
+    names. ``commit_mode`` is set when the workflow's definition declares commit mode. ``ending``
+    is set in the last call for an activation whose completion ends the run.
+    """
+
+    workflow_id: str
+    first_run_id: str
+    producer: WorkflowProducer
+    streams: Sequence[WorkflowStreamWrites]
+    ending: WorkflowEnding | None
+    commit_mode: bool = False
+
+
 class StreamBackend(ABC):
-    """Stores streams. A producer must not have more than one append in flight within an epoch."""
+    """Stores streams. A producer must not have more than one append in flight within an epoch.
+
+    Each backend of a client has a unique :py:attr:`name`, which stream handles record.
+    """
+
+    name: str
+    """The backend's name among its client's backends."""
+
+    @abstractmethod
+    async def create(
+        self,
+        ref: StreamRef,
+        *,
+        request_id: str = "",
+        idle_timeout: timedelta | None = None,
+    ) -> bool:
+        """Create the stream, and return whether this create, by its request ID, created it.
+
+        A create of a stream that exists succeeds and returns false, unless the stream is closed
+        or has another idle timeout. ``idle_timeout`` is a standalone stream's; unset means 7 days.
+        A stream of an owner closes with its owner and does not accept one. An append creates the
+        stream too, with default settings.
+        """
 
     @abstractmethod
     async def append(
@@ -100,31 +143,33 @@ class StreamBackend(ABC):
     ) -> Sequence[bytes]:
         """Append records as one atomic, contiguous batch, returning their cursors.
 
-        The first append creates the stream; on native, only while its owner exists. An epoch's
-        first append has seq 0 and each later one the next seq. A retry of the producer's latest seq
-        with the same content stores nothing and returns the original cursors, even after the
-        stream is closed. Content is compared as encoded, so a retry must encode to the same bytes.
-        ``finish`` records that the producer will write no more; it does not close the stream.
+        An epoch's first append has seq 0 and each later one the next seq. A retry of the
+        producer's latest seq with the same content stores nothing and returns the original
+        cursors, even after the stream is closed. Content is compared as encoded, so a retry must
+        encode to the same bytes. ``finish`` records that the producer will write no more; it does
+        not close the stream.
         """
 
     @abstractmethod
     async def close(
         self,
         ref: StreamRef,
-        owner: WorkflowProducer | ActivityProducer,
+        owner: WorkflowProducer | ActivityProducer | None,
         seq: int,
         close: StreamClose,
     ) -> None:
         """Close the stream. Only the stream's owner may close it: a workflow task of the owning
-        run, or an attempt of the owning Standalone Activity.
+        run, or an attempt of the owning Standalone Activity. Any caller may close a standalone
+        stream, with no owner; a close of a closed standalone stream succeeds if it is the same
+        close.
 
-        On native the server also closes the stream in the transaction that ends its owner. A
-        backend the server cannot write to has no such close. For a workflow owner the worker
-        writes it (see :py:meth:`workflow_evicted`). For a Standalone Activity owner nothing writes
-        it: the worker cannot learn whether the server accepted the activity's completion (Core
-        sends the respond call and discards its result), or whether a failed attempt will be
-        retried (the failed response does not say). Such an activity must close its own stream, or
-        the stream stays open until its retention passes.
+        On native the server also closes an owner's streams in the transaction that ends the
+        owner. A backend the server cannot write to has no such close. For a workflow owner the
+        worker writes it (see :py:meth:`workflow_evicted`). For a Standalone Activity owner nothing
+        writes it: the worker cannot learn whether the server accepted the activity's completion
+        (Core sends the respond call and discards its result), or whether a failed attempt will be
+        retried (the failed response does not say). Such an activity must close its own streams,
+        or they stay open until their retention passes.
         """
 
     @abstractmethod
@@ -155,15 +200,17 @@ class StreamBackend(ABC):
     async def workflow_activation_completed(
         self, completed: WorkflowActivationCompleted
     ) -> Sequence[temporalio.api.protocol.v1.Message]:
-        """Append an activation's records, then write the workflow's own close if it made one.
-        Called by the worker after each successful activation, before its completion is sent.
+        """Append what a workflow wrote to this backend's streams, then write the closes it made.
+        Called by the worker while an activation runs, whenever workflow code awaits a write and
+        nothing else can run, and once more at the end of the activation, before its completion
+        is sent.
 
         The worker does not call it for a failed activation: the retried workflow task appends
         those records again.
 
-        In commit mode, returns the records as protocol messages instead, which the worker sends in
-        the activation's completion; a backend other than native raises. If the completion ends the
-        run and the workflow has not closed its stream, a backend that the server cannot write to
+        In commit mode, returns the records for the workflow's own streams as protocol messages
+        instead, which the worker sends in the activation's completion; a backend other than
+        native raises. If the completion ends the run, a backend that the server cannot write to
         keeps the close until :py:meth:`workflow_evicted` says the server accepted the completion,
         and keeps none for a completed cron run or a failed run with a retry policy.
         """
@@ -174,5 +221,32 @@ class StreamBackend(ABC):
 
         ``execution_ending`` is set when the eviction follows the server accepting the run's
         terminal completion. Only then does a backend that the server cannot write to write the
-        close it kept. If this call fails, or the worker stops first, the close is never written.
+        close it kept, to every one of the run's streams that is open. If this call fails, or the
+        worker stops first, the close is never written.
         """
+
+
+@dataclass(frozen=True)
+class StreamBackends:
+    """The stream backends of a client and its workers, besides native, which every client has.
+
+    A stream handle records the name of its stream's backend, and every call on it goes to that
+    backend. ``default`` names the backend that streams are created on, and that handles got by
+    name refer to, when the caller names none.
+
+    .. warning::
+        This API is a prototype and will change.
+    """
+
+    backends: Sequence[StreamBackend] = ()
+    default: str = NATIVE
+
+    def __post_init__(self) -> None:
+        """Check that the names are unique and the default is one of them."""
+        names = [NATIVE, *(b.name for b in self.backends)]
+        if len(set(names)) != len(names):
+            raise ValueError(f"stream backend names must be unique: {names}")
+        if self.default not in names:
+            raise ValueError(
+                f"default stream backend {self.default!r} is not in {names}"
+            )

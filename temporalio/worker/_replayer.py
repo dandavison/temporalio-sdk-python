@@ -17,6 +17,7 @@ import temporalio.bridge.worker
 import temporalio.client
 import temporalio.converter
 import temporalio.runtime
+import temporalio.streams.backend
 import temporalio.worker
 import temporalio.workflow
 
@@ -284,7 +285,8 @@ class Replayer:
                 )
                 != HeaderCodecBehavior.NO_CODEC,
                 max_workflow_task_external_storage_concurrency=1,
-                stream_backend=None,
+                stream_backends=None,
+                default_stream_backend=temporalio.streams.backend.NATIVE,
                 default_workflow_logic_flags=frozenset(
                     self._default_workflow_logic_flags
                 ),

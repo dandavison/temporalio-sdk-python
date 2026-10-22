@@ -566,7 +566,10 @@ class Worker:
                 encode_headers=client_config["header_codec_behavior"]
                 != HeaderCodecBehavior.NO_CODEC,
                 max_workflow_task_external_storage_concurrency=max_workflow_task_external_storage_concurrency,
-                stream_backend=temporalio.streams.backend.client_backend(
+                stream_backends=temporalio.streams.backend.client_backends(
+                    config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
+                ),
+                default_stream_backend=temporalio.streams.backend.default_backend(
                     config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
                 ),
             )

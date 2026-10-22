@@ -627,16 +627,16 @@ class ExternalWorkflowHandle(Generic[SelfType]):
         """
         raise NotImplementedError
 
-    def stream(self) -> temporalio.streams.ExternalStreamHandle:
-        """A read-only handle to the stream this workflow's run chain owns: the chain whose first
-        run is :py:attr:`run_id` if set, and otherwise the workflow ID's latest chain. So a handle
-        to a later run of a chain names no stream.
+    def stream(self, name: str) -> temporalio.streams.WorkflowStreamHandle:
+        """A handle to the stream named ``name`` that this workflow's run chain owns: the chain
+        whose first run is :py:attr:`run_id` if set, and otherwise the workflow ID's latest chain.
+        So a handle to a later run of a chain names no stream.
 
         .. warning::
             Streams are a prototype and will change.
         """
         return get_stream_handle(
-            workflow_id=self.id, first_execution_run_id=self.run_id
+            workflow_id=self.id, first_execution_run_id=self.run_id, name=name
         )
 
 

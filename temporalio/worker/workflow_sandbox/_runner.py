@@ -12,12 +12,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import temporalio.api.common.v1
 import temporalio.bridge.proto.workflow_activation
 import temporalio.bridge.proto.workflow_completion
 import temporalio.common
 import temporalio.converter
 import temporalio.streams
+import temporalio.streams.backend
 import temporalio.workflow
 from temporalio.converter._extstore import StorageDriverStoreContext
 from temporalio.worker import _command_aware_visitor
@@ -195,18 +195,30 @@ class _Instance(WorkflowInstance):
 
     def take_stream_writes(
         self,
-    ) -> tuple[
-        list[tuple[str, temporalio.api.common.v1.Payload]],
-        temporalio.streams.StreamClose | None,
-    ]:
+    ) -> list[temporalio.streams.backend.PendingStreamWrites]:
+        return self._run_in_sandbox("take_stream_writes()")
+
+    def stream_flush_pending(self) -> bool:
+        return self._run_in_sandbox("stream_flush_pending()")
+
+    def resume_after_stream_flush(
+        self,
+    ) -> temporalio.bridge.proto.workflow_completion.WorkflowActivationCompletion:
+        self.importer.restriction_context.in_activation = True
+        try:
+            return self._run_in_sandbox("resume_after_stream_flush()")
+        finally:
+            self.importer.restriction_context.in_activation = False
+
+    def _run_in_sandbox(self, call: str) -> Any:
         self.importer.restriction_context.is_runtime = True
         try:
             self._run_code(
                 "with __temporal_importer.applied():\n"
-                "  __temporal_stream_writes = __temporal_in_sandbox.take_stream_writes()\n",
+                f"  __temporal_result = __temporal_in_sandbox.{call}\n",
                 __temporal_importer=self.importer,
             )
-            return self.globals_and_locals.pop("__temporal_stream_writes")  # type: ignore
+            return self.globals_and_locals.pop("__temporal_result")
         finally:
             self.importer.restriction_context.is_runtime = False
 
