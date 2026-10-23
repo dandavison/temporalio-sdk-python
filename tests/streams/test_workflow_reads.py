@@ -36,6 +36,7 @@ from temporalio.streams import (
 )
 from temporalio.worker import Replayer, Worker
 from tests.streams.conftest import is_native, redis_client
+from tests.streams.test_typed_streams import AgentEvents, ToolEvent, Turn
 
 
 @dataclass
@@ -381,6 +382,46 @@ async def test_workflow_reads_a_standalone_stream_to_its_close(stream_client: Cl
     assert outcome.values == values
     assert outcome.close == 1
     assert outcome.mode == 1
+
+
+@workflow.defn
+class TypedStreamReaderWorkflow:
+    @workflow.run
+    async def run(self, stream_id: str) -> list[str]:
+        events = workflow.get_stream_handle(AgentEvents, stream_id=stream_id)
+        turns = [
+            r.value.kind
+            async for r in events.turns.fetch_records()
+            if isinstance(r, StreamRecord)
+        ]
+        tools = [
+            t.value.tool
+            async for r in events.fetch_records()
+            if (t := AgentEvents.tool.match(r))
+        ]
+        return turns + tools
+
+
+async def test_workflow_reads_a_typed_stream(stream_client: Client):
+    """Every backend: workflow code reads a typed topic, decoded as the topic's type, and the whole
+    stream, each record decoded as its topic's type.
+    """
+    task_queue = unique("tq")
+    stream_id = unique("stream")
+    async with stream_client.create_stream(AgentEvents, stream_id=stream_id) as typed:
+        async with typed.producer("p") as p:
+            await p.turns.publish(Turn("started"))
+            await p.tool.publish(ToolEvent("search"))
+    async with Worker(
+        stream_client, task_queue=task_queue, workflows=[TypedStreamReaderWorkflow]
+    ):
+        result = await stream_client.execute_workflow(
+            TypedStreamReaderWorkflow.run,
+            stream_id,
+            id=unique("reader"),
+            task_queue=task_queue,
+        )
+    assert result == ["started", "search"]
 
 
 async def test_waiting_reader_has_no_open_task_and_survives_a_worker_restart(
