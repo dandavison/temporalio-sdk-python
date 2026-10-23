@@ -93,7 +93,7 @@ def redis_client(
         client.service_client,
         namespace=client.namespace,
         stream_backends=StreamBackends(
-            [RedisStreamBackend(redis_url, retention=retention)]
+            [RedisStreamBackend(redis_url, retention=retention)], default="redis"
         ),
     )
 

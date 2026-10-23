@@ -1427,8 +1427,10 @@ class PublishOnceWorkflow:
         await stream.publish("hello")
 
 
-async def test_listed_backend_is_the_default_backend(client: Client, redis_url: str):
-    """Redis: a client connected with a stream backend listed and no default named, and its
+async def test_named_default_backend_is_the_default_backend(
+    client: Client, redis_url: str
+):
+    """Redis: a client connected with a stream backend listed and named as the default, and its
     workers, have that backend as their default; a client without it uses native, and does not see
     the Redis stream.
     """
@@ -1436,7 +1438,8 @@ async def test_listed_backend_is_the_default_backend(client: Client, redis_url: 
         client.service_client.config.target_host,
         namespace=client.namespace,
         stream_backends=StreamBackends(
-            [RedisStreamBackend(redis_url, retention=timedelta(hours=1))]
+            [RedisStreamBackend(redis_url, retention=timedelta(hours=1))],
+            default="redis",
         ),
     )
     assert isinstance(client_backend(redis), RedisStreamBackend)
@@ -1454,6 +1457,22 @@ async def test_listed_backend_is_the_default_backend(client: Client, redis_url: 
     assert await read_values(native.stream("main")) == []
 
 
+def test_listed_backends_need_a_default():
+    """A stream backends configuration that lists a backend must name the default."""
+    with pytest.raises(ValueError, match="default="):
+        StreamBackends([RedisStreamBackend("redis://localhost:6379")])
+
+
+def test_no_listed_backends_default_to_native(client: Client):
+    """A stream backends configuration that lists no backend has native as its default."""
+    bare = Client(
+        client.service_client,
+        namespace=client.namespace,
+        stream_backends=StreamBackends(),
+    )
+    assert isinstance(client_backend(bare), NativeStreamBackend)
+
+
 def test_redis_backend_takes_its_namespace_from_its_client(
     client: Client, redis_url: str
 ):
@@ -1464,13 +1483,13 @@ def test_redis_backend_takes_its_namespace_from_its_client(
     first = Client(
         client.service_client,
         namespace=client.namespace,
-        stream_backends=StreamBackends([backend]),
+        stream_backends=StreamBackends([backend], default="redis"),
     )
     assert client_backend(first) is backend
     other = Client(
         client.service_client,
         namespace=f"{client.namespace}-other",
-        stream_backends=StreamBackends([backend]),
+        stream_backends=StreamBackends([backend], default="redis"),
     )
     with pytest.raises(ValueError, match="namespace"):
         client_backend(other)
@@ -1673,7 +1692,9 @@ async def main(target, namespace, workflow_id, first_run_id, redis_url):
     if redis_url:
         from temporalio.contrib.redis_streams import RedisStreamBackend
         from temporalio.streams import StreamBackends
-        stream_backends = StreamBackends([RedisStreamBackend(redis_url)])
+        stream_backends = StreamBackends(
+            [RedisStreamBackend(redis_url)], default="redis"
+        )
     client = await Client.connect(
         target, namespace=namespace, stream_backends=stream_backends
     )
@@ -1949,7 +1970,7 @@ async def test_native_switched_off_leaves_no_native_backend(
     """With native streams switched off by TEMPORAL_STREAMS_ENABLE_NATIVE, a client and its
     workers have no native backend. A client with no other backend fails its first stream call,
     saying so, though a worker created from it runs workflows that use no streams. With another
-    backend listed, it is the default, a handle that names native fails, and a worker refuses a
+    backend listed as the default, a handle that names native fails, and a worker refuses a
     workflow that declares commit mode, which needs native.
     """
     monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_NATIVE", "false")
@@ -1966,7 +1987,9 @@ async def test_native_switched_off_leaves_no_native_backend(
     off = Client(
         client.service_client,
         namespace=client.namespace,
-        stream_backends=StreamBackends([RedisStreamBackend(redis_url)]),
+        stream_backends=StreamBackends(
+            [RedisStreamBackend(redis_url)], default="redis"
+        ),
     )
     assert isinstance(client_backend(off), RedisStreamBackend)
     with pytest.raises(ValueError):
