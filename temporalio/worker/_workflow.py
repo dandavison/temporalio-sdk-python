@@ -26,6 +26,7 @@ import temporalio.common
 import temporalio.converter
 import temporalio.converter._extstore
 import temporalio.exceptions
+import temporalio.streams._flags
 import temporalio.streams._workflow_reads
 import temporalio.streams.backend
 import temporalio.streams.native
@@ -212,19 +213,27 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         # Validate and build workflow dict
         self._workflows: dict[str, temporalio.workflow._Definition] = {}
         self._dynamic_workflow: temporalio.workflow._Definition | None = None
+        native_streams = (
+            stream_backends is None
+            or temporalio.streams.backend.NATIVE in stream_backends
+        )
         for workflow in workflows:
             defn = temporalio.workflow._Definition.must_from_class(workflow)
             # Confirm name unique
             if defn.name in self._workflows:
                 raise ValueError(f"More than one workflow named {defn.name}")
-            if (
-                defn.stream_commit_mode
-                and default_stream_backend != temporalio.streams.backend.NATIVE
+            if defn.stream_commit_mode and (
+                not native_streams
+                or default_stream_backend != temporalio.streams.backend.NATIVE
             ):
                 raise ValueError(
                     f"Workflow {defn.name} declares stream commit mode, which only the native "
-                    f"stream backend supports, but the client's default stream backend is "
-                    f"{default_stream_backend!r}"
+                    "stream backend supports, but "
+                    + (
+                        f"the client's default stream backend is {default_stream_backend!r}"
+                        if native_streams
+                        else "native streams are disabled (TEMPORAL_STREAMS_ENABLE_NATIVE=false)"
+                    )
                 )
             if should_enforce_versioning_behavior:
                 if (
@@ -653,7 +662,11 @@ class _WorkflowWorker:  # type:ignore[reportUnusedClass]
         for name in names:
             backend = self._stream_backends.get(name)
             if not backend:
-                raise RuntimeError(f"The worker has no stream backend named {name!r}")
+                raise RuntimeError(
+                    temporalio.streams._flags.NATIVE_DISABLED
+                    if name == temporalio.streams.backend.NATIVE
+                    else f"The worker has no stream backend named {name!r}"
+                )
             streams = []
             for w in by_backend.get(name, []):
                 if w.create:

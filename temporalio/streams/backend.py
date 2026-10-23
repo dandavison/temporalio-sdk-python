@@ -5,9 +5,9 @@ handles in :py:mod:`temporalio.streams`.
 .. warning::
     This API is a prototype and will change.
 
-A client has the native backend, :py:class:`temporalio.streams.native.NativeStreamBackend`, and the
-backends that ``stream_backends`` in its :py:class:`temporalio.client.ClientConfig` lists; its
-workers use the client's.
+A client has the native backend, :py:class:`temporalio.streams.native.NativeStreamBackend`, unless
+``TEMPORAL_STREAMS_ENABLE_NATIVE=false``, and the backends that ``stream_backends`` in its
+:py:class:`temporalio.client.ClientConfig` lists; its workers use the client's.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from temporalio.streams._backend import (
     WorkflowEnding,
     WorkflowStreamWrites,
 )
+from temporalio.streams._flags import NATIVE_DISABLED, native_enabled
 from temporalio.streams._record import (
     ActivityProducer,
     AppendRecord,
@@ -68,8 +69,8 @@ __all__ = [
     "WorkflowTaskCommit",
     "client_backend",
     "client_backends",
+    "configured_default_backend",
     "default_backend",
-    "workflow_reads",
 ]
 
 _native_backends: weakref.WeakKeyDictionary[
@@ -78,25 +79,19 @@ _native_backends: weakref.WeakKeyDictionary[
 
 
 def client_backends(client: temporalio.client.Client) -> dict[str, StreamBackend]:
-    """The backends of a client and its workers, by name: native, unless its config switches it
-    off, and those its config lists.
+    """The backends of a client and its workers, by name: native, unless switched off, and those
+    its config lists.
     """
-    config = _config(client)
     backends: dict[str, StreamBackend] = {}
-    if config.native:
+    if native_enabled():
         native = _native_backends.get(client)
         if not native:
             native = _native_backends[client] = NativeStreamBackend(client)
         backends[NATIVE] = native
-    for b in config.backends:
-        b.bind(client, workflow_reads=config.workflow_reads)
+    for b in _config(client).backends:
+        b.bind(client)
         backends[b.name] = b
     return backends
-
-
-def workflow_reads(client: temporalio.client.Client) -> bool:
-    """Whether the client's workflows read streams: its config does not switch them off."""
-    return _config(client).workflow_reads
 
 
 def client_backend(
@@ -111,8 +106,22 @@ def client_backend(
 
 
 def default_backend(client: temporalio.client.Client) -> str:
-    """The name of the client's default backend."""
-    return _config(client).default
+    """The name of the client's default backend. Raises if it is native and native streams are
+    switched off.
+    """
+    name = configured_default_backend(client)
+    if name == NATIVE and not native_enabled():
+        raise ValueError(NATIVE_DISABLED)
+    return name
+
+
+def configured_default_backend(client: temporalio.client.Client) -> str:
+    """The name of the default backend that the client's config gives: the one it names, or the
+    first it lists, or native. Unlike :py:func:`default_backend`, it does not check that the client
+    has it.
+    """
+    config = _config(client)
+    return config.default or next((b.name for b in config.backends), NATIVE)
 
 
 def _config(client: temporalio.client.Client) -> StreamBackends:

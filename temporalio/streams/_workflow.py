@@ -95,7 +95,7 @@ class WorkflowStreamHandle(StreamHandleBase):
     (other backends), on the stream's creation if it does not exist yet, or on the close, and costs
     a few events and a workflow task. It has at most one Wait pending, and does not cancel it. A
     workflow task spends at most 10 reads or one second on reads; the next task continues. Reads
-    raise if the client's stream backends configuration switches workflow reads off.
+    raise if ``TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS=false``.
 
     In a workflow that declares commit mode (``@workflow.defn(stream_commit_mode=True)``, native
     only), the records for its own streams travel in the workflow task's completion and become
@@ -250,8 +250,8 @@ class WorkflowRecordIterator(StreamRecordAsyncIterator[T]):
         runtime = temporalio.workflow._Runtime.current()
         if not runtime.workflow_stream_reads_enabled():
             raise RuntimeError(
-                "Workflow reads of streams are switched off in the client's stream backends "
-                "configuration"
+                "Workflow reads of streams are switched off "
+                "(TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS=false)"
             )
         native = runtime.workflow_stream_backend_native(handle.backend)
         if hold_provisional and not native:

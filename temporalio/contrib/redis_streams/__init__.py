@@ -4,20 +4,15 @@
     This API is a prototype and will change.
 
 A :py:class:`RedisStreamBackend` in a client's stream backends configuration stores the streams
-whose handles name it, for the client and its workers, in Redis instead of in Temporal:
+whose handles name it, for the client and its workers, in Redis instead of in Temporal. As the
+first listed backend it is the default:
 
 .. code-block:: python
 
     client = await Client.connect(
         "localhost:7233",
-        stream_backends=StreamBackends(
-            [RedisStreamBackend("redis://localhost:6379", namespace="default")],
-            default="redis",
-        ),
+        stream_backends=StreamBackends([RedisStreamBackend("redis://localhost:6379")]),
     )
-
-:py:class:`RedisStreamsPlugin` is a plugin that sets that configuration, keyed by the client's
-namespace.
 
 The calls are made by the temporalio-streams crate, through the bridge; the server never talks to
 Redis. A stream of an owner is keyed by the namespace, its owner's kind and ID, its run (a
@@ -58,8 +53,8 @@ Properties weaker than Temporal-native streams, all because Redis cannot see the
   through the client's connection, at most one per stream every 100 ms and always one after the
   last write; after a workflow's writes the worker sends one per stream in the background. A
   failed Notify fails nothing: it is logged, and the next write sends another. A reader is not
-  woken if a producer stops between a write and its Notify, until its Wait expires. With workflow
-  reads switched off in the client's stream backends configuration, no Notify is sent.
+  woken if a producer stops between a write and its Notify, until its Wait expires. With
+  ``TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS=false``, no Notify is sent.
 
 There is no commit mode: a worker refuses to register a workflow that declares it.
 """
@@ -67,67 +62,16 @@ There is no commit mode: a worker refuses to register a workflow that declares i
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 import temporalio.bridge.temporal_sdk_bridge
 import temporalio.client
 import temporalio.runtime
-import temporalio.service
 from temporalio.bridge.proto.streams import RedisOptions
-from temporalio.streams._backend import StreamBackends
 from temporalio.streams._crate import CrateStreamBackend
+from temporalio.streams._flags import workflow_reads_enabled
 
-__all__ = ["RedisStreamBackend", "RedisStreamsPlugin"]
-
-
-class RedisStreamsPlugin(temporalio.client.Plugin):
-    """A client plugin that makes a :py:class:`RedisStreamBackend`, keyed by the client's
-    namespace, the default stream backend of the client and the workers created from it.
-    """
-
-    def __init__(
-        self, url: str, *, retention: timedelta = timedelta(days=7), name: str = "redis"
-    ) -> None:
-        """Store streams in the Redis at ``url``, keeping each for ``retention`` after its last
-        write.
-        """
-        self._url = url
-        self._retention = retention
-        self._name = name
-
-    def configure_client(
-        self, config: temporalio.client.ClientConfig
-    ) -> temporalio.client.ClientConfig:
-        """Add the backend to the client's stream backends, as their default."""
-        backends = config.get("stream_backends") or StreamBackends()
-        config["stream_backends"] = StreamBackends(
-            [
-                *backends.backends,
-                RedisStreamBackend(
-                    self._url,
-                    namespace=config["namespace"],
-                    retention=self._retention,
-                    name=self._name,
-                    runtime=config["service_client"].config.runtime,
-                ),
-            ],
-            default=self._name,
-        )
-        return config
-
-    async def connect_service_client(
-        self,
-        config: temporalio.service.ConnectConfig,
-        next: Callable[
-            [temporalio.service.ConnectConfig],
-            Awaitable[temporalio.service.ServiceClient],
-        ],
-    ) -> temporalio.service.ServiceClient:
-        """Connect as usual: Redis is connected on the backend's first call, because the namespace
-        that keys its streams is not known here.
-        """
-        return await next(config)
+__all__ = ["RedisStreamBackend"]
 
 
 class RedisStreamBackend(CrateStreamBackend):
@@ -137,38 +81,53 @@ class RedisStreamBackend(CrateStreamBackend):
         self,
         url: str,
         *,
-        namespace: str,
         retention: timedelta = timedelta(days=7),
         name: str = "redis",
         runtime: temporalio.runtime.Runtime | None = None,
     ) -> None:
-        """Store streams in the Redis at ``url``, keyed by ``namespace``, as the backend named
-        ``name``. It connects on first use, and that call fails if the deployment could lose stream
-        data silently.
+        """Store streams in the Redis at ``url``, keyed by the namespace of the client the backend
+        is bound to, as the backend named ``name``. It connects on first use, with ``runtime`` or
+        else its client's runtime, and that call fails if the deployment could lose stream data
+        silently.
         """
         self.name = name
-        self._options = RedisOptions(url=url, namespace=namespace)
+        self._options = RedisOptions(url=url)
         self._options.retention.FromTimedelta(retention)
         self._runtime = runtime
         self._client: temporalio.client.Client | None = None
         self._ref: temporalio.bridge.temporal_sdk_bridge.StreamsRef | None = None
         self._connecting: asyncio.Lock | None = None
 
-    def bind(self, client: temporalio.client.Client, *, workflow_reads: bool) -> None:
-        """Keep the client, through whose connection the backend calls the server for the streams'
-        notifiers, if its workflows read streams.
+    def bind(self, client: temporalio.client.Client) -> None:
+        """Keep the client, whose namespace keys the streams, and through whose connection the
+        backend calls the server for the streams' notifiers when workflow reads are switched on.
+        Raises if a client of another namespace is bound already.
         """
-        if workflow_reads and not self._client:
+        if not self._client:
             self._client = client
+        elif self._client.namespace != client.namespace:
+            raise ValueError(
+                f"Redis stream backend {self.name!r} is bound to namespace "
+                f"{self._client.namespace!r}, so cannot serve namespace {client.namespace!r}"
+            )
 
     async def _streams(self) -> temporalio.bridge.temporal_sdk_bridge.StreamsRef:
         if not self._ref:
             self._connecting = self._connecting or asyncio.Lock()
             async with self._connecting:
                 if not self._ref:
-                    runtime = self._runtime or temporalio.runtime.Runtime.default()
+                    if not self._client:
+                        raise RuntimeError(
+                            f"Redis stream backend {self.name!r} is not bound to a client"
+                        )
+                    self._options.namespace = self._client.namespace
+                    runtime = (
+                        self._runtime
+                        or self._client.service_client.config.runtime
+                        or temporalio.runtime.Runtime.default()
+                    )
                     bridge_client = None
-                    if self._client:
+                    if workflow_reads_enabled():
                         from temporalio.worker._worker import (
                             _extract_bridge_client_for_worker,
                         )

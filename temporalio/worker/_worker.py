@@ -24,6 +24,7 @@ import temporalio.client
 import temporalio.common
 import temporalio.runtime
 import temporalio.service
+import temporalio.streams._flags
 import temporalio.streams.backend
 from temporalio.common import (
     HeaderCodecBehavior,
@@ -488,10 +489,8 @@ class Worker:
             bridge_client.config.runtime or temporalio.runtime.Runtime.default()
         )
         # Workflow code reads streams with a local activity that every worker with workflows
-        # registers, unless the client's stream backends configuration switches workflow reads off.
-        stream_workflow_reads = temporalio.streams.backend.workflow_reads(
-            config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
-        )
+        # registers, unless TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS=false.
+        stream_workflow_reads = temporalio.streams._flags.workflow_reads_enabled()
         activities: list[Callable] = [
             *config.get("activities", []),
             *(
@@ -582,7 +581,7 @@ class Worker:
                 stream_backends=temporalio.streams.backend.client_backends(
                     config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
                 ),
-                default_stream_backend=temporalio.streams.backend.default_backend(
+                default_stream_backend=temporalio.streams.backend.configured_default_backend(
                     config["client"]  # type: ignore[reportTypedDictNotRequiredAccess]
                 ),
                 stream_workflow_reads=stream_workflow_reads,

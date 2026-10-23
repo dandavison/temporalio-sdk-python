@@ -148,12 +148,10 @@ class StreamBackend(ABC):
     def bind(  # type:ignore[reportUnusedParameter]
         self,
         client: temporalio.client.Client,  # type:ignore[reportUnusedParameter]
-        *,
-        workflow_reads: bool,  # type:ignore[reportUnusedParameter]
     ) -> None:
-        """Called with the client whose backends include this one, and whether its workflows read
-        streams. A backend that needs the server, such as for the notifiers of streams in an
-        external store, keeps it.
+        """Called with the client whose backends include this one. A backend that needs the
+        client, such as for its namespace or for the notifiers of streams in an external store,
+        keeps it.
         """
 
     @abstractmethod
@@ -286,31 +284,30 @@ class StreamBackends:
 
     A stream handle records the name of its stream's backend, and every call on it goes to that
     backend. ``default`` names the backend that streams are created on, and that handles got by
-    name refer to, when the caller names none.
+    name refer to, when the caller names none. Unset, it is the first listed backend, or native if
+    none is listed: configuring an external backend means using it, as with external payload
+    storage.
 
-    ``native`` and ``workflow_reads`` switch off native streams and workflow reads of streams. With
-    native off, the client and its workers have no native backend, so the default must be another,
-    and a worker refuses workflows that declare commit mode. With workflow reads off, a workflow's
-    read raises, workers register no read local activity, and backends whose readers wait on
-    notifiers in the server, such as Redis, send no Notify. The server has matching switches,
-    history.enableNativeStreams and history.enableStreamWorkflowReads. Both off is the Brook
-    configuration.
+    The environment variables ``TEMPORAL_STREAMS_ENABLE_NATIVE`` and
+    ``TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS`` switch off native streams and workflow reads of
+    streams. They are prototype switches matching the server's dynamic config,
+    history.enableNativeStreams and history.enableStreamWorkflowReads; both false is the Brook
+    configuration. With native off, the client and its workers have no native backend, and a stream
+    call that would use native raises.
 
     .. warning::
         This API is a prototype and will change.
     """
 
     backends: Sequence[StreamBackend] = ()
-    default: str = NATIVE
-    native: bool = True
-    workflow_reads: bool = True
+    default: str | None = None
 
     def __post_init__(self) -> None:
         """Check that the names are unique and the default is one of them."""
-        names = [*([NATIVE] if self.native else []), *(b.name for b in self.backends)]
+        names = [NATIVE, *(b.name for b in self.backends)]
         if len(set(names)) != len(names):
             raise ValueError(f"stream backend names must be unique: {names}")
-        if self.default not in names:
+        if self.default is not None and self.default not in names:
             raise ValueError(
                 f"default stream backend {self.default!r} is not in {names}"
             )
