@@ -116,12 +116,10 @@ def default_backend(client: temporalio.client.Client) -> str:
 
 
 def configured_default_backend(client: temporalio.client.Client) -> str:
-    """The name of the default backend that the client's config gives: the one it names, or the
-    first it lists, or native. Unlike :py:func:`default_backend`, it does not check that the client
-    has it.
+    """The name of the default backend that the client's config gives: the one it names, or
+    native. Unlike :py:func:`default_backend`, it does not check that the client has it.
     """
-    config = _config(client)
-    return config.default or next((b.name for b in config.backends), NATIVE)
+    return _config(client).default or NATIVE
 
 
 def _config(client: temporalio.client.Client) -> StreamBackends:

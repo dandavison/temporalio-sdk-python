@@ -4,14 +4,16 @@
     This API is a prototype and will change.
 
 A :py:class:`RedisStreamBackend` in a client's stream backends configuration stores the streams
-whose handles name it, for the client and its workers, in Redis instead of in Temporal. As the
-first listed backend it is the default:
+whose handles name it, for the client and its workers, in Redis instead of in Temporal. Here it
+is the default:
 
 .. code-block:: python
 
     client = await Client.connect(
         "localhost:7233",
-        stream_backends=StreamBackends([RedisStreamBackend("redis://localhost:6379")]),
+        stream_backends=StreamBackends(
+            [RedisStreamBackend("redis://localhost:6379")], default="redis"
+        ),
     )
 
 The calls are made by the temporalio-streams crate, through the bridge; the server never talks to

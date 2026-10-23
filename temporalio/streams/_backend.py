@@ -284,9 +284,8 @@ class StreamBackends:
 
     A stream handle records the name of its stream's backend, and every call on it goes to that
     backend. ``default`` names the backend that streams are created on, and that handles got by
-    name refer to, when the caller names none. Unset, it is the first listed backend, or native if
-    none is listed: configuring an external backend means using it, as with external payload
-    storage.
+    name refer to, when the caller names none. It is required if any backend is listed, so that it
+    does not depend on list order, and is native otherwise.
 
     The environment variables ``TEMPORAL_STREAMS_ENABLE_NATIVE`` and
     ``TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS`` switch off native streams and workflow reads of
@@ -303,10 +302,17 @@ class StreamBackends:
     default: str | None = None
 
     def __post_init__(self) -> None:
-        """Check that the names are unique and the default is one of them."""
+        """Check that the names are unique and the default is one of them, and is given if any
+        backend is listed.
+        """
         names = [NATIVE, *(b.name for b in self.backends)]
         if len(set(names)) != len(names):
             raise ValueError(f"stream backend names must be unique: {names}")
+        if self.backends and self.default is None:
+            raise ValueError(
+                "stream_backends lists backends, so it needs default=: the backend that streams"
+                f" are created on when the caller names none, one of {names}"
+            )
         if self.default is not None and self.default not in names:
             raise ValueError(
                 f"default stream backend {self.default!r} is not in {names}"
