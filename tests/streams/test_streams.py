@@ -1986,6 +1986,24 @@ class NoStreamWorkflow:
         pass
 
 
+async def test_native_switched_off_fails_a_workflow_stream_on_native(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+):
+    """With native streams switched off by TEMPORAL_STREAMS_ENABLE_NATIVE and no other backend, a
+    workflow that creates a stream on the default backend fails its workflow task, saying so.
+    """
+    monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_NATIVE", "false")
+    bare = Client(client.service_client, namespace=client.namespace)
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(bare, task_queue=task_queue, workflows=[PublishOnceWorkflow]):
+        handle = await bare.start_workflow(
+            PublishOnceWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
+        failure = await wait_for_workflow_task_failure(handle)
+        assert "TEMPORAL_STREAMS_ENABLE_NATIVE=false" in failure.failure.message
+        await handle.terminate()
+
+
 def test_native_switch_must_be_true_or_false(
     client: Client, monkeypatch: pytest.MonkeyPatch
 ):
