@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Coroutine, Generator, Mapping, 
 from dataclasses import dataclass
 from datetime import timedelta
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, overload
 
 import temporalio.activity
 import temporalio.api.failure.v1
@@ -18,17 +18,21 @@ from temporalio.streams._iterator import (
     StreamCursor,
     StreamRecord,
     StreamRecordAsyncIterator,
+    TypeHint,
     fetch_last_records,
 )
 from temporalio.streams._publisher import Appender, BufferedStreamWriter, claim_producer
 from temporalio.streams._record import ActivityProducer, AppendRecord, ClientProducer
 from temporalio.streams._ref import StreamRef
+from temporalio.streams._typed import Stream, Topic, topic_args
 
 if TYPE_CHECKING:
     import temporalio.client
 
 T = TypeVar("T")
 H = TypeVar("H", bound="StreamHandleBase")
+R = TypeVar("R")
+D = TypeVar("D", bound=Stream)
 
 
 @dataclass(frozen=True)
@@ -110,7 +114,7 @@ def handle_ref(
     )
 
 
-class Creating(Generic[H]):
+class Creating(Generic[R]):
     """A stream being created: await it for the stream's handle, or use it as an async context
     manager, which closes the stream on exit, as failed if the block raises and as completed
     otherwise. The close is best effort: nothing closes the stream if the process stops first.
@@ -118,19 +122,19 @@ class Creating(Generic[H]):
 
     def __init__(
         self,
-        create: Callable[[], Awaitable[H]],
-        close: Callable[[H, BaseException | None], Awaitable[None]],
+        create: Callable[[], Awaitable[R]],
+        close: Callable[[R, BaseException | None], Awaitable[None]],
     ) -> None:
         """Wrap a create. Use a ``create_stream`` function instead."""
         self._create = create
         self._close = close
-        self._handle: H | None = None
+        self._handle: R | None = None
 
-    def __await__(self) -> Generator[Any, None, H]:
+    def __await__(self) -> Generator[Any, None, R]:
         """Create the stream and return its handle."""
         return self._create().__await__()
 
-    async def __aenter__(self) -> H:
+    async def __aenter__(self) -> R:
         """Create the stream and return its handle."""
         self._handle = await self._create()
         return self._handle
@@ -145,12 +149,33 @@ class Creating(Generic[H]):
         assert self._handle
         await self._close(self._handle, exc_value)
 
+    def bound(self: Creating[H], definition: type[D]) -> Creating[D]:
+        """The same create, giving the stream's handle bound to a stream definition."""
+
+        async def create() -> D:
+            return definition(await self._create())
+
+        async def close(stream: D, failure: BaseException | None) -> None:
+            await stream.close(failure=failure)
+
+        return Creating(create, close)
+
 
 class StreamReader(Protocol):
     """Reads a stream. Shared by every handle that reads."""
 
-    def topic(self, name: str, *, type: type[T]) -> TopicReader[T]:
-        """A reader of one topic, whose values decode as ``type``."""
+    @overload
+    def topic(self, name: Topic[T]) -> TopicReader[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> TopicReader[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> TopicReader[T]:
+        """A reader of one topic, whose values decode as ``type``, or of a definition's topic,
+        whose values decode as its type.
+        """
         ...
 
     def fetch_records(
@@ -160,7 +185,7 @@ class StreamReader(Protocol):
         topics: Sequence[str] | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
-        type_hint: type | None = None,
+        type_hint: TypeHint = None,
     ) -> StreamRecordAsyncIterator[Any]:
         """Iterate over the stream's records after ``after``, or from the beginning.
 
@@ -170,7 +195,8 @@ class StreamReader(Protocol):
             page_size: The most records each read returns, markers included.
             wait_new_records: Wait for new records at the stream's end, and end only at its close.
                 Otherwise the iteration ends at the stream's current end.
-            type_hint: The type to decode values as. Without it, values decode as the payload
+            type_hint: The type to decode values as, or a mapping from topic name to type. Without
+                it, and for a topic the mapping leaves out, values decode as the payload
                 converter's default.
         """
         ...
@@ -180,7 +206,7 @@ class StreamReader(Protocol):
         n: int,
         *,
         topics: Sequence[str] | None = None,
-        type_hint: type | None = None,
+        type_hint: TypeHint = None,
     ) -> Sequence[StreamRecord[Any]]:
         """The last ``n`` records of the topics, or of all, oldest first, leaving out withdrawn
         records. A record's status is judged from the records read, so a workflow record whose task
@@ -258,9 +284,17 @@ class StreamHandle(StreamHandleBase):
             client = temporalio.activity.client()
         return client
 
-    def topic(self, name: str, *, type: type[T]) -> TopicReader[T]:
+    @overload
+    def topic(self, name: Topic[T]) -> TopicReader[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> TopicReader[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> TopicReader[T]:
         """See :py:meth:`StreamReader.topic`."""
-        return TopicReader(self, name, type)
+        return TopicReader(self, *topic_args(name, type))
 
     def fetch_records(
         self,
@@ -269,7 +303,7 @@ class StreamHandle(StreamHandleBase):
         topics: Sequence[str] | None = None,
         page_size: int | None = None,
         wait_new_records: bool = False,
-        type_hint: type | None = None,
+        type_hint: TypeHint = None,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> StreamRecordAsyncIterator[Any]:
@@ -294,7 +328,7 @@ class StreamHandle(StreamHandleBase):
         n: int,
         *,
         topics: Sequence[str] | None = None,
-        type_hint: type | None = None,
+        type_hint: TypeHint = None,
         rpc_metadata: Mapping[str, str | bytes] = {},
         rpc_timeout: timedelta | None = None,
     ) -> Sequence[StreamRecord[Any]]:
@@ -402,9 +436,19 @@ class StreamProducer:
         """Convert the values and append them to the topic."""
         await self._append(_records(self.payload_converter, values, topic))
 
-    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]:
-        """A handle that publishes values of ``type`` to one topic."""
-        return PublishingTopicHandle(self, name, type)
+    @overload
+    def topic(self, name: Topic[T]) -> PublishingTopicHandle[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> PublishingTopicHandle[T]:
+        """A handle that publishes values of ``type`` to one topic, or of a definition's topic's
+        type to it.
+        """
+        return PublishingTopicHandle(self, *topic_args(name, type))
 
     def buffered(self) -> BufferedStreamWriter:
         """A writer that buffers what it publishes, and appends it through this producer when
@@ -449,9 +493,19 @@ class ActivityStreamHandle(StreamHandleBase):
         """Convert the values and append them to the topic."""
         await self._append(_records(self.payload_converter, values, topic))
 
-    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]:
-        """A handle that publishes values of ``type`` to one topic."""
-        return PublishingTopicHandle(self, name, type)
+    @overload
+    def topic(self, name: Topic[T]) -> PublishingTopicHandle[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> PublishingTopicHandle[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> PublishingTopicHandle[T]:
+        """A handle that publishes values of ``type`` to one topic, or of a definition's topic's
+        type to it.
+        """
+        return PublishingTopicHandle(self, *topic_args(name, type))
 
     def buffered(self) -> BufferedStreamWriter:
         """A writer that buffers what it publishes, and appends it through this handle when
@@ -507,6 +561,20 @@ class SyncActivityStreamHandle(StreamHandleBase):
         records = _records(temporalio.activity.payload_converter(), values, topic)
         _run_on_worker_loop(_activity_appender(self).append(records))
 
+    @overload
+    def topic(self, name: Topic[T]) -> SyncPublishingTopicHandle[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> SyncPublishingTopicHandle[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> SyncPublishingTopicHandle[T]:
+        """A handle that publishes values of ``type`` to one topic, or of a definition's topic's
+        type to it.
+        """
+        return SyncPublishingTopicHandle(self, *topic_args(name, type))
+
     def close(self, *, failure: BaseException | None = None, reason: str = "") -> None:
         """See :py:meth:`ActivityStreamHandle.close`."""
         _run_on_worker_loop(
@@ -518,6 +586,22 @@ class SyncActivityStreamHandle(StreamHandleBase):
                 reason,
             )
         )
+
+
+class SyncPublishingTopicHandle(Generic[T]):
+    """Publishes values of type ``T`` to one topic from a synchronous activity."""
+
+    def __init__(
+        self, stream: SyncActivityStreamHandle, name: str, type: type[T]
+    ) -> None:
+        """Create a topic handle. Use :py:meth:`SyncActivityStreamHandle.topic` instead."""
+        self._stream = stream
+        self.name = name
+        self.type = type
+
+    def publish(self, *values: T) -> None:
+        """See :py:meth:`SyncActivityStreamHandle.publish`."""
+        self._stream.publish(*values, topic=self.name)
 
 
 async def _close_from_activity(

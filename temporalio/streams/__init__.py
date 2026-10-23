@@ -31,8 +31,19 @@ producer or an activity handle gives a :py:class:`BufferedStreamWriter`, which b
 until flushed. A created
 stream's ``create_stream`` result is also an async context manager, which closes the stream on exit.
 
-Handles carry no type. A value's type is given per topic, with ``topic(name, type=T)``, or per
-read, with ``type_hint=``; otherwise values decode as the payload converter's default.
+A :py:class:`Stream` subclass defines a stream: its name, and its topics with their types. Pass
+the class wherever a stream name is accepted to get it bound to that context's handle, whose
+topic attributes publish and read typed values::
+
+    class AgentEvents(streams.Stream):
+        turns = streams.Topic[Turn]()
+
+    events = await workflow.create_stream(AgentEvents)
+    await events.turns.publish(Turn(kind="started"))
+
+A handle itself carries no type: a value's type is given per topic, with ``topic(name, type=T)``
+or ``topic(AgentEvents.turns)``, or per read, with ``type_hint=``; otherwise values decode as the
+payload converter's default.
 
 A client has the native backend, which stores streams in Temporal, and the backends its
 :py:class:`StreamBackends` configuration lists, such as
@@ -82,6 +93,7 @@ from temporalio.streams._handles import (
     StreamProducer,
     StreamReader,
     SyncActivityStreamHandle,
+    SyncPublishingTopicHandle,
     TopicReader,
 )
 from temporalio.streams._iterator import (
@@ -95,6 +107,7 @@ from temporalio.streams._publisher import BufferedStreamWriter
 from temporalio.streams._record import (
     ProducerIdentity,
 )
+from temporalio.streams._typed import Stream, Topic, TopicHandle
 from temporalio.streams._workflow import (
     WorkflowStreamHandle,
     WorkflowTopicHandle,
@@ -113,6 +126,7 @@ __all__ = [
     "SeqGapError",
     "SeqStaleError",
     "SpeculativeWorkflowTaskError",
+    "Stream",
     "StreamClose",
     "StreamClosedError",
     "StreamCursor",
@@ -134,6 +148,9 @@ __all__ = [
     "StreamTooLargeError",
     "StreamUnavailableError",
     "SyncActivityStreamHandle",
+    "SyncPublishingTopicHandle",
+    "Topic",
+    "TopicHandle",
     "TopicReader",
     "Withdrawal",
     "WorkflowAppendModeMismatchError",

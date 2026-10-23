@@ -8,7 +8,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import IntEnum
-from typing import Any, Generic, NewType, TypeVar
+from typing import Any, Generic, NewType, TypeVar, cast
 
 import temporalio.api.common.v1
 import temporalio.converter
@@ -22,6 +22,10 @@ from temporalio.streams._record import ProducerIdentity, Record
 from temporalio.streams._ref import StreamRef
 
 T = TypeVar("T")
+
+TypeHint = type | Mapping[str, type] | None
+"""The type to decode a read's values as, or a type per topic; None for the payload converter's
+default."""
 
 StreamCursor = NewType("StreamCursor", bytes)
 """The boundary after a record. Opaque, valid only for its stream, and safe to pass as workflow
@@ -152,7 +156,7 @@ class ClientRecordIterator(StreamRecordAsyncIterator[T]):
         topics: Sequence[str] | None,
         page_size: int | None,
         wait_new_records: bool,
-        type_hint: type | None,
+        type_hint: TypeHint,
         rpc_metadata: Mapping[str, str | bytes],
         rpc_timeout: timedelta | None,
     ) -> None:
@@ -199,7 +203,7 @@ async def fetch_last_records(
     n: int,
     *,
     topics: Sequence[str] | None,
-    type_hint: type | None,
+    type_hint: TypeHint,
     rpc_metadata: Mapping[str, str | bytes],
     rpc_timeout: timedelta | None,
 ) -> Sequence[StreamRecord[Any]]:
@@ -228,13 +232,11 @@ async def fetch_last_records(
 async def _decode(
     data_converter: temporalio.converter.DataConverter,
     judged: list[tuple[Record, RecordStatus] | Withdrawal],
-    type_hint: type | None,
+    type_hint: TypeHint,
 ) -> list[StreamRecord[Any] | Withdrawal]:
     payloads = _payloads(judged)
     values = (
-        await data_converter.decode(
-            payloads, [type_hint] * len(payloads) if type_hint else None
-        )
+        await data_converter.decode(payloads, _type_hints(judged, type_hint))
         if payloads
         else []
     )
@@ -244,16 +246,14 @@ async def _decode(
 def decode_decoded(
     payload_converter: temporalio.converter.PayloadConverter,
     judged: list[tuple[Record, RecordStatus] | Withdrawal],
-    type_hint: type | None,
+    type_hint: TypeHint,
 ) -> list[StreamRecord[Any] | Withdrawal]:
     """The records with their values, from payloads that the codec has already decoded, as in
     workflow code.
     """
     payloads = _payloads(judged)
     values = (
-        payload_converter.from_payloads(
-            payloads, [type_hint] * len(payloads) if type_hint else None
-        )
+        payload_converter.from_payloads(payloads, _type_hints(judged, type_hint))
         if payloads
         else []
     )
@@ -264,6 +264,18 @@ def _payloads(
     judged: list[tuple[Record, RecordStatus] | Withdrawal],
 ) -> list[temporalio.api.common.v1.Payload]:
     return [j[0].payload for j in judged if isinstance(j, tuple) and j[0].payload]
+
+
+def _type_hints(
+    judged: list[tuple[Record, RecordStatus] | Withdrawal], type_hint: TypeHint
+) -> list[type] | None:
+    if type_hint is None:
+        return None
+    topics = [j[0].topic for j in judged if isinstance(j, tuple) and j[0].payload]
+    if isinstance(type_hint, Mapping):
+        # A None hint decodes as the payload converter's default.
+        return cast(list[type], [type_hint.get(t) for t in topics])
+    return [type_hint] * len(topics)
 
 
 def _with_values(

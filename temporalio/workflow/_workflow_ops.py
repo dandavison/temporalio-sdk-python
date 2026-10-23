@@ -10,6 +10,7 @@ from typing import (
     Generic,
     NoReturn,
     TypedDict,
+    TypeVar,
     overload,
 )
 
@@ -18,6 +19,8 @@ import temporalio.common
 
 if TYPE_CHECKING:
     import temporalio.streams
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 from ..types import (
     MethodAsyncNoParam,
@@ -627,16 +630,27 @@ class ExternalWorkflowHandle(Generic[SelfType]):
         """
         raise NotImplementedError
 
-    def stream(self, name: str) -> temporalio.streams.WorkflowStreamHandle:
-        """A handle to the stream named ``name`` that this workflow's run chain owns: the chain
-        whose first run is :py:attr:`run_id` if set, and otherwise the workflow ID's latest chain.
-        So a handle to a later run of a chain names no stream.
+    @overload
+    def stream(self, name: str) -> temporalio.streams.WorkflowStreamHandle: ...
+
+    @overload
+    def stream(self, name: type[_StreamT]) -> _StreamT: ...
+
+    def stream(self, name: str | type[temporalio.streams.Stream]) -> Any:
+        """A handle to the stream named ``name``, or a stream definition's, that this workflow's
+        run chain owns: the chain whose first run is :py:attr:`run_id` if set, and otherwise the
+        workflow ID's latest chain. So a handle to a later run of a chain names no stream. Given a
+        definition, the result is the definition bound to the handle.
 
         .. warning::
             Streams are a prototype and will change.
         """
+        if isinstance(name, str):
+            return get_stream_handle(
+                workflow_id=self.id, first_execution_run_id=self.run_id, name=name
+            )
         return get_stream_handle(
-            workflow_id=self.id, first_execution_run_id=self.run_id, name=name
+            name, workflow_id=self.id, first_execution_run_id=self.run_id
         )
 
 

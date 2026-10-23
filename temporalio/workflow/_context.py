@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from random import Random
-from typing import TYPE_CHECKING, Any, NoReturn, overload
+from typing import TYPE_CHECKING, Any, NoReturn, TypeVar, overload
 
 import nexusrpc
 from nexusrpc import InputT, OutputT
@@ -33,6 +33,8 @@ if TYPE_CHECKING:
         ExternalWorkflowHandle,
         ParentClosePolicy,
     )
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 __all__ = [
     "Info",
@@ -725,11 +727,24 @@ def upsert_memo(updates: Mapping[str, Any]) -> None:
     return _Runtime.current().workflow_upsert_memo(updates)
 
 
+@overload
 def create_stream(
     name: str, *, backend: str | None = None
-) -> temporalio.streams.Creating[temporalio.streams.WorkflowStreamHandle]:
-    """Create a stream named ``name`` that this workflow's run chain owns. Await the result for the
-    stream's handle, or use it with ``async with``, which closes the stream on exit.
+) -> temporalio.streams.Creating[temporalio.streams.WorkflowStreamHandle]: ...
+
+
+@overload
+def create_stream(
+    name: type[_StreamT], *, backend: str | None = None
+) -> temporalio.streams.Creating[_StreamT]: ...
+
+
+def create_stream(
+    name: str | type[temporalio.streams.Stream], *, backend: str | None = None
+) -> Any:
+    """Create a stream named ``name``, or a stream definition's, that this workflow's run chain
+    owns. Await the result for the stream's handle, bound to the definition if given, or use it
+    with ``async with``, which closes the stream on exit.
 
     ``backend`` names one of the worker's stream backends; by default, the worker's default. The
     worker creates the stream once nothing else in the workflow can run, in the same activation;
@@ -741,18 +756,36 @@ def create_stream(
         Streams are a prototype and will change.
     """
     from temporalio.streams import Creating, WorkflowStreamHandle
+    from temporalio.streams._typed import stream_name
 
     async def create() -> WorkflowStreamHandle:
-        return await _Runtime.current().workflow_stream_create(name, backend)
+        return await _Runtime.current().workflow_stream_create(
+            stream_name(name), backend
+        )
 
     async def close(
         stream: WorkflowStreamHandle, failure: BaseException | None
     ) -> None:
         await stream.close(failure=failure)
 
-    return Creating(create, close)
+    creating = Creating(create, close)
+    return creating if isinstance(name, str) else creating.bound(name)
 
 
+@overload
+def get_stream_handle(
+    stream: type[_StreamT],
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    backend: str | None = None,
+) -> _StreamT: ...
+
+
+@overload
 def get_stream_handle(
     stream: temporalio.streams.StreamHandleBase | None = None,
     *,
@@ -763,17 +796,36 @@ def get_stream_handle(
     stream_id: str | None = None,
     name: str | None = None,
     backend: str | None = None,
-) -> temporalio.streams.WorkflowStreamHandle:
+) -> temporalio.streams.WorkflowStreamHandle: ...
+
+
+def get_stream_handle(
+    stream: temporalio.streams.StreamHandleBase
+    | type[temporalio.streams.Stream]
+    | None = None,
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    name: str | None = None,
+    backend: str | None = None,
+) -> Any:
     """A handle to a stream, for workflow code: the stream of a handle passed to the workflow, or
     the one the arguments name: a named stream of a workflow run chain or a Standalone Activity, or
-    a standalone stream. Without a run ID, reads read the owner ID's latest chain or execution.
-    Without ``backend``, the worker's default backend.
+    a standalone stream. Given a stream definition instead of a handle, the stream is the
+    definition's, and the result is the definition bound to the handle. Without a run ID, reads
+    read the owner ID's latest chain or execution. Without ``backend``, the worker's default
+    backend.
 
     .. warning::
         Streams are a prototype and will change.
     """
     from temporalio.streams._handles import handle_ref
+    from temporalio.streams._typed import definition_args
 
+    definition, stream, name = definition_args(stream, name, stream_id)
     backend, ref = handle_ref(
         stream,
         workflow_id=workflow_id,
@@ -784,7 +836,8 @@ def get_stream_handle(
         name=name,
         backend=backend,
     )
-    return _Runtime.current().workflow_stream_handle(backend, ref)
+    handle = _Runtime.current().workflow_stream_handle(backend, ref)
+    return definition(handle) if definition else handle
 
 
 def get_current_details() -> str:

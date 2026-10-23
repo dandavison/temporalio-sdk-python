@@ -73,12 +73,12 @@ def test_a_definition_attribute_must_be_a_topic_with_a_type():
     with pytest.raises(TypeError, match="turns"):
 
         class AnnotationOnly(streams.Stream):  # type: ignore[reportUnusedClass]
-            turns: streams.Topic[Turn]
+            turns: streams.Topic[Turn]  # type: ignore[reportUninitializedInstanceVariable]
 
     with pytest.raises(TypeError, match="turns"):
 
         class Untyped(streams.Stream):  # type: ignore[reportUnusedClass]
-            turns = streams.Topic()  # type: ignore
+            turns = streams.Topic()  # type: ignore[var-annotated]
 
     with pytest.raises(TypeError, match="close"):
 

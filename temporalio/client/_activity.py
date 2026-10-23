@@ -17,6 +17,7 @@ from typing import (
     Any,
     Generic,
     TypeVar,
+    overload,
 )
 
 from typing_extensions import Self
@@ -61,6 +62,8 @@ if TYPE_CHECKING:
 
     from ._client import Client
     from ._interceptor import ListActivitiesInput
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 
 class ActivityExecutionAsyncIterator:
@@ -1005,20 +1008,35 @@ class ActivityHandle(Generic[ReturnType]):
         """Run ID of the activity."""
         return self._run_id
 
+    @overload
     def stream(
         self, name: str, *, backend: str | None = None
-    ) -> temporalio.streams.StreamHandle:
-        """A handle to the stream named ``name`` that this Standalone Activity owns. Without
-        ``backend``, the client's default stream backend.
+    ) -> temporalio.streams.StreamHandle: ...
+
+    @overload
+    def stream(
+        self, name: type[_StreamT], *, backend: str | None = None
+    ) -> _StreamT: ...
+
+    def stream(
+        self, name: str | type[temporalio.streams.Stream], *, backend: str | None = None
+    ) -> Any:
+        """A handle to the stream named ``name``, or a stream definition's, that this Standalone
+        Activity owns. Given a definition, the result is the definition bound to the handle.
+        Without ``backend``, the client's default stream backend.
 
         .. warning::
             Streams are a prototype and will change.
         """
+        if isinstance(name, str):
+            return self._client.get_stream_handle(
+                activity_id=self._id,
+                activity_run_id=self._run_id,
+                name=name,
+                backend=backend,
+            )
         return self._client.get_stream_handle(
-            activity_id=self._id,
-            activity_run_id=self._run_id,
-            name=name,
-            backend=backend,
+            name, activity_id=self._id, activity_run_id=self._run_id, backend=backend
         )
 
     async def result(

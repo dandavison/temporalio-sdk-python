@@ -7,7 +7,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, overload
 
 import temporalio.exceptions
 import temporalio.workflow
@@ -40,9 +40,11 @@ from temporalio.streams._iterator import (
     StreamCursor,
     StreamRecord,
     StreamRecordAsyncIterator,
+    TypeHint,
     decode_decoded,
 )
 from temporalio.streams._record import AppendRecord
+from temporalio.streams._typed import Topic, topic_args
 from temporalio.streams._workflow_reads import READ_ACTIVITY, read_request
 
 T = TypeVar("T")
@@ -115,9 +117,19 @@ class WorkflowStreamHandle(StreamHandleBase):
             self, topic, values
         )
 
-    def topic(self, name: str, *, type: type[T]) -> WorkflowTopicHandle[T]:
-        """A handle that publishes values of ``type`` to one topic."""
-        return WorkflowTopicHandle(self, name, type)
+    @overload
+    def topic(self, name: Topic[T]) -> WorkflowTopicHandle[T]: ...
+
+    @overload
+    def topic(self, name: str, *, type: type[T]) -> WorkflowTopicHandle[T]: ...
+
+    def topic(
+        self, name: str | Topic[T], *, type: type[T] | None = None
+    ) -> WorkflowTopicHandle[T]:
+        """A handle that publishes values of ``type`` to one topic, and reads them, or of a
+        definition's topic's type.
+        """
+        return WorkflowTopicHandle(self, *topic_args(name, type))
 
     async def close(
         self, *, failure: BaseException | None = None, reason: str = ""
@@ -148,7 +160,7 @@ class WorkflowStreamHandle(StreamHandleBase):
         close_wait: timedelta = timedelta(minutes=1),
         hold_timeout: timedelta = timedelta(minutes=5),
         redis_wait_lifetime: timedelta = _MAX_WAIT,
-        type_hint: type | None = None,
+        type_hint: TypeHint = None,
     ) -> StreamRecordAsyncIterator[Any]:
         """Iterate over the stream's records after ``after``, or from the beginning.
 
@@ -178,7 +190,8 @@ class WorkflowStreamHandle(StreamHandleBase):
                 the producer stops between its write and the Notify, or the Notify fails; the
                 reader then reads again when the Wait expires. A shorter lifetime bounds that delay
                 at the cost of a Wait, and a workflow task, per lifetime while the stream is idle.
-            type_hint: The type to decode values as. Without it, values decode as the payload
+            type_hint: The type to decode values as, or a mapping from topic name to type. Without
+                it, and for a topic the mapping leaves out, values decode as the payload
                 converter's default.
         """
         return WorkflowRecordIterator(
@@ -244,7 +257,7 @@ class WorkflowRecordIterator(StreamRecordAsyncIterator[T]):
         close_wait: timedelta,
         hold_timeout: timedelta,
         redis_wait_lifetime: timedelta,
-        type_hint: type | None,
+        type_hint: TypeHint,
     ) -> None:
         """Create an iterator. Use ``fetch_records`` on a stream handle instead."""
         runtime = temporalio.workflow._Runtime.current()

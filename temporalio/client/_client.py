@@ -14,6 +14,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Concatenate,
+    TypeVar,
     cast,
     overload,
 )
@@ -115,6 +116,8 @@ if TYPE_CHECKING:
 
     from ._interceptor import Interceptor
     from ._plugin import Plugin
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 
 class Client:
@@ -2566,6 +2569,20 @@ class Client:
             result_type=result_type,
         )
 
+    @overload
+    def get_stream_handle(
+        self,
+        stream: type[_StreamT],
+        *,
+        workflow_id: str | None = None,
+        first_execution_run_id: str | None = None,
+        activity_id: str | None = None,
+        activity_run_id: str | None = None,
+        stream_id: str | None = None,
+        backend: str | None = None,
+    ) -> _StreamT: ...
+
+    @overload
     def get_stream_handle(
         self,
         stream: temporalio.streams.StreamHandleBase | None = None,
@@ -2577,10 +2594,26 @@ class Client:
         stream_id: str | None = None,
         name: str | None = None,
         backend: str | None = None,
-    ) -> temporalio.streams.StreamHandle:
+    ) -> temporalio.streams.StreamHandle: ...
+
+    def get_stream_handle(
+        self,
+        stream: temporalio.streams.StreamHandleBase
+        | type[temporalio.streams.Stream]
+        | None = None,
+        *,
+        workflow_id: str | None = None,
+        first_execution_run_id: str | None = None,
+        activity_id: str | None = None,
+        activity_run_id: str | None = None,
+        stream_id: str | None = None,
+        name: str | None = None,
+        backend: str | None = None,
+    ) -> Any:
         """Get a handle, bound to this client, to the stream of a handle passed as a value, or to
         the one the arguments name: a named stream of a workflow run chain or a Standalone
-        Activity, or a standalone stream.
+        Activity, or a standalone stream. Given a stream definition instead of a handle, the
+        stream is the definition's, and the result is the definition bound to the handle.
 
         Without a run ID, reads read the owner ID's latest chain or execution; a Redis-backed
         stream of an owner needs the run ID for writes. Without ``backend``, the client's default
@@ -2591,8 +2624,10 @@ class Client:
         """
         from temporalio.streams import StreamHandle
         from temporalio.streams._handles import handle_ref
+        from temporalio.streams._typed import definition_args
         from temporalio.streams.backend import default_backend
 
+        definition, stream, name = definition_args(stream, name, stream_id)
         backend, ref = handle_ref(
             stream,
             workflow_id=workflow_id,
@@ -2603,18 +2638,45 @@ class Client:
             name=name,
             backend=backend,
         )
-        return StreamHandle.of(backend or default_backend(self), ref)._bound(self)
+        handle = StreamHandle.of(backend or default_backend(self), ref)._bound(self)
+        return definition(handle) if definition else handle
 
+    @overload
     def create_stream(
         self,
         stream_id: str,
+        /,
         *,
         idle_timeout: timedelta | None = None,
         request_id: str | None = None,
         backend: str | None = None,
-    ) -> temporalio.streams.Creating[temporalio.streams.StreamHandle]:
-        """Create a standalone stream, which has no owner. Await the result for the stream's
-        handle, or use it with ``async with``, which closes the stream on exit.
+    ) -> temporalio.streams.Creating[temporalio.streams.StreamHandle]: ...
+
+    @overload
+    def create_stream(
+        self,
+        definition: type[_StreamT],
+        /,
+        *,
+        stream_id: str,
+        idle_timeout: timedelta | None = None,
+        request_id: str | None = None,
+        backend: str | None = None,
+    ) -> temporalio.streams.Creating[_StreamT]: ...
+
+    def create_stream(
+        self,
+        stream: str | type[temporalio.streams.Stream],
+        /,
+        *,
+        stream_id: str | None = None,
+        idle_timeout: timedelta | None = None,
+        request_id: str | None = None,
+        backend: str | None = None,
+    ) -> Any:
+        """Create a standalone stream, which has no owner, with ID ``stream_id``, given first or,
+        after a stream definition, by keyword. Await the result for the stream's handle, bound to
+        the definition if given, or use it with ``async with``, which closes the stream on exit.
 
         A create of a stream that exists succeeds, unless it is closed or has another idle timeout.
         The stream closes, as timed out, once ``idle_timeout`` (7 days if unset) passes with no
@@ -2627,7 +2689,10 @@ class Client:
         from temporalio.streams import Creating, StreamHandle
         from temporalio.streams.backend import client_backend
 
-        handle = self.get_stream_handle(stream_id=stream_id, backend=backend)
+        definition = None if isinstance(stream, str) else stream
+        handle = self.get_stream_handle(
+            stream_id=stream if isinstance(stream, str) else stream_id, backend=backend
+        )
 
         async def create() -> StreamHandle:
             await client_backend(self, handle.backend).create(
@@ -2640,7 +2705,8 @@ class Client:
         async def close(handle: StreamHandle, failure: BaseException | None) -> None:
             await handle.close(failure=failure)
 
-        return Creating(create, close)
+        creating = Creating(create, close)
+        return creating.bound(definition) if definition else creating
 
     @overload
     def get_async_activity_handle(

@@ -21,6 +21,7 @@ from typing import (
     Any,
     Concatenate,
     Generic,
+    TypeVar,
     cast,
     overload,
 )
@@ -82,6 +83,8 @@ if TYPE_CHECKING:
 
     from ._client import Client
     from ._interceptor import ListWorkflowsInput
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 
 class WorkflowHistoryEventFilterType(IntEnum):
@@ -185,20 +188,38 @@ class WorkflowHandle(Generic[SelfType, ReturnType]):
         """
         return self._first_execution_run_id
 
+    @overload
     def stream(
         self, name: str, *, backend: str | None = None
-    ) -> temporalio.streams.StreamHandle:
-        """A handle to the stream named ``name`` that this workflow's run chain owns: the chain of
-        :py:attr:`first_execution_run_id` if set, and otherwise the workflow ID's latest chain.
-        Without ``backend``, the client's default stream backend.
+    ) -> temporalio.streams.StreamHandle: ...
+
+    @overload
+    def stream(
+        self, name: type[_StreamT], *, backend: str | None = None
+    ) -> _StreamT: ...
+
+    def stream(
+        self, name: str | type[temporalio.streams.Stream], *, backend: str | None = None
+    ) -> Any:
+        """A handle to the stream named ``name``, or a stream definition's, that this workflow's
+        run chain owns: the chain of :py:attr:`first_execution_run_id` if set, and otherwise the
+        workflow ID's latest chain. Given a definition, the result is the definition bound to the
+        handle. Without ``backend``, the client's default stream backend.
 
         .. warning::
             Streams are a prototype and will change.
         """
+        if isinstance(name, str):
+            return self._client.get_stream_handle(
+                workflow_id=self._id,
+                first_execution_run_id=self._first_execution_run_id,
+                name=name,
+                backend=backend,
+            )
         return self._client.get_stream_handle(
+            name,
             workflow_id=self._id,
             first_execution_run_id=self._first_execution_run_id,
-            name=name,
             backend=backend,
         )
 

@@ -22,6 +22,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     NoReturn,
+    TypeVar,
     overload,
 )
 
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     import temporalio.streams
     import temporalio.streams.backend
     from temporalio.client import Client
+
+_StreamT = TypeVar("_StreamT", bound="temporalio.streams.Stream")
 
 
 @overload
@@ -319,11 +322,24 @@ def client() -> Client:
     return client
 
 
+@overload
 def create_stream(
     name: str, *, backend: str | None = None
-) -> temporalio.streams.Creating[temporalio.streams.ActivityStreamHandle]:
-    """Create a stream named ``name`` that this Standalone Activity owns. Await the result for the
-    stream's handle, or use it with ``async with``, which closes the stream on exit.
+) -> temporalio.streams.Creating[temporalio.streams.ActivityStreamHandle]: ...
+
+
+@overload
+def create_stream(
+    name: type[_StreamT], *, backend: str | None = None
+) -> temporalio.streams.Creating[_StreamT]: ...
+
+
+def create_stream(
+    name: str | type[temporalio.streams.Stream], *, backend: str | None = None
+) -> Any:
+    """Create a stream named ``name``, or a stream definition's, that this Standalone Activity
+    owns. Await the result for the stream's handle, bound to the definition if given, or use it
+    with ``async with``, which closes the stream on exit.
 
     ``backend`` names one of the client's stream backends; by default, the client's default. Only
     a Standalone Activity owns streams; a workflow activity writes to streams it is given.
@@ -332,6 +348,7 @@ def create_stream(
         Streams are a prototype and will change.
     """
     from temporalio.streams import ActivityStreamHandle, Creating
+    from temporalio.streams._typed import stream_name
     from temporalio.streams.backend import StreamRef, client_backend, default_backend
 
     context = _Context.current()
@@ -347,7 +364,7 @@ def create_stream(
         StreamRef(
             activity_id=info.activity_id,
             activity_run_id=info.activity_run_id or "",
-            name=name,
+            name=stream_name(name),
         ),
     )
 
@@ -362,9 +379,24 @@ def create_stream(
     ) -> None:
         await handle.close(failure=failure)
 
-    return Creating(create, close)
+    creating = Creating(create, close)
+    return creating if isinstance(name, str) else creating.bound(name)
 
 
+@overload
+def get_stream_handle(
+    stream: type[_StreamT],
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    backend: str | None = None,
+) -> _StreamT: ...
+
+
+@overload
 def get_stream_handle(
     stream: temporalio.streams.StreamHandleBase | None = None,
     *,
@@ -375,16 +407,35 @@ def get_stream_handle(
     stream_id: str | None = None,
     name: str | None = None,
     backend: str | None = None,
-) -> temporalio.streams.ActivityStreamHandle:
+) -> temporalio.streams.ActivityStreamHandle: ...
+
+
+def get_stream_handle(
+    stream: temporalio.streams.StreamHandleBase
+    | type[temporalio.streams.Stream]
+    | None = None,
+    *,
+    workflow_id: str | None = None,
+    first_execution_run_id: str | None = None,
+    activity_id: str | None = None,
+    activity_run_id: str | None = None,
+    stream_id: str | None = None,
+    name: str | None = None,
+    backend: str | None = None,
+) -> Any:
     """A handle to a stream, for this activity: the stream of a handle passed to the activity, or
-    the one the arguments name. Without ``backend``, the client's default backend.
+    the one the arguments name. Given a stream definition instead of a handle, the stream is the
+    definition's, and the result is the definition bound to the handle. Without ``backend``, the
+    client's default backend.
 
     .. warning::
         Streams are a prototype and will change.
     """
     from temporalio.streams import ActivityStreamHandle
+    from temporalio.streams._typed import definition_args
 
-    return ActivityStreamHandle.of(
+    definition, stream, name = definition_args(stream, name, stream_id)
+    handle = ActivityStreamHandle.of(
         *_stream_args(
             stream,
             workflow_id,
@@ -396,6 +447,7 @@ def get_stream_handle(
             backend,
         )
     )
+    return definition(handle) if definition else handle
 
 
 def get_sync_stream_handle(
