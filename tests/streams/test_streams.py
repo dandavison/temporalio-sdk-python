@@ -27,7 +27,7 @@ from temporalio.api.enums.v1 import EventType, WorkflowTaskFailedCause
 from temporalio.api.history.v1 import WorkflowTaskFailedEventAttributes
 from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
 from temporalio.common import RetryPolicy
-from temporalio.contrib.redis_streams import RedisStreamBackend, RedisStreamsPlugin
+from temporalio.contrib.redis_streams import RedisStreamBackend
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.streams import (
     CloseStatus,
@@ -1395,15 +1395,13 @@ async def test_stream_backends_configure_the_client_and_its_workers(
     client: Client, redis_url: str
 ):
     """Native and Redis: a client's stream backends configuration gives it and its workers each
-    named backend, and a handle sends its calls to the backend it names, so streams with the same
-    reference on two backends are different streams.
+    named backend, and the default it names, and a handle sends its calls to the backend it names,
+    so streams with the same reference on two backends are different streams.
     """
     two = Client(
         client.service_client,
         namespace=client.namespace,
-        stream_backends=StreamBackends(
-            [RedisStreamBackend(redis_url, namespace=client.namespace)]
-        ),
+        stream_backends=StreamBackends([RedisStreamBackend(redis_url)], default=NATIVE),
     )
     assert isinstance(client_backend(two), NativeStreamBackend)
     assert isinstance(client_backend(two, "redis"), RedisStreamBackend)
@@ -1429,25 +1427,23 @@ class PublishOnceWorkflow:
         await stream.publish("hello")
 
 
-async def test_redis_plugin_makes_redis_the_default_backend(
-    client: Client, redis_url: str
-):
-    """Redis: a client connected with the Redis plugin, and its workers, have Redis as their
-    default stream backend; a client without the plugin uses native, and does not see the Redis
-    stream.
+async def test_listed_backend_is_the_default_backend(client: Client, redis_url: str):
+    """Redis: a client connected with a stream backend listed and no default named, and its
+    workers, have that backend as their default; a client without it uses native, and does not see
+    the Redis stream.
     """
-    plugin_client = await Client.connect(
+    redis = await Client.connect(
         client.service_client.config.target_host,
         namespace=client.namespace,
-        plugins=[RedisStreamsPlugin(redis_url, retention=timedelta(hours=1))],
+        stream_backends=StreamBackends(
+            [RedisStreamBackend(redis_url, retention=timedelta(hours=1))]
+        ),
     )
-    assert isinstance(client_backend(plugin_client), RedisStreamBackend)
+    assert isinstance(client_backend(redis), RedisStreamBackend)
     assert isinstance(client_backend(client), NativeStreamBackend)
     task_queue = f"tq-{uuid.uuid4()}"
-    async with Worker(
-        plugin_client, task_queue=task_queue, workflows=[PublishOnceWorkflow]
-    ):
-        handle = await plugin_client.start_workflow(
+    async with Worker(redis, task_queue=task_queue, workflows=[PublishOnceWorkflow]):
+        handle = await redis.start_workflow(
             PublishOnceWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
         )
         await handle.result()
@@ -1456,6 +1452,28 @@ async def test_redis_plugin_makes_redis_the_default_backend(
         handle.id, first_execution_run_id=handle.first_execution_run_id
     )
     assert await read_values(native.stream("main")) == []
+
+
+def test_redis_backend_takes_its_namespace_from_its_client(
+    client: Client, redis_url: str
+):
+    """Redis: a backend keys its streams by the namespace of the client it is bound to, so it
+    refuses to be bound to a client of another namespace.
+    """
+    backend = RedisStreamBackend(redis_url)
+    first = Client(
+        client.service_client,
+        namespace=client.namespace,
+        stream_backends=StreamBackends([backend]),
+    )
+    assert client_backend(first) is backend
+    other = Client(
+        client.service_client,
+        namespace=f"{client.namespace}-other",
+        stream_backends=StreamBackends([backend]),
+    )
+    with pytest.raises(ValueError, match="namespace"):
+        client_backend(other)
 
 
 @activity.defn
@@ -1651,11 +1669,14 @@ import asyncio, sys
 from temporalio.client import Client
 
 async def main(target, namespace, workflow_id, first_run_id, redis_url):
-    plugins = []
+    stream_backends = None
     if redis_url:
-        from temporalio.contrib.redis_streams import RedisStreamsPlugin
-        plugins = [RedisStreamsPlugin(redis_url)]
-    client = await Client.connect(target, namespace=namespace, plugins=plugins)
+        from temporalio.contrib.redis_streams import RedisStreamBackend
+        from temporalio.streams import StreamBackends
+        stream_backends = StreamBackends([RedisStreamBackend(redis_url)])
+    client = await Client.connect(
+        target, namespace=namespace, stream_backends=stream_backends
+    )
     stream = client.get_stream_handle(
         workflow_id=workflow_id, first_execution_run_id=first_run_id, name="main"
     )
@@ -1922,24 +1943,32 @@ async def test_workflow_gets_handles_to_other_owners_streams(client: Client):
     ] * 3 + ["no owner refused"]
 
 
-async def test_stream_backends_without_native_have_no_native_backend(
-    client: Client, redis_url: str
+async def test_native_switched_off_leaves_no_native_backend(
+    client: Client, redis_url: str, monkeypatch: pytest.MonkeyPatch
 ):
-    """With native streams switched off in the stream backends configuration, a client and its
-    workers have no native backend: the default must be another, and a handle that names native
-    fails. A worker refuses a workflow that declares commit mode, which needs native.
+    """With native streams switched off by TEMPORAL_STREAMS_ENABLE_NATIVE, a client and its
+    workers have no native backend. A client with no other backend fails its first stream call,
+    saying so, though a worker created from it runs workflows that use no streams. With another
+    backend listed, it is the default, a handle that names native fails, and a worker refuses a
+    workflow that declares commit mode, which needs native.
     """
-    with pytest.raises(ValueError):
-        StreamBackends(native=False)
+    monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_NATIVE", "false")
+    bare = Client(client.service_client, namespace=client.namespace)
+    with pytest.raises(ValueError, match="TEMPORAL_STREAMS_ENABLE_NATIVE=false"):
+        client_backend(bare)
+    with pytest.raises(ValueError, match="TEMPORAL_STREAMS_ENABLE_NATIVE=false"):
+        await bare.get_stream_handle(workflow_id="wf", name="main").exists()
+    task_queue = f"tq-{uuid.uuid4()}"
+    async with Worker(bare, task_queue=task_queue, workflows=[NoStreamWorkflow]):
+        await bare.execute_workflow(
+            NoStreamWorkflow.run, id=f"wf-{uuid.uuid4()}", task_queue=task_queue
+        )
     off = Client(
         client.service_client,
         namespace=client.namespace,
-        stream_backends=StreamBackends(
-            [RedisStreamBackend(redis_url, namespace=client.namespace)],
-            default="redis",
-            native=False,
-        ),
+        stream_backends=StreamBackends([RedisStreamBackend(redis_url)]),
     )
+    assert isinstance(client_backend(off), RedisStreamBackend)
     with pytest.raises(ValueError):
         client_backend(off, NATIVE)
     with pytest.raises(ValueError):
@@ -1948,3 +1977,32 @@ async def test_stream_backends_without_native_have_no_native_backend(
         ).exists()
     with pytest.raises(ValueError, match="commit mode"):
         Worker(off, task_queue="tq", workflows=[CommitModeWaitForSignalWorkflow])
+
+
+@workflow.defn
+class NoStreamWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        pass
+
+
+def test_native_switch_must_be_true_or_false(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+):
+    """TEMPORAL_STREAMS_ENABLE_NATIVE set to anything but true or false fails the client's stream
+    calls, naming the variable.
+    """
+    monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_NATIVE", "yes")
+    with pytest.raises(ValueError, match="TEMPORAL_STREAMS_ENABLE_NATIVE"):
+        client_backend(client)
+
+
+def test_workflow_reads_switch_must_be_true_or_false(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+):
+    """TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS set to anything but true or false fails the creation
+    of a worker with workflows, naming the variable.
+    """
+    monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS", "True")
+    with pytest.raises(ValueError, match="TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS"):
+        Worker(client, task_queue="tq", workflows=[NoStreamWorkflow])

@@ -1,14 +1,16 @@
 """Fixtures of the stream tests: a Redis server per test, and a client for each backend.
 
 ``--streams-config=brook`` runs the tests in the Brook configuration: Redis only, with native
-streams and workflow reads of streams switched off, in the clients' stream backends configuration
-and, when the server is started with ``dev-server --brook``, on the server. Tests that need native
-streams or workflow reads are skipped.
+streams and workflow reads of streams switched off, in the SDK by the environment variables
+``TEMPORAL_STREAMS_ENABLE_NATIVE`` and ``TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS`` and, when the
+server is started with ``dev-server --brook``, on the server. Tests that need native streams or
+workflow reads are skipped.
 """
 
 from __future__ import annotations
 
 import inspect
+import os
 import socket
 import subprocess
 import time
@@ -39,6 +41,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     global brook
     brook = config.getoption("--streams-config") == "brook"
+    if brook:
+        os.environ["TEMPORAL_STREAMS_ENABLE_NATIVE"] = "false"
+        os.environ["TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS"] = "false"
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
@@ -83,21 +88,12 @@ def redis_url() -> Iterator[str]:
 def redis_client(
     client: Client, redis_url: str, retention: timedelta = timedelta(days=7)
 ) -> Client:
-    """A client whose default stream backend is Redis; in the Brook configuration, its only one,
-    with workflow reads off.
-    """
+    """A client whose default stream backend is Redis."""
     return Client(
         client.service_client,
         namespace=client.namespace,
         stream_backends=StreamBackends(
-            [
-                RedisStreamBackend(
-                    redis_url, namespace=client.namespace, retention=retention
-                )
-            ],
-            default="redis",
-            native=not brook,
-            workflow_reads=not brook,
+            [RedisStreamBackend(redis_url, retention=retention)]
         ),
     )
 

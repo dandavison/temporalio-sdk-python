@@ -29,7 +29,6 @@ from temporalio.converter import DataConverter
 from temporalio.service import RPCError
 from temporalio.streams import (
     RecordStatus,
-    StreamBackends,
     StreamCursor,
     StreamError,
     StreamHandle,
@@ -1010,21 +1009,19 @@ class ReadOwnStreamWorkflow:
             pass
 
 
-async def test_workflow_reads_switched_off(client: Client):
-    """Native: with workflow reads switched off in the stream backends configuration, a workflow's
-    read fails the workflow task, and the worker registers no read local activity.
+async def test_workflow_reads_switched_off(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+):
+    """Native: with workflow reads switched off by TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS, a
+    workflow's read fails the workflow task, and the worker registers no read local activity.
     """
-    off = Client(
-        client.service_client,
-        namespace=client.namespace,
-        stream_backends=StreamBackends(workflow_reads=False),
-    )
+    monkeypatch.setenv("TEMPORAL_STREAMS_ENABLE_WORKFLOW_READS", "false")
     task_queue = unique("tq")
     async with Worker(
-        off, task_queue=task_queue, workflows=[ReadOwnStreamWorkflow]
+        client, task_queue=task_queue, workflows=[ReadOwnStreamWorkflow]
     ) as worker:
         assert worker._activity_worker is None
-        handle = await off.start_workflow(
+        handle = await client.start_workflow(
             ReadOwnStreamWorkflow.run, id=unique("wf"), task_queue=task_queue
         )
         await wait_for_event(handle, EventType.EVENT_TYPE_WORKFLOW_TASK_FAILED)
